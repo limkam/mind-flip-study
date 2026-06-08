@@ -1,0 +1,1 @@
+"""MindFlip API automated tests."""

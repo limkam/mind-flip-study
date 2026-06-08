@@ -1,0 +1,44 @@
+{
+  "name": "Folder",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Folder name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional description"
+    },
+    "color": {
+      "type": "string",
+      "description": "Folder color hex or tailwind color key",
+      "default": "violet"
+    },
+    "icon": {
+      "type": "string",
+      "description": "Emoji icon for the folder",
+      "default": "\ud83d\udcc1"
+    },
+    "book_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "IDs of books in this folder"
+    },
+    "flashcard_set_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "IDs of flashcard sets in this folder"
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

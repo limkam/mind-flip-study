@@ -1,0 +1,8 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "rewrites": [
+    { "source": "/app/:path*", "destination": "https://app.mindflip.io/:path*" }
+  ]
+}

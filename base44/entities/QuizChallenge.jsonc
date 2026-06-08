@@ -1,0 +1,61 @@
+{
+  "name": "QuizChallenge",
+  "type": "object",
+  "properties": {
+    "flashcard_set_id": {
+      "type": "string"
+    },
+    "set_title": {
+      "type": "string"
+    },
+    "book_title": {
+      "type": "string"
+    },
+    "challenger_email": {
+      "type": "string"
+    },
+    "challenger_name": {
+      "type": "string"
+    },
+    "challenger_score": {
+      "type": "number"
+    },
+    "challenger_percentage": {
+      "type": "number"
+    },
+    "challenger_time_seconds": {
+      "type": "number"
+    },
+    "opponent_email": {
+      "type": "string"
+    },
+    "opponent_name": {
+      "type": "string"
+    },
+    "opponent_score": {
+      "type": "number"
+    },
+    "opponent_percentage": {
+      "type": "number"
+    },
+    "opponent_time_seconds": {
+      "type": "number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "completed"
+      ],
+      "default": "pending"
+    },
+    "winner_email": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "flashcard_set_id",
+    "challenger_email",
+    "opponent_email"
+  ]
+}

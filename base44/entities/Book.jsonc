@@ -1,0 +1,81 @@
+{
+  "name": "Book",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Title of the book"
+    },
+    "author": {
+      "type": "string",
+      "description": "Author of the book"
+    },
+    "cover_url": {
+      "type": "string",
+      "description": "Cover image URL"
+    },
+    "file_url": {
+      "type": "string",
+      "description": "Uploaded ebook file URL"
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief description of the book"
+    },
+    "table_of_contents": {
+      "type": "array",
+      "description": "Extracted chapters/topics from the book",
+      "items": {
+        "type": "object",
+        "properties": {
+          "chapter_number": {
+            "type": "number"
+          },
+          "title": {
+            "type": "string"
+          },
+          "subtopics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "subject": {
+      "type": "string",
+      "enum": [
+        "mathematics",
+        "science",
+        "history",
+        "literature",
+        "technology",
+        "business",
+        "arts",
+        "languages",
+        "philosophy",
+        "other"
+      ]
+    },
+    "tags": {
+      "type": "array",
+      "description": "User-defined tags for organizing books",
+      "items": {
+        "type": "string"
+      }
+    },
+    "uploaded_by": {
+      "type": "string",
+      "description": "Email of uploader"
+    },
+    "institution_id": {
+      "type": "string",
+      "description": "Institution this book belongs to"
+    }
+  },
+  "required": [
+    "title",
+    "author"
+  ]
+}

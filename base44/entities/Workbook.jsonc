@@ -1,0 +1,67 @@
+{
+  "name": "Workbook",
+  "type": "object",
+  "properties": {
+    "book_id": {
+      "type": "string"
+    },
+    "book_title": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "chapters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "chapter_title": {
+            "type": "string"
+          },
+          "lesson": {
+            "type": "string"
+          },
+          "key_concepts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exercises": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string"
+                },
+                "answer": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "short_answer",
+                    "reflection",
+                    "apply"
+                  ]
+                }
+              }
+            }
+          },
+          "user_notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "created_by": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "book_id",
+    "title"
+  ]
+}

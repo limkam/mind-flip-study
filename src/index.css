@@ -1,0 +1,140 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-heading: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+
+    /* Warm off-white canvas */
+    --background: 240 18% 96%;
+    --foreground: 240 25% 8%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 25% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 25% 8%;
+
+    /* Electric violet primary */
+    --primary: 258 80% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Soft lavender secondary */
+    --secondary: 250 30% 92%;
+    --secondary-foreground: 258 40% 20%;
+    --muted: 245 20% 93%;
+    --muted-foreground: 245 12% 46%;
+
+    /* Vivid magenta-rose accent */
+    --accent: 330 85% 58%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 4 86% 58%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 245 20% 87%;
+    --input: 245 20% 87%;
+    --ring: 258 80% 58%;
+
+    /* Chart palette — jewel tones */
+    --chart-1: 258 80% 58%;
+    --chart-2: 330 85% 58%;
+    --chart-3: 170 65% 40%;
+    --chart-4: 42 95% 52%;
+    --chart-5: 200 80% 52%;
+
+    --radius: 0.9rem;
+
+    /* Sidebar — deep aubergine */
+    --sidebar-background: 252 38% 9%;
+    --sidebar-foreground: 245 22% 80%;
+    --sidebar-primary: 258 78% 70%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 252 30% 16%;
+    --sidebar-accent-foreground: 245 20% 92%;
+    --sidebar-border: 252 25% 18%;
+    --sidebar-ring: 258 80% 58%;
+
+    --success: 160 62% 40%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 52%;
+    --warning-foreground: 0 0% 10%;
+  }
+
+  .dark {
+    --background: 245 22% 7%;
+    --foreground: 245 18% 94%;
+    --card: 245 20% 10%;
+    --card-foreground: 245 18% 94%;
+    --popover: 245 20% 10%;
+    --popover-foreground: 245 18% 94%;
+    --primary: 258 82% 70%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 248 18% 16%;
+    --secondary-foreground: 245 15% 88%;
+    --muted: 248 18% 15%;
+    --muted-foreground: 245 12% 55%;
+    --accent: 330 85% 62%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 4 65% 42%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 248 18% 18%;
+    --input: 248 18% 18%;
+    --ring: 258 82% 70%;
+    --chart-1: 258 82% 70%;
+    --chart-2: 330 85% 62%;
+    --chart-3: 170 65% 50%;
+    --chart-4: 42 95% 58%;
+    --chart-5: 200 80% 60%;
+    --sidebar-background: 248 28% 5%;
+    --sidebar-foreground: 245 15% 76%;
+    --sidebar-primary: 258 82% 70%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 248 20% 12%;
+    --sidebar-accent-foreground: 245 15% 90%;
+    --sidebar-border: 248 18% 14%;
+    --sidebar-ring: 258 82% 70%;
+
+    --success: 160 62% 48%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 58%;
+    --warning-foreground: 0 0% 10%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-body;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+}
+
+@layer components {
+  /* Global smooth button transitions */
+  button, a[role="button"], [class*="Button"] {
+    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, background-color 0.15s ease;
+  }
+
+  button:hover:not(:disabled), a[role="button"]:hover {
+    transform: translateY(-1px);
+  }
+
+  button:active:not(:disabled) {
+    transform: translateY(0px) scale(0.98);
+  }
+
+  /* Card hover lift */
+  .hover-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .hover-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 32px -8px hsl(var(--primary) / 0.18);
+  }
+}

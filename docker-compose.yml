@@ -1,0 +1,76 @@
+# Copy .env.example to `.env` and set JWT_SECRET (required for api/worker `env_file`).
+# DATABASE_URL / REDIS_URL: api/worker default to local postgres/redis (see `environment` below).
+# For Neon or other hosted Postgres, use docker-compose.neon.yml — it passes DATABASE_URL from `.env`.
+# Postgres and Redis do not bind host ports by default (avoids clashing with a local DB).
+# To expose them on the host (5432/6379): `docker compose -f docker-compose.yml -f docker-compose.ports.yml up -d`.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mindflip
+      POSTGRES_PASSWORD: mindflip
+      POSTGRES_DB: mindflip
+    volumes:
+      - mindflip_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindflip -d mindflip"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mindflip
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - mindflip
+
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://mindflip:mindflip@postgres:5432/mindflip
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mindflip
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://mindflip:mindflip@postgres:5432/mindflip
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - mindflip
+    restart: unless-stopped
+
+networks:
+  mindflip:
+    driver: bridge
+
+volumes:
+  mindflip_pgdata:

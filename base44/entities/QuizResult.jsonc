@@ -1,0 +1,60 @@
+{
+  "name": "QuizResult",
+  "type": "object",
+  "properties": {
+    "flashcard_set_id": {
+      "type": "string",
+      "description": "Reference to the flashcard set"
+    },
+    "set_title": {
+      "type": "string"
+    },
+    "book_title": {
+      "type": "string"
+    },
+    "score": {
+      "type": "number",
+      "description": "Score out of total questions"
+    },
+    "total_questions": {
+      "type": "number"
+    },
+    "percentage": {
+      "type": "number"
+    },
+    "time_taken_seconds": {
+      "type": "number"
+    },
+    "answers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "user_answer": {
+            "type": "string"
+          },
+          "correct_answer": {
+            "type": "string"
+          },
+          "is_correct": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "player_email": {
+      "type": "string"
+    },
+    "player_name": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "flashcard_set_id",
+    "score",
+    "total_questions"
+  ]
+}

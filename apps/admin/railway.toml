@@ -1,0 +1,11 @@
+# Deploy as a static site on Railway (admin.mindflip.io).
+# Set root directory to apps/admin and VITE_API_URL to the FastAPI backend URL.
+
+[build]
+builder = "NIXPACKS"
+
+[build.nixpacksPlan.phases.build]
+cmds = ["npm ci", "npm run build"]
+
+[deploy]
+startCommand = "npx serve dist -s -l ${PORT:-5174}"

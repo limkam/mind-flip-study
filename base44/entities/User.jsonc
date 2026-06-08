@@ -1,0 +1,48 @@
+{
+  "name": "User",
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "institution",
+        "teacher",
+        "student",
+        "parent"
+      ],
+      "default": "student",
+      "description": "User role on the platform"
+    },
+    "institution_name": {
+      "type": "string",
+      "description": "Name of the institution (for institution users)"
+    },
+    "avatar_url": {
+      "type": "string"
+    },
+    "bio": {
+      "type": "string"
+    },
+    "total_cards_studied": {
+      "type": "number",
+      "default": 0
+    },
+    "total_quizzes_taken": {
+      "type": "number",
+      "default": 0
+    },
+    "xp_points": {
+      "type": "number",
+      "default": 0
+    },
+    "streak_days": {
+      "type": "number",
+      "default": 0
+    },
+    "last_study_date": {
+      "type": "string",
+      "format": "date"
+    }
+  }
+}

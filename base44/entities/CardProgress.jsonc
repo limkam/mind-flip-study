@@ -1,0 +1,39 @@
+{
+  "name": "CardProgress",
+  "type": "object",
+  "properties": {
+    "flashcard_set_id": {
+      "type": "string"
+    },
+    "card_index": {
+      "type": "number"
+    },
+    "card_front": {
+      "type": "string"
+    },
+    "rating": {
+      "type": "string",
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ]
+    },
+    "review_count": {
+      "type": "number",
+      "default": 0
+    },
+    "next_review_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "user_email": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "flashcard_set_id",
+    "card_index",
+    "user_email"
+  ]
+}

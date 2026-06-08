@@ -1,0 +1,81 @@
+# --- Secrets (never commit) ---
+.env
+**/.env
+!.env.example
+!**/.env.example
+.env.local
+.env.development
+.env.production
+.env.staging
+**/.env.local
+**/.env.development
+**/.env.production
+**/.env.staging
+
+# API keys, certs, signing keys
+*.pem
+*.p8
+*.p12
+*.key
+*.jks
+*.mobileprovision
+google-service-account.json
+**/credentials.json
+**/secrets.json
+
+# --- Dependencies ---
+node_modules/
+**/node_modules/
+
+# --- Build output ---
+dist/
+dist-ssr/
+**/dist/
+apps/marketing/.next/
+apps/marketing/out/
+apps/marketing/build/
+mobile/web-build/
+
+# --- Python (services/api) ---
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# --- Expo / React Native ---
+mobile/.expo/
+mobile/ios/
+mobile/android/
+.expo/
+expo-env.d.ts
+
+# --- Vercel / hosting ---
+.vercel/
+
+# --- Logs ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --- Local / editor ---
+.cursor/
+*.local
+.vite/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

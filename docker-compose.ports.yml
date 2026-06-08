@@ -1,0 +1,10 @@
+# Optional: publish Postgres/Redis to your host when nothing else binds 5432/6379.
+# Redis uses host port 6380 by default to avoid clashing with other local Redis containers.
+#   docker compose -f docker-compose.yml -f docker-compose.ports.yml up -d
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+  redis:
+    ports:
+      - "6380:6379"
