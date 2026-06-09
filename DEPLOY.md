@@ -79,8 +79,8 @@ Before starting, create accounts and gather secrets:
 - [ ] [GitHub](https://github.com) account
 - [ ] [Railway](https://railway.app) account
 - [ ] [Vercel](https://vercel.com) account
-- [ ] [Neon](https://neon.tech) or Railway Postgres (recommended over self-managed for week-1 launch)
-- [ ] [Upstash Redis](https://upstash.com) or Railway Redis
+- [ ] [Neon](https://neon.tech) Postgres — **already set up for this project** (copy `DATABASE_URL` into Railway)
+- [ ] [Upstash Redis](https://upstash.com) — **already set up** (copy `REDIS_URL` into Railway; often `rediss://...`)
 - [ ] AWS S3 bucket + IAM keys (book uploads — **required** for production uploads)
 - [ ] Domain DNS access for `mindflip.io` (or your domain)
 - [ ] Optional: Anthropic API key, Stripe keys, Resend, Sentry, Google OAuth client IDs
@@ -145,51 +145,70 @@ git push -u origin main
 
 ## PHASE 2 — Backend deployment (Railway + Docker)
 
-Railway will run **three logical pieces**:
+**Default for this project:** Railway runs **only the compute** (API + Worker). Postgres and Redis stay on **Neon** and **Upstash** — do **not** add Railway database plugins unless you want an all-in-one Railway stack.
 
-1. **API** — FastAPI (`uvicorn`)
-2. **Worker** — Celery (AI flashcards, emails, background jobs)
-3. **Data** — Postgres + Redis (managed plugins or external)
+| Layer | Where | Notes |
+|-------|-------|-------|
+| **API** | Railway | FastAPI (`uvicorn`) |
+| **Worker** | Railway | Celery (AI flashcards, emails, background jobs) |
+| **Postgres** | Neon | Same DB you use locally (`DATABASE_URL`) |
+| **Redis** | Upstash | Same cache you use locally (`REDIS_URL`) |
+
+```
+Railway project
+├── API service      (root: services/api)
+└── Worker service   (root: services/api, celery start command)
+
+External (not in Railway):
+├── Neon Postgres    → DATABASE_URL
+└── Upstash Redis    → REDIS_URL
+```
 
 ### 2.1 Create Railway project
 
 1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub** → select your repo.
-2. You will add **multiple services** inside one project.
+2. You will add **two services** (API + Worker) inside one project. **Skip** `+ New → Database` for Postgres/Redis.
 
-### 2.2 Add PostgreSQL
+### 2.2 PostgreSQL (Neon — default)
 
-**Option A — Railway Postgres (simplest):**
+You already use Neon locally. Reuse the same database for production:
 
-1. Project → **+ New** → **Database** → **PostgreSQL**
-2. Copy the **`DATABASE_URL`** from the Postgres service variables (use the **public** URL if API is in a different region, or the internal `postgres.railway.internal` URL if same project).
+1. [Neon console](https://console.neon.tech) → your project → **Connection details**
+2. Copy the **pooled** connection string (`postgresql://...?sslmode=require`)
+3. Paste as `DATABASE_URL` on **both** Railway API and Worker services
 
-**Option B — Neon (recommended for production):**
+The API auto-converts `postgresql://` to `postgresql+asyncpg://`. No Railway Postgres service needed.
 
-1. Create a Neon project → copy connection string.
-2. Use `postgresql://...` (API auto-converts to `postgresql+asyncpg://`).
+**If you already ran migrations against this Neon DB locally**, production schema is ready — skip §2.7.
 
-**Result:** Persistent database for all user + admin data.
+**Alternative (optional):** Railway Postgres via `+ New → Database → PostgreSQL`, then use `${{Postgres.DATABASE_URL}}` in service variables. Only use this if you are **not** on Neon.
 
-### 2.3 Add Redis
+### 2.3 Redis (Upstash — default)
 
-1. **+ New** → **Database** → **Redis** (Railway), **or** create an Upstash Redis database.
-2. Copy `REDIS_URL` (e.g. `redis://default:password@host:6379`).
+You already use Upstash locally. Reuse the same Redis for production:
+
+1. [Upstash console](https://console.upstash.com) → your Redis database → **Connect**
+2. Copy the connection URL (often `rediss://default:...@....upstash.io:6379`)
+3. Paste as `REDIS_URL` on **both** Railway API and Worker services
 
 Celery and auth rate-limiting require Redis. **Do not skip.**
+
+**Alternative (optional):** Railway Redis via `+ New → Database → Redis`, then copy `REDIS_URL` from that service. Only use this if you are **not** on Upstash.
 
 ### 2.4 Deploy API service
 
 1. **+ New** → **GitHub Repo** → same repo (or **Empty Service** and connect repo).
 2. **Settings → Root Directory:** `services/api`
 3. **Settings → Build:** Dockerfile (`services/api/Dockerfile` is auto-detected).
-4. **Settings → Deploy → Start Command:** (default from Dockerfile)
+4. **Settings → Deploy → Start Command:** override the Dockerfile default so Railway can route traffic:
 
    ```
-   uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+   uvicorn main:app --host 0.0.0.0 --port $PORT --workers 4
    ```
 
-5. **Settings → Networking → Generate Domain** → e.g. `mindflip-api-production.up.railway.app`
-6. Later: add custom domain `api.mindflip.io` (CNAME to Railway).
+5. **Variables:** add `DATABASE_URL` (Neon) and `REDIS_URL` (Upstash) plus the rest from §2.6.
+6. **Settings → Networking → Generate Domain** → e.g. `mindflip-api-production.up.railway.app`
+7. Later: add custom domain `api.mindflip.io` (CNAME to Railway).
 
 ### 2.5 Deploy Celery worker (second service)
 
@@ -201,7 +220,7 @@ Celery and auth rate-limiting require Redis. **Do not skip.**
    celery -A tasks.celery_app worker --loglevel=info
    ```
 
-4. Attach the **same env vars** as the API (especially `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `ANTHROPIC_API_KEY`, AWS keys).
+4. **Variables:** copy the **same** env vars as the API — especially Neon `DATABASE_URL`, Upstash `REDIS_URL`, `JWT_SECRET`, `ANTHROPIC_API_KEY`, and AWS keys. Railway lets you duplicate variables across services or use a shared variable group.
 
 **Result:** Background jobs (AI generation, emails) work in production.
 
@@ -211,8 +230,8 @@ Set these in Railway for **both** API and Worker services:
 
 | Variable | Production value | Required |
 |----------|------------------|----------|
-| `DATABASE_URL` | From Postgres/Neon | ✅ |
-| `REDIS_URL` | From Redis/Upstash | ✅ |
+| `DATABASE_URL` | Neon connection string (pooled URL) | ✅ |
+| `REDIS_URL` | Upstash connection URL (`rediss://...`) | ✅ |
 | `JWT_SECRET` | `openssl rand -hex 32` | ✅ |
 | `JWT_ALGORITHM` | `HS256` | ✅ |
 | `ENVIRONMENT` | `production` | ✅ |
@@ -247,7 +266,9 @@ openssl rand -hex 32
 
 ### 2.7 Run database migrations
 
-From your **local machine** (one-time, against production DB):
+**Skip this** if you already ran `alembic upgrade head` (or `npm run db:migrate`) against your Neon `DATABASE_URL` locally — that **is** the production database.
+
+Otherwise, from your **local machine** (one-time):
 
 ```bash
 cd services/api
@@ -255,7 +276,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Paste production DATABASE_URL — do NOT commit this
+# Your Neon DATABASE_URL — do NOT commit this
 export DATABASE_URL="postgresql://..."
 
 alembic upgrade head
@@ -267,7 +288,7 @@ Or from repo root (if venv exists):
 DATABASE_URL="postgresql://..." npm run db:migrate
 ```
 
-**Result:** Production schema matches local.
+**Result:** Neon schema matches what the API expects.
 
 ### 2.8 Create production admin user
 
@@ -527,14 +548,14 @@ flowchart TB
         MKT["Marketing Site<br/>apps/marketing<br/>mindflip.io"]
     end
 
-    subgraph railway["Railway"]
+    subgraph railway["Railway (compute only)"]
         API["FastAPI API<br/>api.mindflip.io<br/>Docker"]
         WORKER["Celery Worker<br/>same Docker image"]
     end
 
-    subgraph data["Managed data stores"]
-        PG[("PostgreSQL<br/>Neon / Railway")]
-        REDIS[("Redis<br/>Upstash / Railway")]
+    subgraph data["External data stores"]
+        PG[("PostgreSQL<br/>Neon")]
+        REDIS[("Redis<br/>Upstash")]
         S3[("AWS S3<br/>Book PDFs")]
     end
 
@@ -665,7 +686,8 @@ Open `http://localhost:5174` — admin UI talks to production API. Add `http://l
 ### Day 1–2: Infrastructure
 
 - [ ] GitHub repo pushed, no secrets
-- [ ] Railway: Postgres + Redis + API + Worker
+- [ ] Neon + Upstash URLs in Railway API + Worker env vars
+- [ ] Railway: API + Worker deployed (no Railway Postgres/Redis)
 - [ ] Migrations applied to production DB
 - [ ] `curl https://api.mindflip.io/health` → ok
 - [ ] S3 uploads tested
@@ -702,6 +724,8 @@ Open `http://localhost:5174` — admin UI talks to production API. Add `http://l
 | 401 on all routes | Check JWT / clock skew; `REFRESH_TOKEN_COOKIE_SECURE=true` requires HTTPS |
 | Upload fails | Verify AWS keys, bucket policy, CORS on S3 bucket |
 | AI generation stuck | Worker not running or `ANTHROPIC_API_KEY` missing on **worker** service |
+| API 502 on Railway | Start command must use `--port $PORT`, not hardcoded `8000` |
+| DB/Redis connection errors | Verify Neon/Upstash URLs in Railway vars; Neon needs `sslmode=require` |
 | Vite app blank routes | Add `vercel.json` rewrites for SPA |
 | Mobile "network error" | Wrong `EXPO_PUBLIC_API_URL`; restart Metro with `-c` |
 | Admin 403 locally | User lacks `admin` role; run `create_admin.py` |
@@ -718,6 +742,7 @@ git push main
     └─► Railway (auto)    → builds services/api Dockerfile
             ├─► API service     → api.mindflip.io
             └─► Worker service  → Celery
+            (Neon + Upstash are external — env vars only)
 ```
 
 Environment variables live in each platform's dashboard — never in Git.

@@ -2,6 +2,11 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Matches production and preview Vercel deploys, e.g.
+# https://mind-flip-study.vercel.app
+# https://mind-flip-study-git-main-user.vercel.app
+_VERCEL_PREVIEW_ORIGIN_RE = r"https://[a-zA-Z0-9-]+\.vercel\.app"
+
 _API_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _API_DIR.parent.parent
 _ENV_FILES = tuple(
@@ -30,6 +35,9 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_COOKIE_SECURE: bool = False
     #: Refresh cookie scoped to ``/auth/*`` so it is not sent to resource routes.
     REFRESH_TOKEN_COOKIE_PATH: str = "/auth"
+    #: ``strict`` | ``lax`` | ``none``. Leave empty to auto-pick (``none`` when Vercel
+    #: preview CORS is enabled, otherwise ``strict`` for same-site custom domains).
+    REFRESH_TOKEN_COOKIE_SAMESITE: str = ""
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     S3_BUCKET_NAME: str = "mindflip-books"
@@ -41,6 +49,10 @@ class Settings(BaseSettings):
 
     # Comma-separated list, e.g. web + admin dashboards
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:5174,https://admin.mindflip.io"
+    #: Allow any ``https://<subdomain>.vercel.app`` origin (preview + production deploys).
+    CORS_ALLOW_VERCEL_PREVIEWS: bool = False
+    #: Extra CORS origin regexes (comma-separated). Combined with ``CORS_ALLOW_VERCEL_PREVIEWS``.
+    CORS_ORIGIN_REGEX: str = ""
 
     GOOGLE_CLIENT_ID: str = ""
     APPLE_BUNDLE_ID: str = ""
@@ -76,6 +88,43 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def cors_origin_regex(self) -> str | None:
+        patterns: list[str] = []
+        if self.CORS_ALLOW_VERCEL_PREVIEWS:
+            patterns.append(_VERCEL_PREVIEW_ORIGIN_RE)
+        if self.CORS_ORIGIN_REGEX.strip():
+            patterns.extend(
+                part.strip()
+                for part in self.CORS_ORIGIN_REGEX.split(",")
+                if part.strip()
+            )
+        if not patterns:
+            return None
+        return "|".join(patterns)
+
+    @property
+    def refresh_token_cookie_samesite(self) -> str:
+        explicit = self.REFRESH_TOKEN_COOKIE_SAMESITE.strip().lower()
+        if explicit:
+            if explicit not in {"strict", "lax", "none"}:
+                raise ValueError(
+                    "REFRESH_TOKEN_COOKIE_SAMESITE must be strict, lax, or none"
+                )
+            return explicit
+        if self.CORS_ALLOW_VERCEL_PREVIEWS or self.CORS_ORIGIN_REGEX.strip():
+            return "none"
+        return "strict"
+
+    def validate_refresh_cookie_policy(self) -> None:
+        if (
+            self.refresh_token_cookie_samesite == "none"
+            and not self.REFRESH_TOKEN_COOKIE_SECURE
+        ):
+            raise ValueError(
+                "REFRESH_TOKEN_COOKIE_SAMESITE=none requires REFRESH_TOKEN_COOKIE_SECURE=true"
+            )
 
 
 settings = Settings()

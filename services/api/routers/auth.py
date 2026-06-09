@@ -53,7 +53,7 @@ def _refresh_cookie_kwargs() -> dict:
         "max_age": settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         "httponly": True,
         "secure": settings.REFRESH_TOKEN_COOKIE_SECURE,
-        "samesite": "strict",
+        "samesite": settings.refresh_token_cookie_samesite,
         "path": settings.REFRESH_TOKEN_COOKIE_PATH,
     }
 
@@ -68,7 +68,7 @@ def _clear_refresh_cookie(response: Response) -> None:
         path=settings.REFRESH_TOKEN_COOKIE_PATH,
         httponly=True,
         secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
-        samesite="strict",
+        samesite=settings.refresh_token_cookie_samesite,
     )
 
 

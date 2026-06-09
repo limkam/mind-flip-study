@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings.validate_refresh_cookie_policy()
     try:
         validate_s3_configuration()
     except S3ConfigurationError as exc:
@@ -71,6 +72,7 @@ app.add_middleware(OnboardingGateMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
