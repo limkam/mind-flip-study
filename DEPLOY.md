@@ -722,7 +722,7 @@ Open `http://localhost:5174` — admin UI talks to production API. Add `http://l
 |---------|-----|
 | CORS error on web | Add exact origin (with `https://`, no trailing slash) to `CORS_ORIGINS`; redeploy API |
 | 401 on all routes | Check JWT / clock skew; `REFRESH_TOKEN_COOKIE_SECURE=true` requires HTTPS |
-| Upload fails | Verify AWS keys, bucket policy, CORS on S3 bucket |
+| Upload fails / S3 CORS error | Run `cd services/api && .venv/bin/python scripts/apply_s3_cors.py` (needs `s3:PutBucketCors`); verify AWS keys and bucket name/region |
 | AI generation stuck | Worker not running or `ANTHROPIC_API_KEY` missing on **worker** service |
 | API 502 on Railway | Start command must use `--port $PORT`, not hardcoded `8000` |
 | DB/Redis connection errors | Verify Neon/Upstash URLs in Railway vars; Neon needs `sslmode=require` |

@@ -40,14 +40,28 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
     try {
       if (file) {
         setExtracting(true);
+        const contentType = file.type || "application/octet-stream";
         const { data: presign } = await client.post("/books/upload-url", {
           filename: file.name,
-          content_type: file.type || "application/octet-stream",
+          content_type: contentType,
           file_size_bytes: file.size,
         });
-        await axios.put(presign.upload_url, file, {
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-        });
+        try {
+          await axios.put(presign.upload_url, file, {
+            headers: { "Content-Type": contentType },
+          });
+        } catch (uploadError) {
+          const isCorsOrNetwork =
+            !uploadError.response &&
+            (uploadError.code === "ERR_NETWORK" || uploadError.message === "Network Error");
+          throw new Error(
+            isCorsOrNetwork
+              ? "File storage upload was blocked (usually S3 CORS). Run: cd services/api && .venv/bin/python scripts/apply_s3_cors.py"
+              : uploadError.response
+                ? `File storage upload failed (${uploadError.response.status})`
+                : uploadError.message || "File storage upload failed",
+          );
+        }
         setExtracting(false);
 
         let chapters = [];

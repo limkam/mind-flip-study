@@ -304,8 +304,19 @@ S3_REGION=us-east-1
 ```
 
 1. Create an S3 bucket in the chosen region.
-2. IAM user or role with `s3:PutObject`, `s3:GetObject` on that bucket (and `s3:DeleteObject` if you add deletes).
-3. CORS on the bucket if the browser uploads directly (allow your app origins, `PUT`, `GET`).
+2. IAM user or role with `s3:PutObject`, `s3:GetObject`, `s3:PutBucketCors` on that bucket (and `s3:DeleteObject` if you add deletes).
+3. **CORS on the bucket** — required for browser presigned `PUT` uploads. Without it you get `No 'Access-Control-Allow-Origin'` in DevTools.
+
+   Config lives in [`infra/s3-cors.json`](../infra/s3-cors.json). Apply after setting AWS env vars:
+
+   ```bash
+   cd services/api
+   source .venv/bin/activate
+   # loads AWS_* and S3_* from repo-root .env via config.py
+   python scripts/apply_s3_cors.py
+   ```
+
+   Uses `AllowedOrigins: ["*"]` so Vercel preview URLs work; uploads stay protected by short-lived presigned URLs.
 
 For production, prefer an **IAM role** on the API host instead of long-lived access keys.
 
