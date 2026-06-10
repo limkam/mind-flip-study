@@ -15,6 +15,16 @@ from models.book import Book
 from models.enums import BookStatus, WorkbookStatus
 from models.flashcard import FlashcardSet, Workbook
 
+from difficulty_engine import (
+    VALID_COGNITIVE,
+    VALID_DIFFICULTIES,
+    normalize_cognitive,
+    normalize_difficulty,
+    validate_cognitive_depth,
+    validate_difficulty_mix,
+)
+from generation_prompts import SCENARIO_TYPE_SPECS
+
 log = logging.getLogger(__name__)
 
 CELERY_JOB_DESC_PREFIX = "__celery_job:"
@@ -30,12 +40,18 @@ def build_set_description(
     job_id: str,
     selected_chapters: list[str] | None = None,
     scenarios: list[dict[str, str]] | None = None,
+    chapter_summaries: list[dict[str, Any]] | None = None,
+    generation_seed: int | None = None,
+    content_map: list[dict[str, Any]] | None = None,
 ) -> str:
     payload: dict[str, Any] = {
         "summary": summary,
         "job_id": job_id,
         "selected_chapters": selected_chapters or [],
         "scenarios": scenarios or [],
+        "chapter_summaries": chapter_summaries or [],
+        "generation_seed": generation_seed,
+        "content_map": content_map or [],
     }
     return json.dumps(payload, ensure_ascii=False)
 
@@ -56,22 +72,55 @@ def parse_set_description(description: str | None) -> dict[str, Any]:
     return {"summary": text}
 
 
-def validate_scenarios(raw: list[Any], *, expected: int | None = None) -> list[dict[str, str]]:
+def _normalize_front(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def validate_scenarios(raw: list[Any], *, expected: int = 5) -> list[dict[str, str]]:
     if not raw:
         raise ValueError("Model returned no scenarios")
     validated: list[dict[str, str]] = []
     for i, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ValueError(f"Scenario {i} must be an object")
+        stype = str(item.get("type", "")).strip().lower()
         title = str(item.get("title", "")).strip()
-        prompt = str(item.get("prompt", "")).strip()
-        guidance = str(item.get("guidance", "")).strip()
-        if not title or not prompt:
-            raise ValueError(f"Scenario {i} missing title or prompt")
-        validated.append({"title": title, "prompt": prompt, "guidance": guidance})
-    if expected is not None and len(validated) < 1:
-        raise ValueError(f"Expected at least one scenario, got {len(validated)}")
-    return validated[:expected] if expected else validated
+        context = str(item.get("context", "")).strip()
+        challenge = str(item.get("challenge", item.get("decision", item.get("problem", "")))).strip()
+        question = str(item.get("question", item.get("prompt", ""))).strip()
+        model_answer = str(item.get("model_answer", "")).strip()
+        explanation = str(item.get("explanation", item.get("guidance", ""))).strip()
+        if not title or not question:
+            raise ValueError(f"Scenario {i} missing title or question")
+        validated.append(
+            {
+                "type": stype or "real_life",
+                "title": title,
+                "context": context,
+                "challenge": challenge,
+                "question": question,
+                "model_answer": model_answer,
+                "explanation": explanation,
+                "prompt": question,
+                "guidance": f"{model_answer}\n\n{explanation}".strip(),
+            },
+        )
+    if len(validated) < expected:
+        raise ValueError(f"Expected {expected} scenarios, got {len(validated)}")
+    return validated[:expected]
+
+
+def validate_scenario_types(scenarios: list[dict[str, str]]) -> list[str]:
+    errors: list[str] = []
+    if len(scenarios) != 5:
+        errors.append(f"Expected 5 scenarios, got {len(scenarios)}")
+        return errors
+    expected_types = [spec[0] for spec in SCENARIO_TYPE_SPECS]
+    for i, (scenario, want) in enumerate(zip(scenarios, expected_types, strict=False)):
+        got = str(scenario.get("type", "")).lower()
+        if got != want:
+            errors.append(f"Scenario {i + 1} type mismatch: got {got}, expected {want}")
+    return errors
 
 
 def parse_model_json(raw: str) -> dict[str, Any]:
@@ -93,7 +142,12 @@ def parse_model_json(raw: str) -> dict[str, Any]:
     return data
 
 
-def validate_flashcards(cards: list[dict[str, str]], *, expected: int | None = None) -> list[dict[str, str]]:
+def validate_flashcards(
+    cards: list[dict[str, Any]],
+    *,
+    expected: int | None = None,
+    chapter_title: str | None = None,
+) -> list[dict[str, str]]:
     if not cards:
         raise ValueError("Model returned no flashcards")
     validated: list[dict[str, str]] = []
@@ -102,10 +156,89 @@ def validate_flashcards(cards: list[dict[str, str]], *, expected: int | None = N
         back = str(c.get("back", "")).strip()
         if not front or not back:
             raise ValueError(f"Card {i} missing non-empty front/back")
-        validated.append({"front": front, "back": back})
-    if expected is not None and len(validated) < 1:
-        raise ValueError(f"Expected at least one card, got {len(validated)}")
+        difficulty = normalize_difficulty(str(c.get("difficulty", "")))
+        cognitive = normalize_cognitive(str(c.get("cognitive_level", "")), difficulty)
+        if difficulty not in VALID_DIFFICULTIES:
+            difficulty = normalize_difficulty(None)
+        if cognitive not in VALID_COGNITIVE:
+            cognitive = normalize_cognitive(None, difficulty)
+        validated.append(
+            {
+                "front": front,
+                "back": back,
+                "chapter": str(c.get("chapter") or chapter_title or "").strip(),
+                "difficulty": difficulty,
+                "cognitive_level": cognitive,
+            },
+        )
+    if expected is not None and len(validated) < max(1, int(expected * 0.8)):
+        raise ValueError(f"Expected ~{expected} cards, got {len(validated)}")
     return validated[:expected] if expected else validated
+
+
+def find_duplicate_fronts(cards: list[dict[str, Any]]) -> list[str]:
+    seen: dict[str, str] = {}
+    dups: list[str] = []
+    for c in cards:
+        key = _normalize_front(str(c.get("front", "")))
+        if not key:
+            continue
+        if key in seen:
+            dups.append(key)
+        else:
+            seen[key] = str(c.get("front", ""))
+    return dups
+
+
+def validate_chapter_coverage(
+    cards: list[dict[str, Any]],
+    chapter_titles: list[str],
+    quotas: dict[str, int],
+) -> list[str]:
+    errors: list[str] = []
+    if not chapter_titles:
+        return errors
+    by_chapter: dict[str, int] = {}
+    for c in cards:
+        ch = str(c.get("chapter") or "").strip()
+        if ch:
+            by_chapter[ch] = by_chapter.get(ch, 0) + 1
+    for title, want in quotas.items():
+        got = by_chapter.get(title, 0)
+        if got < max(1, want // 2) and want > 0:
+            errors.append(f"Chapter '{title}' under-covered: got {got}, quota {want}")
+    missing = [t for t in chapter_titles if by_chapter.get(t, 0) == 0]
+    if missing and len(chapter_titles) > 1:
+        errors.append(f"No cards generated for chapters: {', '.join(missing[:5])}")
+    return errors
+
+
+def validate_generation_bundle(
+    *,
+    cards: list[dict[str, Any]],
+    scenarios: list[dict[str, str]],
+    chapter_titles: list[str],
+    quotas: dict[str, int],
+    num_cards: int,
+) -> list[str]:
+    errors: list[str] = []
+    if len(cards) < max(1, int(num_cards * 0.85)):
+        errors.append(f"Card count shortfall: {len(cards)}/{num_cards}")
+    dups = find_duplicate_fronts(cards)
+    if dups:
+        errors.append(f"Duplicate question stems detected ({len(dups)})")
+    errors.extend(validate_chapter_coverage(cards, chapter_titles, quotas))
+    errors.extend(validate_difficulty_mix(cards))
+    errors.extend(validate_cognitive_depth(cards))
+    errors.extend(validate_scenario_types(scenarios))
+    definition_heavy = sum(
+        1
+        for c in cards
+        if re.match(r"^(what is|define|definition of)\b", _normalize_front(str(c.get("front", ""))))
+    )
+    if len(cards) >= 6 and definition_heavy / len(cards) > 0.35:
+        errors.append(f"Too many definition-style questions ({definition_heavy}/{len(cards)})")
+    return errors
 
 
 def validate_workbook_content(content: dict[str, Any]) -> dict[str, Any]:

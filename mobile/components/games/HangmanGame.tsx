@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Line } from "react-native-svg";
 
 import { normalizeAnswer } from "../../lib/gameUtils";
 import { hapticError, hapticImpact, hapticSuccess, hapticWarning } from "../../lib/haptics";
+import { useGameCardPool } from "../../hooks/useGameCardPool";
 import { useTheme } from "../../hooks/useTheme";
 import type { GameProps } from "./types";
+import { DifficultyModePicker } from "./DifficultyModePicker";
 import { GameResult } from "./GameResult";
 
 const MAX_WRONG = 6;
@@ -28,9 +30,14 @@ function HangmanFigure({ wrong, color }: { wrong: number; color: string }) {
   );
 }
 
-export function HangmanGame({ cards, onComplete }: GameProps) {
+export function HangmanGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
   const { colors } = useTheme();
-  const rounds = useMemo(() => cards.slice(0, Math.min(8, cards.length)), [cards]);
+  const { mode, setMode, pool: rounds } = useGameCardPool(
+    cards,
+    Math.min(8, cards.length),
+    generationSeed,
+    "hangman",
+  );
   const totalRounds = rounds.length;
   const [idx, setIdx] = useState(0);
   const [guessed, setGuessed] = useState<Set<string>>(new Set());
@@ -39,6 +46,16 @@ export function HangmanGame({ cards, onComplete }: GameProps) {
   const [computerScore, setComputerScore] = useState(0);
   const [roundResult, setRoundResult] = useState<"win" | "lose" | null>(null);
   const [finished, setFinished] = useState(false);
+
+  useEffect(() => {
+    setIdx(0);
+    setGuessed(new Set());
+    setWrong(0);
+    setPlayerScore(0);
+    setComputerScore(0);
+    setRoundResult(null);
+    setFinished(false);
+  }, [mode]);
 
   const answer = normalizeAnswer(rounds[idx]?.back ?? "");
   const letters = [...new Set(answer.split("").filter((c) => /[A-Z0-9]/.test(c)))];
@@ -98,6 +115,11 @@ export function HangmanGame({ cards, onComplete }: GameProps) {
 
   return (
     <View>
+      <DifficultyModePicker
+        value={mode}
+        onChange={setMode}
+        disabled={idx > 0 || !!roundResult || finished}
+      />
       <View style={[styles.score, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <Text style={{ color: colors.text, fontWeight: "800", fontSize: 24 }}>{playerScore}</Text>
         <Text style={{ color: colors.muted }}>VS</Text>

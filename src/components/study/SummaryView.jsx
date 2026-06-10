@@ -5,7 +5,7 @@ import { Loader2, Sparkles, BookOpen, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import SummaryCard from "./SummaryCard";
 
-export default function SummaryView({ cards, bookTitle, selectedChapters, prefillSummary }) {
+export default function SummaryView({ cards, bookTitle, selectedChapters, prefillSummary, chapterSummaries = [] }) {
   const [summaries, setSummaries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [generated, setGenerated] = useState(false);
@@ -71,6 +71,30 @@ Return structured JSON covering every chapter listed.`,
 
   return (
     <div className="space-y-4">
+      {chapterSummaries.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="font-heading text-lg font-semibold">Chapter Summaries</h3>
+          {chapterSummaries.map((ch, i) => (
+            <motion.div
+              key={ch.chapter || i}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl border border-border bg-card p-5"
+            >
+              <h4 className="font-semibold text-sm mb-2">{ch.chapter}</h4>
+              <p className="text-sm text-muted-foreground leading-relaxed">{ch.summary}</p>
+              {(ch.key_points || []).length > 0 && (
+                <ul className="mt-3 space-y-1 text-sm text-muted-foreground list-disc pl-5">
+                  {ch.key_points.map((kp, ki) => (
+                    <li key={ki}>{kp}</li>
+                  ))}
+                </ul>
+              )}
+            </motion.div>
+          ))}
+        </div>
+      )}
+
       {hasPrefill && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}

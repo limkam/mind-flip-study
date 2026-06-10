@@ -38,6 +38,16 @@ export default function LibraryTab() {
     size: number;
     mimeType?: string | null;
   } | null>(null);
+  const [uploadPhase, setUploadPhase] = useState<string | null>(null);
+
+  const uploadPhaseLabel =
+    uploadPhase === "uploading"
+      ? "Uploading PDF…"
+      : uploadPhase === "extracting_toc"
+        ? "Extracting table of contents…"
+        : uploadPhase === "creating"
+          ? "Creating book…"
+          : null;
 
   const {
     data,
@@ -74,14 +84,19 @@ export default function LibraryTab() {
         size: picked.size,
         name: picked.name,
         mimeType: picked.mimeType ?? "application/pdf",
+        onProgress: setUploadPhase,
       });
     },
     onSuccess: async () => {
+      setUploadPhase(null);
       setUploadOpen(false);
       setTitle("");
       setAuthor("");
       setPicked(null);
       await queryClient.invalidateQueries({ queryKey: ["books"] });
+    },
+    onError: () => {
+      setUploadPhase(null);
     },
   });
 
@@ -196,6 +211,9 @@ export default function LibraryTab() {
             <Pressable style={[styles.secondaryBtn, { borderColor: colors.border }]} onPress={pickFile}>
               <Text style={{ color: colors.text }}>{picked ? picked.name : "Choose PDF"}</Text>
             </Pressable>
+            {uploadPhaseLabel ? (
+              <Text style={{ color: colors.primary, marginTop: 8, fontWeight: "600" }}>{uploadPhaseLabel}</Text>
+            ) : null}
             {uploadMutation.isError ? (
               <Text style={{ color: colors.danger, marginTop: 8 }}>
                 {(uploadMutation.error as Error)?.message || "Upload failed"}
@@ -211,7 +229,7 @@ export default function LibraryTab() {
                 onPress={() => uploadMutation.mutate()}
               >
                 <Text style={styles.primaryBtnText}>
-                  {uploadMutation.isPending ? "Uploading…" : "Start upload"}
+                  {uploadMutation.isPending ? uploadPhaseLabel ?? "Uploading…" : "Start upload"}
                 </Text>
               </Pressable>
             </View>

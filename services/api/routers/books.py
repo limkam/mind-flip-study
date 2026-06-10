@@ -23,10 +23,21 @@ from s3_service import (
     build_s3_https_url,
     delete_object_key,
     generate_presigned_put_url,
+    get_object_bytes,
     head_object_content_length,
 )
-from schemas.book import BookCreate, BookListPage, BookOut, BookPatch, BookUploadUrlRequest, BookUploadUrlResponse
+from schemas.book import (
+    BookCreate,
+    BookListPage,
+    BookOut,
+    BookPatch,
+    BookUploadUrlRequest,
+    BookUploadUrlResponse,
+    ExtractTocRequest,
+    ExtractTocResponse,
+)
 from schemas.pagination import total_pages
+from toc_extraction import extract_toc_from_pdf_bytes
 
 router = APIRouter(tags=["books"])
 logger = logging.getLogger(__name__)
@@ -86,6 +97,35 @@ async def create_upload_url(
                 "detail": detail,
             },
         ) from exc
+
+
+@router.post("/extract-toc", response_model=ExtractTocResponse)
+async def extract_toc_from_upload(
+    body: ExtractTocRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> ExtractTocResponse:
+    """Extract TOC from PDF text in S3 (used by mobile/web after presigned upload)."""
+    _assert_key_owned_by_user(s3_key=body.s3_key, user_id=current_user.id)
+    if head_object_content_length(body.s3_key) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="S3 object not found")
+    try:
+        pdf_bytes = get_object_bytes(body.s3_key)
+        chapters = extract_toc_from_pdf_bytes(
+            pdf_bytes,
+            title=body.title,
+            author=body.author,
+            description=body.description,
+        )
+        return ExtractTocResponse(chapters=chapters)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Anthropic API not configured",
+        ) from exc
+    except Exception as exc:
+        logger.exception("extract-toc failed for user %s", current_user.id)
+        detail = str(exc) if settings.ENVIRONMENT == "development" else "TOC extraction failed"
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail) from exc
 
 
 @router.post("/", response_model=BookOut, status_code=status.HTTP_201_CREATED)

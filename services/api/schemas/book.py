@@ -20,6 +20,17 @@ class BookUploadUrlResponse(BaseModel):
     expires_in: int = 3600
 
 
+class ExtractTocRequest(BaseModel):
+    s3_key: str = Field(..., min_length=1, max_length=1024)
+    title: str = Field(..., min_length=1, max_length=512)
+    author: str = Field(..., min_length=1, max_length=512)
+    description: str | None = Field(None, max_length=4000)
+
+
+class ExtractTocResponse(BaseModel):
+    chapters: list[Any] = Field(default_factory=list)
+
+
 class BookCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=512)
     author: str = Field(..., min_length=1, max_length=512)

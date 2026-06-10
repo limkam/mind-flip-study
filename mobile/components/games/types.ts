@@ -4,12 +4,15 @@ export type GameCard = {
   back: string;
   chapter?: string | null;
   difficulty?: string | null;
+  cognitive_level?: string | null;
 };
 
 export type McqQuestion = {
   question: string;
   correct: string;
   options: string[];
+  difficulty?: string | null;
+  chapter?: string | null;
 };
 
 export type GameRoundResult = {
@@ -21,6 +24,7 @@ export type GameRoundResult = {
 export type GameProps = {
   cards: GameCard[];
   onComplete: (result: GameRoundResult) => void;
+  generationSeed?: number;
 };
 
 export const GAME_SLUGS = [

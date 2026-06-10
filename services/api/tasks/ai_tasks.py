@@ -21,56 +21,39 @@ from ai_generation import (
     parse_model_json,
     sections_to_chapters,
     validate_flashcards,
+    validate_generation_bundle,
     validate_scenarios,
     validate_workbook_content,
 )
 from anthropic_client import CLAUDE_SONNET_MODEL, get_anthropic_client
+from chapter_distribution import allocate_card_quotas
+from content_map import build_content_map, content_map_to_metadata
 from database_sync import sync_session
+from difficulty_engine import difficulty_quota
+from generation_prompts import (
+    CHAPTER_SUMMARY_SYSTEM,
+    FLASHCARD_SYSTEM,
+    SCENARIO_SYSTEM,
+    chapter_summary_user_prompt,
+    flashcard_user_prompt,
+    overview_summary_user_prompt,
+    scenarios_user_prompt,
+)
 from job_cache import cache_job, get_cached_job
 from models.book import Book
 from models.enums import WorkbookStatus
 from models.flashcard import Flashcard, FlashcardSet, Workbook
 from models.quiz import StudyEvent
 from s3_service import get_object_bytes
+from seeded_random import make_generation_seed, pick_variation_style
 from tasks.celery_app import celery
 from token_usage_log import log_token_usage
 
 log = logging.getLogger(__name__)
 
-PDF_CONTEXT_CHARS = 15_000
-FLASHCARD_BATCH_SIZE = 25
 AI_CALL_MAX_ATTEMPTS = 3
-
-FLASHCARD_BATCH_SYSTEM = """You are an expert educator. Generate flashcards from academic content.
-Always respond with valid JSON only. No preamble, no markdown, no explanation.
-Required JSON format:
-{
-  "flashcards": [
-    {
-      "front": "Specific testable question",
-      "back": "Concise but complete answer"
-    }
-  ]
-}"""
-
-SUMMARY_SYSTEM = """You are an expert educator. Summarize academic content clearly and comprehensively.
-Always respond with valid JSON only.
-Required JSON format:
-{"summary": "Comprehensive summary of the provided text..."}"""
-
-SCENARIO_SYSTEM = """You are an expert educator creating realistic application-based study scenarios.
-Always respond with valid JSON only.
-Required format:
-{
-  "scenarios": [
-    {
-      "title": "Short scenario title",
-      "prompt": "Realistic situational question applying concepts from the material",
-      "guidance": "Key points a strong answer should cover"
-    }
-  ]
-}
-Create scenarios that require applying concepts — not simple recall. Adapt tone to the subject (business, medical, law, STEM, etc.)."""
+QA_MAX_ATTEMPTS = 2
+CHAPTER_EXCERPT_JOIN_MAX = 12_000
 
 WORKBOOK_SYSTEM = """You are an expert educator creating study workbooks.
 Always respond with valid JSON only.
@@ -94,30 +77,19 @@ def _extract_pdf_text(data: bytes) -> str:
     return "\n".join(parts)
 
 
-def _extract_context_for_chapters(full_text: str, selected_chapters: list[str] | None) -> str:
-    if not selected_chapters:
-        return full_text[:PDF_CONTEXT_CHARS]
-
-    text_lower = full_text.lower()
-    start_idx = 0
-    end_idx = len(full_text)
-
-    first_ch = selected_chapters[0].lower()
-    last_ch = selected_chapters[-1].lower()
-
-    first_pos = text_lower.find(first_ch)
-    if first_pos != -1:
-        start_idx = max(0, first_pos - 100)
-
-    last_pos = text_lower.find(last_ch, first_pos if first_pos != -1 else 0)
-    if last_pos != -1:
-        end_idx = min(len(full_text), last_pos + PDF_CONTEXT_CHARS)
-
-    snapped = full_text[start_idx:end_idx]
-    if len(snapped.strip()) < 100:
-        return full_text[:PDF_CONTEXT_CHARS]
-
-    return snapped[:PDF_CONTEXT_CHARS]
+def _toc_titles(book: Book) -> list[str]:
+    extras = book.extras or {}
+    toc = extras.get("table_of_contents") or []
+    titles: list[str] = []
+    if isinstance(toc, list):
+        for item in toc:
+            if isinstance(item, dict):
+                t = str(item.get("title", "")).strip()
+                if t:
+                    titles.append(t)
+            elif item:
+                titles.append(str(item).strip())
+    return titles
 
 
 def _extract_response_text(message: Any) -> str:
@@ -131,7 +103,7 @@ def _extract_response_text(message: Any) -> str:
 
 
 def _max_tokens_for_cards(num_cards: int) -> int:
-    return min(8192, 256 + num_cards * 140)
+    return min(8192, 384 + num_cards * 160)
 
 
 def _call_with_retry(fn, *, label: str) -> Any:
@@ -181,71 +153,31 @@ def _anthropic_json_call(
     return _call_with_retry(_run, label=task)
 
 
-def _flashcard_batches(num_cards: int) -> list[int]:
-    batches: list[int] = []
-    remaining = num_cards
-    while remaining > 0:
-        take = min(FLASHCARD_BATCH_SIZE, remaining)
-        batches.append(take)
-        remaining -= take
-    return batches or [num_cards]
-
-
-def _scenario_count(num_cards: int) -> int:
-    return min(5, max(2, num_cards // 20))
-
-
-def _call_anthropic_summary(
+def _generate_chapter_flashcards(
     *,
     book_title: str,
-    text: str,
-    user_id: UUID,
-    celery_task_id: str,
-    selected_chapters: list[str] | None = None,
-) -> str:
-    truncated = text[:PDF_CONTEXT_CHARS]
-    chapters = ", ".join(selected_chapters) if selected_chapters else "Entire selection"
-    data = _anthropic_json_call(
-        system=SUMMARY_SYSTEM,
-        user_content=(
-            f"Summarize this academic text from \"{book_title}\".\n"
-            f"Selected chapters: {chapters}\n\n"
-            f"TEXT:\n{truncated}\n\n"
-            "Respond with ONLY valid JSON."
-        ),
-        max_tokens=1536,
-        task="generate_summary",
-        user_id=user_id,
-        celery_task_id=celery_task_id,
-    )
-    summary = str(data.get("summary", "")).strip()
-    if not summary:
-        raise ValueError("Model returned empty summary")
-    return summary
-
-
-def _call_anthropic_flashcards_batch(
-    *,
-    book_title: str,
-    text: str,
+    chapter_title: str,
+    chapter_text: str,
     num_cards: int,
-    batch_index: int,
-    batch_total: int,
     user_id: UUID,
     celery_task_id: str,
-    selected_chapters: list[str] | None = None,
+    generation_seed: int,
+    batch_index: int,
+    qa_feedback: str = "",
 ) -> list[dict[str, str]]:
-    truncated = text[:PDF_CONTEXT_CHARS]
-    chapters = ", ".join(selected_chapters) if selected_chapters else "Entire selection"
+    quota = difficulty_quota(num_cards)
+    style = pick_variation_style(generation_seed, chapter_title, batch_index)
+    note = f"QA feedback from prior attempt: {qa_feedback}" if qa_feedback else ""
     data = _anthropic_json_call(
-        system=FLASHCARD_BATCH_SYSTEM,
-        user_content=(
-            f"Generate exactly {num_cards} flashcards from this text.\n"
-            f"Book title: {book_title}\n"
-            f"Selected chapters: {chapters}\n"
-            f"This is batch {batch_index} of {batch_total} — create distinct cards not covered in other batches.\n\n"
-            f"TEXT:\n{truncated}\n\n"
-            "Respond with ONLY valid JSON. Focus ONLY on the specified chapters."
+        system=FLASHCARD_SYSTEM,
+        user_content=flashcard_user_prompt(
+            book_title=book_title,
+            chapter_title=chapter_title,
+            chapter_text=chapter_text,
+            num_cards=num_cards,
+            difficulty_quota=quota,
+            style_index=style,
+            batch_note=note,
         ),
         max_tokens=_max_tokens_for_cards(num_cards),
         task="generate_flashcards",
@@ -253,110 +185,191 @@ def _call_anthropic_flashcards_batch(
         celery_task_id=celery_task_id,
     )
     cards_raw = data.get("flashcards") or data.get("cards") or []
-    return validate_flashcards(cards_raw, expected=num_cards)
+    return validate_flashcards(cards_raw, expected=num_cards, chapter_title=chapter_title)
 
 
-def _call_anthropic_scenarios(
+def _generate_chapter_summary(
     *,
     book_title: str,
-    text: str,
-    num_scenarios: int,
+    chapter_title: str,
+    chapter_text: str,
     user_id: UUID,
     celery_task_id: str,
-    selected_chapters: list[str] | None = None,
+) -> dict[str, Any]:
+    data = _anthropic_json_call(
+        system=CHAPTER_SUMMARY_SYSTEM,
+        user_content=chapter_summary_user_prompt(
+            book_title=book_title,
+            chapter_title=chapter_title,
+            chapter_text=chapter_text,
+        ),
+        max_tokens=1200,
+        task="generate_chapter_summary",
+        user_id=user_id,
+        celery_task_id=celery_task_id,
+    )
+    summary = str(data.get("summary", "")).strip()
+    key_points = data.get("key_points") or []
+    if not summary:
+        raise ValueError(f"Empty summary for chapter {chapter_title}")
+    return {
+        "chapter": chapter_title,
+        "summary": summary,
+        "key_points": [str(k).strip() for k in key_points if str(k).strip()],
+    }
+
+
+def _generate_scenarios(
+    *,
+    book_title: str,
+    segments_text: str,
+    user_id: UUID,
+    celery_task_id: str,
+    generation_seed: int,
+    qa_feedback: str = "",
 ) -> list[dict[str, str]]:
-    truncated = text[:PDF_CONTEXT_CHARS]
-    chapters = ", ".join(selected_chapters) if selected_chapters else "Entire selection"
+    seed_note = f"Use variation profile #{generation_seed % 997}. {qa_feedback}".strip()
     data = _anthropic_json_call(
         system=SCENARIO_SYSTEM,
-        user_content=(
-            f"Create exactly {num_scenarios} realistic application scenarios based on this material.\n"
-            f"Book title: {book_title}\n"
-            f"Selected chapters: {chapters}\n\n"
-            f"TEXT:\n{truncated}\n\n"
-            "Respond with ONLY valid JSON."
+        user_content=scenarios_user_prompt(
+            book_title=book_title,
+            chapter_excerpts=segments_text[:CHAPTER_EXCERPT_JOIN_MAX],
+            seed_note=seed_note,
         ),
-        max_tokens=2048,
+        max_tokens=4096,
         task="generate_scenarios",
         user_id=user_id,
         celery_task_id=celery_task_id,
     )
     scenarios_raw = data.get("scenarios") or []
-    return validate_scenarios(scenarios_raw, expected=num_scenarios)
+    return validate_scenarios(scenarios_raw, expected=5)
 
 
-def _generate_study_content_parallel(
+def _generate_overview_summary(
     *,
     book_title: str,
-    text: str,
+    chapter_summaries: list[dict[str, Any]],
+    user_id: UUID,
+    celery_task_id: str,
+) -> str:
+    data = _anthropic_json_call(
+        system=CHAPTER_SUMMARY_SYSTEM,
+        user_content=overview_summary_user_prompt(book_title=book_title, chapter_summaries=chapter_summaries),
+        max_tokens=1800,
+        task="generate_summary",
+        user_id=user_id,
+        celery_task_id=celery_task_id,
+    )
+    summary = str(data.get("summary", "")).strip()
+    if not summary:
+        raise ValueError("Model returned empty overview summary")
+    return summary
+
+
+def _generate_study_content(
+    *,
+    book_title: str,
+    full_text: str,
+    toc_titles: list[str],
+    selected_chapters: list[str] | None,
     num_cards: int,
     user_id: UUID,
     celery_task_id: str,
-    selected_chapters: list[str] | None,
-) -> tuple[str, list[dict[str, str]], list[dict[str, str]]]:
-    batches = _flashcard_batches(num_cards)
-    num_scenarios = _scenario_count(num_cards)
-    summary: str | None = None
-    scenarios: list[dict[str, str]] | None = None
-    cards_by_batch: dict[int, list[dict[str, str]]] = {}
+    generation_seed: int,
+) -> tuple[str, list[dict[str, str]], list[dict[str, str]], list[dict[str, Any]]]:
+    segments = build_content_map(full_text, toc_titles, selected=selected_chapters)
+    if not segments:
+        raise ValueError("Could not build content map from document")
 
-    _update_job_progress(celery_task_id, "generating_summary")
-    with ThreadPoolExecutor(max_workers=min(6, len(batches) + 2)) as pool:
-        summary_future = pool.submit(
-            _call_anthropic_summary,
-            book_title=book_title,
-            text=text,
-            user_id=user_id,
-            celery_task_id=celery_task_id,
-            selected_chapters=selected_chapters,
-        )
-        scenario_future = pool.submit(
-            _call_anthropic_scenarios,
-            book_title=book_title,
-            text=text,
-            num_scenarios=num_scenarios,
-            user_id=user_id,
-            celery_task_id=celery_task_id,
-            selected_chapters=selected_chapters,
-        )
-        card_futures = {
-            pool.submit(
-                _call_anthropic_flashcards_batch,
+    allocations = allocate_card_quotas(num_cards, segments)
+    chapter_titles = [seg.title for seg, _ in allocations]
+    quotas = {seg.title: quota for seg, quota in allocations}
+
+    last_qa_errors: list[str] = []
+    for qa_attempt in range(QA_MAX_ATTEMPTS):
+        qa_feedback = "; ".join(last_qa_errors) if last_qa_errors else ""
+        all_cards: list[dict[str, str]] = []
+        chapter_summaries: list[dict[str, Any]] = []
+
+        _update_job_progress(celery_task_id, "generating_summary")
+        _update_job_progress(celery_task_id, "generating_flashcards")
+
+        with ThreadPoolExecutor(max_workers=min(8, len(allocations) + 2)) as pool:
+            card_futures = {
+                pool.submit(
+                    _generate_chapter_flashcards,
+                    book_title=book_title,
+                    chapter_title=seg.title,
+                    chapter_text=seg.text,
+                    num_cards=quota,
+                    user_id=user_id,
+                    celery_task_id=celery_task_id,
+                    generation_seed=generation_seed + qa_attempt,
+                    batch_index=i,
+                    qa_feedback=qa_feedback,
+                ): seg.title
+                for i, (seg, quota) in enumerate(allocations)
+            }
+            summary_futures = {
+                pool.submit(
+                    _generate_chapter_summary,
+                    book_title=book_title,
+                    chapter_title=seg.title,
+                    chapter_text=seg.text,
+                    user_id=user_id,
+                    celery_task_id=celery_task_id,
+                ): seg.title
+                for seg, _ in allocations
+            }
+            excerpt = "\n\n---\n\n".join(f"## {s.title}\n{s.text[:2000]}" for s, _ in allocations)
+            scenario_future = pool.submit(
+                _generate_scenarios,
                 book_title=book_title,
-                text=text,
-                num_cards=batch_size,
-                batch_index=i + 1,
-                batch_total=len(batches),
+                segments_text=excerpt,
                 user_id=user_id,
                 celery_task_id=celery_task_id,
-                selected_chapters=selected_chapters,
-            ): i
-            for i, batch_size in enumerate(batches)
-        }
+                generation_seed=generation_seed + qa_attempt,
+                qa_feedback=qa_feedback,
+            )
 
-        _update_job_progress(celery_task_id, "generating_flashcards")
-        for fut in as_completed(card_futures):
-            cards_by_batch[card_futures[fut]] = fut.result()
+            for fut in as_completed(card_futures):
+                all_cards.extend(fut.result())
 
-        _update_job_progress(celery_task_id, "generating_scenarios")
-        summary = summary_future.result()
-        scenarios = scenario_future.result()
+            _update_job_progress(celery_task_id, "generating_scenarios")
+            for fut in as_completed(summary_futures):
+                chapter_summaries.append(fut.result())
+            chapter_summaries.sort(key=lambda s: chapter_titles.index(s["chapter"]) if s["chapter"] in chapter_titles else 999)
+            scenarios = scenario_future.result()
 
-    ordered_cards: list[dict[str, str]] = []
-    for i in range(len(batches)):
-        ordered_cards.extend(cards_by_batch.get(i, []))
-
-    if len(ordered_cards) < num_cards:
-        log.warning(
-            "flashcard_count_shortfall",
-            extra={
-                "celery_task_id": celery_task_id,
-                "expected": num_cards,
-                "got": len(ordered_cards),
-            },
+        overview = _generate_overview_summary(
+            book_title=book_title,
+            chapter_summaries=chapter_summaries,
+            user_id=user_id,
+            celery_task_id=celery_task_id,
         )
 
-    return summary, ordered_cards[:num_cards], scenarios or []
+        qa_errors = validate_generation_bundle(
+            cards=all_cards,
+            scenarios=scenarios,
+            chapter_titles=chapter_titles,
+            quotas=quotas,
+            num_cards=num_cards,
+        )
+        if not qa_errors:
+            trimmed = all_cards[:num_cards]
+            log.info(
+                "generation_qa_passed",
+                extra={"celery_task_id": celery_task_id, "cards": len(trimmed), "chapters": len(chapter_titles)},
+            )
+            return overview, trimmed, scenarios, chapter_summaries
+
+        last_qa_errors = qa_errors
+        log.warning(
+            "generation_qa_failed",
+            extra={"celery_task_id": celery_task_id, "attempt": qa_attempt + 1, "errors": qa_errors},
+        )
+
+    raise ValueError(f"Generation QA failed after {QA_MAX_ATTEMPTS} attempts: {'; '.join(last_qa_errors)}")
 
 
 def _call_anthropic_workbook(
@@ -370,7 +383,7 @@ def _call_anthropic_workbook(
     celery_task_id: str,
     selected_chapters: list[str] | None = None,
 ) -> dict:
-    truncated = text[:PDF_CONTEXT_CHARS]
+    truncated = text[:15_000]
     hint = f"\nFocus areas / chapters: {chapter_hint}\n" if chapter_hint else ""
     data = _anthropic_json_call(
         system=WORKBOOK_SYSTEM,
@@ -379,7 +392,7 @@ def _call_anthropic_workbook(
             f'Workbook display title: "{title}".{hint}\n'
             f"Selected Chapters: {', '.join(selected_chapters) if selected_chapters else 'Entire selection'}\n\n"
             f"TEXT:\n{truncated}\n\n"
-            "Respond with JSON only. Include 3–8 sections based ONLY on the specified chapters."
+            "Respond with JSON only. Include one section per major chapter/topic from the text."
         ),
         max_tokens=4096,
         task="generate_workbook",
@@ -441,10 +454,11 @@ def generate_flashcards_task(
     uid = UUID(user_id)
     bid = UUID(book_id)
     n_cards = int(num_cards)
+    generation_seed = make_generation_seed(user_id=user_id, book_id=book_id, job_id=tid)
 
     log.info(
         "flashcard_generation_started",
-        extra={"celery_task_id": tid, "book_id": book_id, "num_cards": n_cards},
+        extra={"celery_task_id": tid, "book_id": book_id, "num_cards": n_cards, "seed": generation_seed},
     )
 
     cached = get_cached_job(tid)
@@ -470,7 +484,6 @@ def generate_flashcards_task(
                     )
                 payload = {"status": "complete", "phase": "completed", "set_id": sid}
                 cache_job(tid, payload)
-                log.info("flashcard_generation_complete", extra={"celery_task_id": tid, "set_id": sid, "cached": True})
                 return payload
 
             book = db.execute(select(Book).where(Book.id == bid)).scalar_one_or_none()
@@ -484,18 +497,21 @@ def generate_flashcards_task(
             if not full_text.strip():
                 raise ValueError("No extractable text from PDF")
 
-            text = _extract_context_for_chapters(full_text, selected_chapters)
             book_title = book.title
+            toc_titles = _toc_titles(book)
 
-        summary, cards_data, scenarios = _generate_study_content_parallel(
+        summary, cards_data, scenarios, chapter_summaries = _generate_study_content(
             book_title=book_title,
-            text=text,
+            full_text=full_text,
+            toc_titles=toc_titles,
+            selected_chapters=selected_chapters,
             num_cards=n_cards,
             user_id=uid,
             celery_task_id=tid,
-            selected_chapters=selected_chapters,
+            generation_seed=generation_seed,
         )
 
+        segments = build_content_map(full_text, toc_titles, selected=selected_chapters)
         _update_job_progress(tid, "saving_content", book_id=book_id)
 
         with sync_session() as db:
@@ -509,6 +525,9 @@ def generate_flashcards_task(
                     job_id=tid,
                     selected_chapters=selected_chapters,
                     scenarios=scenarios,
+                    chapter_summaries=chapter_summaries,
+                    generation_seed=generation_seed,
+                    content_map=content_map_to_metadata(segments),
                 )
                 fset = FlashcardSet(
                     user_id=uid,
@@ -519,14 +538,17 @@ def generate_flashcards_task(
                 db.add(fset)
                 db.flush()
                 for c in cards_data:
-                    db.add(Flashcard(set_id=fset.id, front=c["front"], back=c["back"]))
-                db.add(
-                    StudyEvent(
-                        user_id=uid,
-                        set_id=fset.id,
-                        event_type="ai_generation",
-                    ),
-                )
+                    db.add(
+                        Flashcard(
+                            set_id=fset.id,
+                            front=c["front"],
+                            back=c["back"],
+                            chapter=c.get("chapter") or None,
+                            difficulty=c.get("difficulty") or None,
+                            cognitive_level=c.get("cognitive_level") or None,
+                        ),
+                    )
+                db.add(StudyEvent(user_id=uid, set_id=fset.id, event_type="ai_generation"))
                 mark_book_ai_finished(
                     db,
                     book,
@@ -547,12 +569,7 @@ def generate_flashcards_task(
         cache_job(tid, payload)
         log.info(
             "flashcard_generation_complete",
-            extra={
-                "celery_task_id": tid,
-                "set_id": sid,
-                "cards": len(cards_data),
-                "scenarios": len(scenarios),
-            },
+            extra={"celery_task_id": tid, "set_id": sid, "cards": len(cards_data), "scenarios": len(scenarios)},
         )
         return payload
 
@@ -632,8 +649,10 @@ def generate_workbook_task(
             if not full_text.strip():
                 raise ValueError("No extractable text from PDF")
 
-            text = _extract_context_for_chapters(full_text, selected_chapters)
             book_title, book_author = book.title, book.author
+            toc = _toc_titles(book)
+            segments = build_content_map(full_text, toc, selected=selected_chapters)
+            text = "\n\n".join(f"## {s.title}\n{s.text}" for s in segments)[:15_000]
 
         content = _call_anthropic_workbook(
             book_title=book_title,

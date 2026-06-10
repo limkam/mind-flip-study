@@ -2,6 +2,12 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, Lightbulb } from "lucide-react";
 
+const TYPE_LABELS = {
+  real_life: "Real-Life Application",
+  decision: "Decision-Making",
+  professional: "Professional Case Study",
+};
+
 export default function ScenarioView({ scenarios = [] }) {
   const [openIndex, setOpenIndex] = useState(0);
 
@@ -22,10 +28,12 @@ export default function ScenarioView({ scenarios = [] }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        {scenarios.length} scenario{scenarios.length !== 1 ? "s" : ""} — apply what you learned to realistic situations.
+        {scenarios.length} scenarios — apply, decide, and analyze concepts from across the document.
       </p>
       {scenarios.map((scenario, i) => {
         const open = openIndex === i;
+        const typeLabel = TYPE_LABELS[scenario.type] || "Scenario";
+        const question = scenario.question || scenario.prompt;
         return (
           <motion.div
             key={i}
@@ -43,26 +51,41 @@ export default function ScenarioView({ scenarios = [] }) {
                 {i + 1}
               </span>
               <div className="flex-1 min-w-0">
-                <h3 className="font-heading font-semibold text-base">{scenario.title}</h3>
-                <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{scenario.prompt}</p>
+                <span className="text-xs font-semibold uppercase tracking-wide text-primary">{typeLabel}</span>
+                <h3 className="font-heading font-semibold text-base mt-1">{scenario.title}</h3>
+                {scenario.context ? (
+                  <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{scenario.context}</p>
+                ) : null}
+                {scenario.challenge ? (
+                  <p className="text-sm text-foreground mt-2 leading-relaxed"><strong>Challenge:</strong> {scenario.challenge}</p>
+                ) : null}
+                <p className="text-sm text-foreground mt-2 leading-relaxed"><strong>Question:</strong> {question}</p>
               </div>
               <ChevronDown
                 className={`w-5 h-5 text-muted-foreground flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
               />
             </button>
             <AnimatePresence>
-              {open && scenario.guidance ? (
+              {open && (scenario.model_answer || scenario.explanation || scenario.guidance) ? (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   className="overflow-hidden"
                 >
-                  <div className="px-5 pb-5 pl-16">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-2">
-                      Strong answer should cover
-                    </p>
-                    <p className="text-sm text-foreground leading-relaxed">{scenario.guidance}</p>
+                  <div className="px-5 pb-5 pl-16 space-y-3">
+                    {scenario.model_answer ? (
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">Model answer</p>
+                        <p className="text-sm leading-relaxed">{scenario.model_answer}</p>
+                      </div>
+                    ) : null}
+                    {(scenario.explanation || scenario.guidance) ? (
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-primary mb-1">Explanation</p>
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{scenario.explanation || scenario.guidance}</p>
+                      </div>
+                    ) : null}
                   </div>
                 </motion.div>
               ) : null}

@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { buildMcq } from "../../lib/gameUtils";
+import { useGameMcq } from "../../hooks/useGameMcq";
 import { hapticImpact, hapticSuccess, hapticWarning } from "../../lib/haptics";
 import { useTheme } from "../../hooks/useTheme";
 import type { GameProps } from "./types";
+import { DifficultyModePicker } from "./DifficultyModePicker";
 import { GameResult } from "./GameResult";
 import { McqOptions } from "./McqOptions";
 
@@ -12,10 +14,10 @@ const COLS = 8;
 const ROWS = 4;
 const BRICK_COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6", "#a855f7"];
 
-export function BricksGame({ cards, onComplete }: GameProps) {
+export function BricksGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
   const { colors } = useTheme();
   const totalBricks = Math.min(cards.length * 4, COLS * ROWS);
-  const questions = useMemo(() => buildMcq(cards, Math.min(10, cards.length), 4), [cards]);
+  const { mode, setMode, questions } = useGameMcq(cards, Math.min(10, cards.length), generationSeed, 4);
   const [alive, setAlive] = useState(() =>
     Array.from({ length: COLS * ROWS }, (_, i) => i < totalBricks),
   );
@@ -84,6 +86,7 @@ export function BricksGame({ cards, onComplete }: GameProps) {
 
   return (
     <View>
+      <DifficultyModePicker value={mode} onChange={setMode} disabled={showResult || !!done} />
       <View style={styles.meta}>
         <Text style={{ color: colors.primary, fontWeight: "700" }}>{score} correct</Text>
         <Text style={{ color: colors.muted }}>{remaining} bricks left</Text>

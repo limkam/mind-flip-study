@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
-import { shuffle, formatMmSs } from "../../lib/gameUtils";
+import { formatMmSs, seededShuffle } from "../../lib/gameUtils";
 import { hapticImpact, hapticSuccess, hapticWarning } from "../../lib/haptics";
+import { useGameCardPool } from "../../hooks/useGameCardPool";
 import { useTheme } from "../../hooks/useTheme";
-import type { GameCard, GameProps } from "./types";
+import type { GameProps } from "./types";
+import { DifficultyModePicker } from "./DifficultyModePicker";
 import { GameResult } from "./GameResult";
 
 type Tile = {
@@ -15,14 +17,25 @@ type Tile = {
   text: string;
 };
 
-export function MemoryMatchGame({ cards, onComplete }: GameProps) {
+export function MemoryMatchGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
   const { colors } = useTheme();
-  const pairs = cards.slice(0, 8);
-  const [tiles] = useState<Tile[]>(() =>
-    shuffle([
-      ...pairs.map((c, i) => ({ id: `q${i}`, pairId: i, type: "question" as const, text: c.front })),
-      ...pairs.map((c, i) => ({ id: `a${i}`, pairId: i, type: "answer" as const, text: c.back })),
-    ]),
+  const { mode, setMode, pool: pairs } = useGameCardPool(
+    cards,
+    Math.min(8, cards.length),
+    generationSeed,
+    "memory",
+  );
+  const tiles = useMemo(
+    () =>
+      seededShuffle(
+        generationSeed,
+        [
+          ...pairs.map((c, i) => ({ id: `q${i}`, pairId: i, type: "question" as const, text: c.front })),
+          ...pairs.map((c, i) => ({ id: `a${i}`, pairId: i, type: "answer" as const, text: c.back })),
+        ],
+        `memory-tiles-${mode}`,
+      ),
+    [pairs, generationSeed, mode],
   );
   const [flipped, setFlipped] = useState<Set<string>>(new Set());
   const [matched, setMatched] = useState<Set<string>>(new Set());
@@ -31,6 +44,16 @@ export function MemoryMatchGame({ cards, onComplete }: GameProps) {
   const [elapsed, setElapsed] = useState(0);
   const [done, setDone] = useState(false);
   const lock = useRef(false);
+
+  useEffect(() => {
+    setFlipped(new Set());
+    setMatched(new Set());
+    setSelected([]);
+    setMoves(0);
+    setElapsed(0);
+    setDone(false);
+    lock.current = false;
+  }, [mode]);
 
   useEffect(() => {
     const t = setInterval(() => setElapsed((s) => s + 1), 1000);
@@ -90,6 +113,7 @@ export function MemoryMatchGame({ cards, onComplete }: GameProps) {
 
   return (
     <View>
+      <DifficultyModePicker value={mode} onChange={setMode} disabled={moves > 0 || done} />
       <View style={styles.meta}>
         <Text style={{ color: colors.muted }}>{matched.size / 2}/{pairs.length} matched</Text>
         <Text style={{ color: colors.muted }}>{formatMmSs(elapsed)}</Text>

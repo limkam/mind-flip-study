@@ -43,12 +43,18 @@ async def _serialize_set(db: AsyncSession, s: FlashcardSet, *, include_cards: bo
     summary_text = str(meta.get("summary") or "").strip() or None
     scenario_rows = [
         ScenarioOut(
+            type=str(sc.get("type", "real_life")),
             title=str(sc.get("title", "")),
-            prompt=str(sc.get("prompt", "")),
+            context=str(sc.get("context", "")),
+            challenge=str(sc.get("challenge", "")),
+            question=str(sc.get("question", sc.get("prompt", ""))),
+            model_answer=str(sc.get("model_answer", "")),
+            explanation=str(sc.get("explanation", "")),
+            prompt=str(sc.get("prompt", sc.get("question", ""))),
             guidance=str(sc.get("guidance", "")),
         )
         for sc in (meta.get("scenarios") or [])
-        if isinstance(sc, dict) and sc.get("title") and sc.get("prompt")
+        if isinstance(sc, dict) and sc.get("title")
     ]
     if include_cards:
         cr = await db.execute(select(Flashcard).where(Flashcard.set_id == s.id).order_by(Flashcard.created_at))
@@ -61,8 +67,9 @@ async def _serialize_set(db: AsyncSession, s: FlashcardSet, *, include_cards: bo
                 front=c.front,
                 back=c.back,
                 created_at=c.created_at,
-                chapter=None,
-                difficulty=None,
+                chapter=c.chapter,
+                difficulty=c.difficulty,
+                cognitive_level=c.cognitive_level,
             )
             for c in cards
         ]
@@ -85,6 +92,8 @@ async def _serialize_set(db: AsyncSession, s: FlashcardSet, *, include_cards: bo
         selected_chapters=list(meta.get("selected_chapters") or []),
         summary=summary_text,
         scenarios=scenario_rows,
+        chapter_summaries=list(meta.get("chapter_summaries") or []),
+        generation_seed=meta.get("generation_seed"),
     )
 
 

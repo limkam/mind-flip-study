@@ -66,25 +66,11 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
 
         let chapters = [];
         try {
-          const { data: tocResult } = await client.post("/ai/invoke", {
-            prompt: `Extract the table of contents from the book titled "${form.title}" by ${form.author}. ${form.description ? `Description: ${form.description}` : ""}
-Return JSON: {"chapters":[{"chapter_number":1,"title":"...","subtopics":["..."]}]}. If unknown, infer reasonable chapters.`,
-            response_json_schema: {
-              type: "object",
-              properties: {
-                chapters: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      chapter_number: { type: "number" },
-                      title: { type: "string" },
-                      subtopics: { type: "array", items: { type: "string" } }
-                    }
-                  }
-                }
-              }
-            },
+          const { data: tocResult } = await client.post("/books/extract-toc", {
+            s3_key: presign.s3_key,
+            title: form.title,
+            author: form.author,
+            description: form.description || undefined,
           });
           chapters = tocResult.chapters || [];
         } catch {

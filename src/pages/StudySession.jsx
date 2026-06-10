@@ -16,6 +16,7 @@ import {
   ArrowLeft, GraduationCap, Gamepad2, Loader2,
   ChevronLeft, ChevronRight, BookOpen, Brain, Lightbulb
 } from "lucide-react";
+import { selectGameCards } from "@/lib/gameUtils";
 import FlashCard from "@/components/study/FlashCard";
 import SummaryView from "@/components/study/SummaryView";
 import ScenarioView from "@/components/study/ScenarioView";
@@ -178,11 +179,17 @@ export default function StudySession() {
   }
 
   const cards = flashcardSet.cards || [];
+  const gameSeed = flashcardSet.generation_seed || 0;
 
   // Spaced repetition stats
   const hardCount = Object.values(cardProgressMap).filter(p => p.rating === "hard").length;
   const easyCount = Object.values(cardProgressMap).filter(p => p.rating === "easy").length;
   const ratedCount = Object.values(cardProgressMap).length;
+
+  const gameCards = React.useMemo(() => {
+    const perf = ratedCount / Math.max(cards.length, 1);
+    return selectGameCards(cards, cards.length, gameSeed, perf);
+  }, [cards, gameSeed, ratedCount]);
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -352,6 +359,7 @@ export default function StudySession() {
             bookTitle={flashcardSet.book_title}
             selectedChapters={flashcardSet.selected_chapters || []}
             prefillSummary={flashcardSet.summary}
+            chapterSummaries={flashcardSet.chapter_summaries || []}
           />
         </TabsContent>
 
@@ -385,6 +393,7 @@ export default function StudySession() {
                     key="mcq-game"
                     cards={cards}
                     setTitle={flashcardSet.title}
+                    generationSeed={flashcardSet.generation_seed || 0}
                     onComplete={handleQuizComplete}
                   />
                 </motion.div>
@@ -400,7 +409,7 @@ export default function StudySession() {
                   </div>
                   <HangmanGame
                     key="hangman-game"
-                    cards={cards}
+                    cards={gameCards}
                     onRoundComplete={handleGameComplete}
                   />
                 </motion.div>
@@ -416,7 +425,7 @@ export default function StudySession() {
                   </div>
                   <TugOfWarGame
                     key="tug-game"
-                    cards={cards}
+                    cards={gameCards}
                     onRoundComplete={handleGameComplete}
                   />
                 </motion.div>
@@ -428,7 +437,7 @@ export default function StudySession() {
                     <h3 className="font-heading text-lg font-semibold">🧱 Brick Breaker</h3>
                     <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">← Change Game</Button>
                   </div>
-                  <BricksGame key="bricks-game" cards={cards} onRoundComplete={handleGameComplete} />
+                  <BricksGame key="bricks-game" cards={gameCards} onRoundComplete={handleGameComplete} />
                 </motion.div>
               )}
 
@@ -438,7 +447,7 @@ export default function StudySession() {
                     <h3 className="font-heading text-lg font-semibold">🃏 Memory Match</h3>
                     <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">← Change Game</Button>
                   </div>
-                  <MemoryMatchGame key="memory-game" cards={cards} onRoundComplete={handleGameComplete} />
+                  <MemoryMatchGame key="memory-game" cards={gameCards} onRoundComplete={handleGameComplete} />
                 </motion.div>
               )}
 
@@ -448,7 +457,7 @@ export default function StudySession() {
                     <h3 className="font-heading text-lg font-semibold">⚡ Lightning Round</h3>
                     <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">← Change Game</Button>
                   </div>
-                  <LightningRoundGame key="lightning-game" cards={cards} onRoundComplete={handleGameComplete} />
+                  <LightningRoundGame key="lightning-game" cards={gameCards} onRoundComplete={handleGameComplete} />
                 </motion.div>
               )}
 
@@ -458,7 +467,7 @@ export default function StudySession() {
                     <h3 className="font-heading text-lg font-semibold">⚔️ Battle RPG</h3>
                     <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">← Change Game</Button>
                   </div>
-                  <BattleRPGGame key="battle-game" cards={cards} onRoundComplete={handleGameComplete} />
+                  <BattleRPGGame key="battle-game" cards={gameCards} onRoundComplete={handleGameComplete} />
                 </motion.div>
               )}
 
@@ -468,7 +477,7 @@ export default function StudySession() {
                     <h3 className="font-heading text-lg font-semibold">🔤 Word Scramble</h3>
                     <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">← Change Game</Button>
                   </div>
-                  <WordScrambleGame key="scramble-game" cards={cards} onRoundComplete={handleGameComplete} />
+                  <WordScrambleGame key="scramble-game" cards={gameCards} onRoundComplete={handleGameComplete} />
                 </motion.div>
               )}
             </AnimatePresence>

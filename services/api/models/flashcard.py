@@ -68,6 +68,9 @@ class Flashcard(Base):
     )
     front: Mapped[str] = mapped_column(Text, nullable=False)
     back: Mapped[str] = mapped_column(Text, nullable=False)
+    chapter: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    difficulty: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    cognitive_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

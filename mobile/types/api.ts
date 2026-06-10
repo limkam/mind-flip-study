@@ -109,6 +109,7 @@ export type FlashcardOut = {
   created_at: string;
   difficulty?: string | null;
   chapter?: string | null;
+  cognitive_level?: string | null;
 };
 
 export type DueFlashcardOut = FlashcardOut & {
@@ -120,9 +121,21 @@ export type DueFlashcardOut = FlashcardOut & {
 };
 
 export type ScenarioOut = {
+  type?: string;
   title: string;
-  prompt: string;
+  context?: string;
+  challenge?: string;
+  question?: string;
+  prompt?: string;
+  model_answer?: string;
+  explanation?: string;
   guidance?: string;
+};
+
+export type ChapterSummaryOut = {
+  chapter: string;
+  summary: string;
+  key_points?: string[];
 };
 
 export type FlashcardSetOut = {
@@ -134,6 +147,8 @@ export type FlashcardSetOut = {
   cards: FlashcardOut[];
   summary?: string | null;
   scenarios?: ScenarioOut[];
+  chapter_summaries?: ChapterSummaryOut[];
+  generation_seed?: number | null;
 };
 
 export type JobStatusResponse = {

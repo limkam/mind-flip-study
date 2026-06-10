@@ -3,9 +3,21 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "../hooks/useTheme";
 
+const TYPE_LABELS: Record<string, string> = {
+  real_life: "Real-Life Application",
+  decision: "Decision-Making",
+  professional: "Professional Case Study",
+};
+
 export type ScenarioItem = {
+  type?: string;
   title: string;
-  prompt: string;
+  context?: string;
+  challenge?: string;
+  question?: string;
+  prompt?: string;
+  model_answer?: string;
+  explanation?: string;
   guidance?: string;
 };
 
@@ -32,10 +44,12 @@ export function ScenarioView({ scenarios = [] }: Props) {
   return (
     <View style={styles.wrap}>
       <Text style={[styles.lead, { color: colors.muted }]}>
-        {scenarios.length} scenario{scenarios.length !== 1 ? "s" : ""} — apply what you learned to realistic situations.
+        {scenarios.length} scenarios — apply, decide, and analyze concepts from across the document.
       </Text>
       {scenarios.map((scenario, i) => {
         const open = openIndex === i;
+        const typeLabel = TYPE_LABELS[scenario.type || ""] || "Scenario";
+        const question = scenario.question || scenario.prompt || "";
         return (
           <View key={i} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Pressable style={styles.cardHead} onPress={() => setOpenIndex(open ? -1 : i)}>
@@ -43,15 +57,30 @@ export function ScenarioView({ scenarios = [] }: Props) {
                 <Text style={[styles.numText, { color: colors.primary }]}>{i + 1}</Text>
               </View>
               <View style={{ flex: 1 }}>
+                <Text style={[styles.typeLabel, { color: colors.primary }]}>{typeLabel}</Text>
                 <Text style={[styles.title, { color: colors.text }]}>{scenario.title}</Text>
-                <Text style={[styles.prompt, { color: colors.muted }]}>{scenario.prompt}</Text>
+                {scenario.context ? <Text style={[styles.body, { color: colors.muted }]}>{scenario.context}</Text> : null}
+                {scenario.challenge ? (
+                  <Text style={[styles.body, { color: colors.text }]}>Challenge: {scenario.challenge}</Text>
+                ) : null}
+                <Text style={[styles.body, { color: colors.text }]}>Question: {question}</Text>
               </View>
               <Text style={{ color: colors.muted }}>{open ? "▲" : "▼"}</Text>
             </Pressable>
-            {open && scenario.guidance ? (
-              <View style={styles.guidanceWrap}>
-                <Text style={[styles.guidanceLabel, { color: colors.primary }]}>Strong answer should cover</Text>
-                <Text style={[styles.guidance, { color: colors.text }]}>{scenario.guidance}</Text>
+            {open && (scenario.model_answer || scenario.explanation || scenario.guidance) ? (
+              <View style={styles.answerWrap}>
+                {scenario.model_answer ? (
+                  <>
+                    <Text style={[styles.label, { color: colors.primary }]}>Model answer</Text>
+                    <Text style={[styles.body, { color: colors.text }]}>{scenario.model_answer}</Text>
+                  </>
+                ) : null}
+                {scenario.explanation || scenario.guidance ? (
+                  <>
+                    <Text style={[styles.label, { color: colors.primary, marginTop: 8 }]}>Explanation</Text>
+                    <Text style={[styles.body, { color: colors.text }]}>{scenario.explanation || scenario.guidance}</Text>
+                  </>
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -68,17 +97,12 @@ const styles = StyleSheet.create({
   cardHead: { flexDirection: "row", gap: 12, padding: 16, alignItems: "flex-start" },
   num: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   numText: { fontWeight: "800", fontSize: 14 },
+  typeLabel: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", marginBottom: 4 },
   title: { fontSize: 16, fontWeight: "700", marginBottom: 6 },
-  prompt: { fontSize: 14, lineHeight: 20 },
-  guidanceWrap: { paddingHorizontal: 16, paddingBottom: 16, paddingLeft: 60 },
-  guidanceLabel: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", marginBottom: 6 },
-  guidance: { fontSize: 14, lineHeight: 20 },
-  empty: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 24,
-    alignItems: "center",
-  },
+  body: { fontSize: 14, lineHeight: 20, marginTop: 4 },
+  label: { fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  answerWrap: { paddingHorizontal: 16, paddingBottom: 16, paddingLeft: 60 },
+  empty: { borderRadius: 16, borderWidth: 1, padding: 24, alignItems: "center" },
   emptyIcon: { fontSize: 32, marginBottom: 8 },
   emptyTitle: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
   emptyBody: { fontSize: 14, lineHeight: 20, textAlign: "center" },

@@ -20,11 +20,19 @@ class FlashcardOut(BaseModel):
     created_at: datetime
     chapter: str | None = None
     difficulty: str | None = None
+    cognitive_level: str | None = None
+    cognitive_level: str | None = None
 
 
 class ScenarioOut(BaseModel):
+    type: str = "real_life"
     title: str
-    prompt: str
+    context: str = ""
+    challenge: str = ""
+    question: str = ""
+    model_answer: str = ""
+    explanation: str = ""
+    prompt: str = ""
     guidance: str = ""
 
 
@@ -51,6 +59,8 @@ class FlashcardSetOut(BaseModel):
     selected_chapters: list[Any] = Field(default_factory=list)
     summary: str | None = None
     scenarios: list[ScenarioOut] = Field(default_factory=list)
+    chapter_summaries: list[Any] = Field(default_factory=list)
+    generation_seed: int | None = None
 
 
 class FlashcardSetUpdate(BaseModel):

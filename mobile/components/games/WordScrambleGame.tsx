@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { shuffle } from "../../lib/gameUtils";
 import { hapticError, hapticImpact, hapticSuccess, hapticWarning } from "../../lib/haptics";
+import { useGameCardPool } from "../../hooks/useGameCardPool";
 import { useTheme } from "../../hooks/useTheme";
 import type { GameProps } from "./types";
+import { DifficultyModePicker } from "./DifficultyModePicker";
 import { GameResult } from "./GameResult";
 
 const TIME_PER_ROUND = 20;
@@ -32,17 +33,18 @@ function scrambleWord(str: string): string {
   return str.slice(1) + str[0];
 }
 
-export function WordScrambleGame({ cards, onComplete }: GameProps) {
+export function WordScrambleGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
   const { colors } = useTheme();
+  const { mode, setMode, pool } = useGameCardPool(cards, Math.min(8, cards.length), generationSeed, "scramble");
   const rounds = useMemo(
     () =>
-      cards.slice(0, 8).flatMap((c) => {
+      pool.flatMap((c) => {
         const raw = c.back.split(".")[0].split(",")[0].trim();
         const answer = raw.replace(/[^a-zA-Z0-9 ]/g, "").slice(0, 20).toUpperCase();
         if (!canScramble(answer)) return [];
         return [{ question: c.front, answer, scrambled: scrambleWord(answer) }];
       }),
-    [cards],
+    [pool],
   );
   const [idx, setIdx] = useState(0);
   const [input, setInput] = useState("");
@@ -53,6 +55,18 @@ export function WordScrambleGame({ cards, onComplete }: GameProps) {
   const [compLeft, setCompLeft] = useState(COMPUTER_DELAY);
   const [done, setDone] = useState(false);
   const ended = useRef(false);
+
+  useEffect(() => {
+    setIdx(0);
+    setInput("");
+    setPlayerScore(0);
+    setComputerScore(0);
+    setRoundResult(null);
+    setTimeLeft(TIME_PER_ROUND);
+    setCompLeft(COMPUTER_DELAY);
+    setDone(false);
+    ended.current = false;
+  }, [mode]);
 
   const round = rounds[idx];
 
@@ -151,6 +165,7 @@ export function WordScrambleGame({ cards, onComplete }: GameProps) {
 
   return (
     <View>
+      <DifficultyModePicker value={mode} onChange={setMode} disabled={idx > 0 || !!roundResult || done} />
       <View style={[styles.score, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <Text style={{ color: colors.primary, fontWeight: "800", fontSize: 22 }}>{playerScore}</Text>
         <Text style={{ color: colors.muted }}>VS</Text>

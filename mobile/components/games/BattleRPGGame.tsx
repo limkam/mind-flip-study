@@ -1,11 +1,18 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, withSequence, withTiming } from "react-native-reanimated";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 
-import { buildMcq } from "../../lib/gameUtils";
+import { useGameMcq } from "../../hooks/useGameMcq";
 import { hapticError, hapticImpact, hapticSuccess } from "../../lib/haptics";
 import { useTheme } from "../../hooks/useTheme";
 import type { GameProps } from "./types";
+import { DifficultyModePicker } from "./DifficultyModePicker";
 import { GameResult } from "./GameResult";
 import { McqOptions } from "./McqOptions";
 
@@ -29,9 +36,9 @@ function HpBar({ hp, max, fill }: { hp: number; max: number; fill: string }) {
   );
 }
 
-export function BattleRPGGame({ cards, onComplete }: GameProps) {
+export function BattleRPGGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
   const { colors } = useTheme();
-  const questions = useMemo(() => buildMcq(cards, Math.min(12, cards.length), 4), [cards]);
+  const { mode, setMode, questions } = useGameMcq(cards, Math.min(12, cards.length), generationSeed, 4);
   const [enemy] = useState(() => ENEMIES[Math.floor(Math.random() * ENEMIES.length)]);
   const [idx, setIdx] = useState(0);
   const [playerHp, setPlayerHp] = useState(PLAYER_MAX);
@@ -112,6 +119,7 @@ export function BattleRPGGame({ cards, onComplete }: GameProps) {
 
   return (
     <View>
+      <DifficultyModePicker value={mode} onChange={setMode} disabled={showResult || !!winner} />
       <View style={[styles.arena, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.fighter}>
           <Text style={{ color: colors.success, fontSize: 12, fontWeight: "700" }}>YOU</Text>

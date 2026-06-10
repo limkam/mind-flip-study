@@ -1,19 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
-import { buildMcq } from "../../lib/gameUtils";
+import { useGameMcq } from "../../hooks/useGameMcq";
 import { hapticError, hapticImpact, hapticSuccess, hapticWarning } from "../../lib/haptics";
 import { useTheme } from "../../hooks/useTheme";
 import type { GameProps } from "./types";
+import { DifficultyModePicker } from "./DifficultyModePicker";
 import { GameResult } from "./GameResult";
 import { McqOptions } from "./McqOptions";
 
 const TIME_PER_Q = 10;
 
-export function TugOfWarGame({ cards, onComplete }: GameProps) {
+export function TugOfWarGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
   const { colors } = useTheme();
-  const questions = useMemo(() => buildMcq(cards, Math.min(10, cards.length), 4), [cards]);
+  const { mode, setMode, questions } = useGameMcq(cards, Math.min(10, cards.length), generationSeed, 4);
   const [idx, setIdx] = useState(0);
   const [ropePos, setRopePos] = useState(50);
   const rope = useSharedValue(50);
@@ -107,6 +108,7 @@ export function TugOfWarGame({ cards, onComplete }: GameProps) {
 
   return (
     <View>
+      <DifficultyModePicker value={mode} onChange={setMode} disabled={showResult || !!winner} />
       <Text style={{ color: colors.muted, textAlign: "center", marginBottom: 8 }}>
         Q {idx + 1}/{questions.length} · {timeLeft}s
       </Text>

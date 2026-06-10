@@ -86,6 +86,7 @@ export default function GamePlayScreen() {
       ) : (
         <GameComponent
           cards={cards}
+          generationSeed={data?.generation_seed ?? 0}
           onComplete={(result) => {
             Alert.alert(
               "Round complete",

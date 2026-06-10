@@ -124,6 +124,8 @@ export default function StudyByIdScreen() {
         bookTitle: setMeta?.book_title,
         summary: setMeta?.summary ?? null,
         scenarios: setMeta?.scenarios ?? [],
+        chapterSummaries: setMeta?.chapter_summaries ?? [],
+        generationSeed: setMeta?.generation_seed ?? 0,
         cards,
         allCards,
         fromCache,
@@ -285,6 +287,15 @@ export default function StudyByIdScreen() {
               <Text style={[styles.summaryBody, { color: colors.muted }]}>{data.summary}</Text>
             </View>
           ) : null}
+          {(data?.chapterSummaries ?? []).map((ch) => (
+            <View
+              key={ch.chapter}
+              style={[styles.summaryBox, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            >
+              <Text style={[styles.summaryTitle, { color: colors.text }]}>{ch.chapter}</Text>
+              <Text style={[styles.summaryBody, { color: colors.muted }]}>{ch.summary}</Text>
+            </View>
+          ))}
           <ChapterSummaryView cards={allCards} bookTitle={data?.bookTitle} />
         </ScrollView>
       ) : mode === "scenarios" ? (
