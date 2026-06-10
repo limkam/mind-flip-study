@@ -5,10 +5,11 @@ import { Loader2, Sparkles, BookOpen, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import SummaryCard from "./SummaryCard";
 
-export default function SummaryView({ cards, bookTitle, selectedChapters }) {
+export default function SummaryView({ cards, bookTitle, selectedChapters, prefillSummary }) {
   const [summaries, setSummaries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const hasPrefill = Boolean(prefillSummary?.trim());
 
   const generateSummaries = async () => {
     setLoading(true);
@@ -70,7 +71,34 @@ Return structured JSON covering every chapter listed.`,
 
   return (
     <div className="space-y-4">
-      {!generated && !loading && (
+      {hasPrefill && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl border border-border bg-card p-6"
+        >
+          <h3 className="font-heading text-lg font-semibold mb-3">Study Summary</h3>
+          <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{prefillSummary}</p>
+        </motion.div>
+      )}
+
+      {!generated && !loading && hasPrefill && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center py-10 bg-card rounded-2xl border border-border"
+        >
+          <h3 className="font-heading text-lg font-semibold mb-2">Chapter Summaries</h3>
+          <p className="text-muted-foreground text-sm max-w-sm mx-auto mb-6">
+            Generate detailed per-chapter summaries from your flashcards.
+          </p>
+          <Button onClick={generateSummaries} className="gap-2 px-8">
+            <Sparkles className="w-4 h-4" /> Generate Chapter Summaries
+          </Button>
+        </motion.div>
+      )}
+
+      {!generated && !loading && !hasPrefill && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}

@@ -6,11 +6,12 @@ import client from '@/api/client';
  * Polls GET /jobs/{jobId} while the document is visible; clears on unmount.
  */
 export function useJobPoll(jobId, options = {}) {
-  const { intervalMs = 1500, onTerminal } = options;
+  const { intervalMs = 1500, onTerminal, onProgress } = options;
   const timerRef = useRef(null);
   const visibleRef = useRef(
     typeof document !== 'undefined' && document.visibilityState === 'visible',
   );
+  const lastPhaseRef = useRef(null);
 
   useEffect(() => {
     const onVis = () => {
@@ -24,6 +25,12 @@ export function useJobPoll(jobId, options = {}) {
     if (!jobId || !visibleRef.current) return;
     try {
       const { data } = await client.get(`/jobs/${jobId}`);
+      if (data.phase !== lastPhaseRef.current) {
+        lastPhaseRef.current = data.phase;
+        onProgress?.(data);
+      } else if (data.status === 'started' || data.status === 'pending') {
+        onProgress?.(data);
+      }
       if (data.status === 'complete' || data.status === 'failed') {
         if (timerRef.current) {
           clearInterval(timerRef.current);
@@ -34,10 +41,11 @@ export function useJobPoll(jobId, options = {}) {
     } catch {
       /* ignore transient errors */
     }
-  }, [jobId, onTerminal]);
+  }, [jobId, onTerminal, onProgress]);
 
   useEffect(() => {
     if (!jobId) return;
+    lastPhaseRef.current = null;
     void tick();
     timerRef.current = setInterval(() => void tick(), intervalMs);
     return () => {

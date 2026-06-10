@@ -14,9 +14,10 @@ import { GenerateProgressBar } from "../../components/GenerateProgressBar";
 import { Screen } from "../../components/Screen";
 import { api } from "../../api/client";
 import { useJobPoll } from "../../hooks/useJobPoll";
+import { extractJobError, extractSetIdFromJob, generationPhaseLabel } from "../../lib/generationPhases";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
-import type { BookOut, JobStatusResponse } from "../../types/api";
+import type { BookOut, FlashcardSetOut, JobStatusResponse } from "../../types/api";
 
 const COUNTS = [20, 50, 100] as const;
 
@@ -30,6 +31,7 @@ export default function BookByIdScreen() {
   const [selectedChapters, setSelectedChapters] = useState<string[]>([]);
   const [expandedChapters, setExpandedChapters] = useState<Record<number, boolean>>({});
   const [jobId, setJobId] = useState<string | null>(null);
+  const [generationPhase, setGenerationPhase] = useState<string | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
 
   const { data: book, isLoading, isError, refetch } = useQuery({
@@ -73,24 +75,43 @@ export default function BookByIdScreen() {
 
   const fetchJob = useCallback(async () => {
     const { data } = await api.get<JobStatusResponse>(`/jobs/${jobId!}`);
+    if (data.phase) setGenerationPhase(data.phase);
     return data;
   }, [jobId]);
 
   useJobPoll(jobId, fetchJob, {
     intervalMs: 2000,
-    onTerminal: (body) => {
-      setJobId(null);
-      if (body.status === "complete" && body.result && typeof body.result === "object" && "set_id" in body.result) {
-        const sid = String((body.result as { set_id: string }).set_id);
+    onTerminal: async (body) => {
+      const setId = extractSetIdFromJob(body);
+      if (body.status === "complete" && setId) {
+        setJobId(null);
+        setGenerationPhase(null);
         void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
-        router.replace(`/study/${sid}`);
-      } else {
-        const err =
-          body?.result && typeof body.result === "object" && "error" in body.result
-            ? String((body.result as { error: unknown }).error)
-            : "Generation failed. Try again.";
-        setGenError(err);
+        router.replace(`/study/${setId}`);
+        return;
       }
+
+      if (body.status === "failed" && book?.id) {
+        try {
+          const { data: sets } = await api.get<FlashcardSetOut[]>("/flashcard-sets/", {
+            params: { include_cards: false },
+          });
+          const recent = (sets || []).find((s) => s.book_id === book.id);
+          if (recent?.id) {
+            setJobId(null);
+            setGenerationPhase(null);
+            void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
+            router.replace(`/study/${recent.id}`);
+            return;
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+
+      setJobId(null);
+      setGenerationPhase(null);
+      setGenError(extractJobError(body) || "Generation failed. Try again.");
     },
   });
 
@@ -101,6 +122,7 @@ export default function BookByIdScreen() {
       return;
     }
     setGenError(null);
+    setGenerationPhase("starting");
     try {
       const title =
         chapters.length === 0 ? `${book.title} — Study set` : `${book.title} — ${selectedChapters.join(", ")}`;
@@ -251,7 +273,7 @@ export default function BookByIdScreen() {
             </View>
 
             {genError ? <Text style={[styles.error, { color: colors.danger }]}>{genError}</Text> : null}
-            {jobId ? <GenerateProgressBar label="Generating flashcards with AI…" /> : null}
+            {jobId ? <GenerateProgressBar phase={generationPhase} label={generationPhaseLabel(generationPhase)} /> : null}
 
             <Pressable
               style={[styles.primaryBtn, { backgroundColor: colors.primary }, !canGenerate && { opacity: 0.6 }]}

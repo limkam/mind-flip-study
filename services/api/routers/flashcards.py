@@ -21,6 +21,7 @@ from schemas.flashcards_api import (
     FlashcardSetOut,
     FlashcardSetUpdate,
     GenerateFlashcardsRequest,
+    ScenarioOut,
     flashcard_set_meta_from_description,
 )
 from schemas.job import JobEnqueueResponse
@@ -39,6 +40,16 @@ async def _book_title(db: AsyncSession, book_id: UUID | None) -> str | None:
 async def _serialize_set(db: AsyncSession, s: FlashcardSet, *, include_cards: bool = True) -> FlashcardSetOut:
     bt = await _book_title(db, s.book_id)
     meta = flashcard_set_meta_from_description(s.description)
+    summary_text = str(meta.get("summary") or "").strip() or None
+    scenario_rows = [
+        ScenarioOut(
+            title=str(sc.get("title", "")),
+            prompt=str(sc.get("prompt", "")),
+            guidance=str(sc.get("guidance", "")),
+        )
+        for sc in (meta.get("scenarios") or [])
+        if isinstance(sc, dict) and sc.get("title") and sc.get("prompt")
+    ]
     if include_cards:
         cr = await db.execute(select(Flashcard).where(Flashcard.set_id == s.id).order_by(Flashcard.created_at))
         cards = cr.scalars().all()
@@ -72,6 +83,8 @@ async def _serialize_set(db: AsyncSession, s: FlashcardSet, *, include_cards: bo
         cards=card_rows,
         card_count=card_count,
         selected_chapters=list(meta.get("selected_chapters") or []),
+        summary=summary_text,
+        scenarios=scenario_rows,
     )
 
 

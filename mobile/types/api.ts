@@ -119,6 +119,12 @@ export type DueFlashcardOut = FlashcardOut & {
   repetitions: number | null;
 };
 
+export type ScenarioOut = {
+  title: string;
+  prompt: string;
+  guidance?: string;
+};
+
 export type FlashcardSetOut = {
   id: string;
   title: string;
@@ -126,9 +132,12 @@ export type FlashcardSetOut = {
   book_title: string | null;
   book_id: string | null;
   cards: FlashcardOut[];
+  summary?: string | null;
+  scenarios?: ScenarioOut[];
 };
 
 export type JobStatusResponse = {
   status: "pending" | "started" | "complete" | "failed";
+  phase?: string | null;
   result?: unknown;
 };

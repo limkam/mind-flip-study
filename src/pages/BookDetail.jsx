@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "@/api/client";
 import { useJobPoll } from "@/hooks/useJobPoll";
 import GenerateProgressBar from "@/components/dashboard/GenerateProgressBar";
+import { extractJobError, extractSetIdFromJob, generationPhaseLabel } from "@/lib/generationPhases";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,24 +42,56 @@ export default function BookDetail() {
   const [generating, setGenerating] = useState(false);
   const [editingTags, setEditingTags] = useState(false);
   const [activeJobId, setActiveJobId] = useState(null);
+  const [generationPhase, setGenerationPhase] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   useJobPoll(activeJobId, {
     intervalMs: 1500,
-    onTerminal: (data) => {
+    onProgress: (data) => {
+      if (data?.phase) setGenerationPhase(data.phase);
+    },
+    onTerminal: async (data) => {
+      const setId = extractSetIdFromJob(data);
+      if (data.status === "complete" && setId) {
+        setActiveJobId(null);
+        setGenerating(false);
+        setGenerationPhase(null);
+        queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
+        toast({
+          title: data?.result?.recovered ? "Flashcards ready" : "Study content generated!",
+          description: "Summary, flashcards, and scenarios are ready.",
+        });
+        navigate(`/study/${setId}`);
+        return;
+      }
+
+      if (data.status === "failed" && id) {
+        try {
+          const { data: sets } = await client.get("/flashcard-sets/", { params: { include_cards: false } });
+          const bookSets = (sets || []).filter((s) => s.book_id === id);
+          const recent = bookSets[0];
+          if (recent?.id) {
+            setActiveJobId(null);
+            setGenerating(false);
+            setGenerationPhase(null);
+            queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
+            toast({
+              title: "Flashcards ready",
+              description: "Generation finished — your study set was saved.",
+            });
+            navigate(`/study/${recent.id}`);
+            return;
+          }
+        } catch {
+          /* fall through to error toast */
+        }
+      }
+
       setActiveJobId(null);
       setGenerating(false);
-      if (data.status === "complete" && data?.result?.set_id) {
-        queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
-        toast({ title: "Flashcards generated!" });
-        navigate(`/study/${data.result.set_id}`);
-      } else {
-        const err =
-          data?.result && typeof data.result === "object" && data.result.error != null
-            ? String(data.result.error)
-            : "Generation failed";
-        toast({ title: "Generation failed", description: err, variant: "destructive" });
-      }
+      setGenerationPhase(null);
+      const err = extractJobError(data) || "Generation failed";
+      toast({ title: "Generation failed", description: err, variant: "destructive" });
     },
   });
 
@@ -103,6 +136,7 @@ export default function BookDetail() {
     }
 
     setGenerating(true);
+    setGenerationPhase("starting");
     try {
       const count = parseInt(cardCount, 10);
       const title =
@@ -117,8 +151,10 @@ export default function BookDetail() {
         selected_chapters: selectedChapters,
       });
       setActiveJobId(job.job_id);
+      toast({ title: "Generation started", description: "Creating summary, flashcards, and scenarios…" });
     } catch (e) {
       setGenerating(false);
+      setGenerationPhase(null);
       const msg = e.response?.data?.detail;
       const description = typeof msg === "object" ? msg.message : msg || e.message;
       
@@ -364,7 +400,7 @@ export default function BookDetail() {
         </div>
 
         {activeJobId ? (
-          <GenerateProgressBar label="Generating flashcards with AI…" />
+          <GenerateProgressBar phase={generationPhase} label={generationPhaseLabel(generationPhase)} />
         ) : null}
 
         <Button

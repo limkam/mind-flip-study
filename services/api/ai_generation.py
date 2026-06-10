@@ -24,6 +24,56 @@ def celery_job_description(task_id: str) -> str:
     return f"{CELERY_JOB_DESC_PREFIX}{task_id}"
 
 
+def build_set_description(
+    *,
+    summary: str,
+    job_id: str,
+    selected_chapters: list[str] | None = None,
+    scenarios: list[dict[str, str]] | None = None,
+) -> str:
+    payload: dict[str, Any] = {
+        "summary": summary,
+        "job_id": job_id,
+        "selected_chapters": selected_chapters or [],
+        "scenarios": scenarios or [],
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def parse_set_description(description: str | None) -> dict[str, Any]:
+    if not description or not description.strip():
+        return {}
+    text = description.strip()
+    if text.startswith("{"):
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+    if text.startswith(CELERY_JOB_DESC_PREFIX):
+        return {"job_id": text[len(CELERY_JOB_DESC_PREFIX) :]}
+    return {"summary": text}
+
+
+def validate_scenarios(raw: list[Any], *, expected: int | None = None) -> list[dict[str, str]]:
+    if not raw:
+        raise ValueError("Model returned no scenarios")
+    validated: list[dict[str, str]] = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"Scenario {i} must be an object")
+        title = str(item.get("title", "")).strip()
+        prompt = str(item.get("prompt", "")).strip()
+        guidance = str(item.get("guidance", "")).strip()
+        if not title or not prompt:
+            raise ValueError(f"Scenario {i} missing title or prompt")
+        validated.append({"title": title, "prompt": prompt, "guidance": guidance})
+    if expected is not None and len(validated) < 1:
+        raise ValueError(f"Expected at least one scenario, got {len(validated)}")
+    return validated[:expected] if expected else validated
+
+
 def parse_model_json(raw: str) -> dict[str, Any]:
     text = (raw or "").strip()
     if not text:
@@ -115,10 +165,19 @@ def sections_to_chapters(sections: list[Any]) -> list[dict[str, Any]]:
 
 def find_flashcard_set_for_job(db: Session, *, user_id: UUID, task_id: str) -> FlashcardSet | None:
     desc = celery_job_description(task_id)
-    return db.execute(
+    row = db.execute(
         select(FlashcardSet).where(
             FlashcardSet.user_id == user_id,
             FlashcardSet.description == desc,
+        ),
+    ).scalar_one_or_none()
+    if row is not None:
+        return row
+    job_marker = f'"job_id": "{task_id}"'
+    return db.execute(
+        select(FlashcardSet).where(
+            FlashcardSet.user_id == user_id,
+            FlashcardSet.description.contains(job_marker),
         ),
     ).scalar_one_or_none()
 

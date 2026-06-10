@@ -14,10 +14,11 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   ArrowLeft, GraduationCap, Gamepad2, Loader2,
-  ChevronLeft, ChevronRight, BookOpen, Brain
+  ChevronLeft, ChevronRight, BookOpen, Brain, Lightbulb
 } from "lucide-react";
 import FlashCard from "@/components/study/FlashCard";
 import SummaryView from "@/components/study/SummaryView";
+import ScenarioView from "@/components/study/ScenarioView";
 import QuizGame from "@/components/study/QuizGame";
 import GameSelector from "@/components/games/GameSelector";
 import HangmanGame from "@/components/games/HangmanGame";
@@ -211,12 +212,15 @@ export default function StudySession() {
       </motion.div>
 
       <Tabs value={mode} onValueChange={(v) => { setMode(v); setSelectedGame(null); }} className="mb-8">
-        <TabsList className="w-full max-w-lg mx-auto grid grid-cols-3 h-12">
+        <TabsList className="w-full max-w-2xl mx-auto grid grid-cols-4 h-12">
           <TabsTrigger value="flashcards" className="gap-1.5 text-sm font-medium">
             <GraduationCap className="w-4 h-4" /> Study Cards
           </TabsTrigger>
           <TabsTrigger value="summary" className="gap-1.5 text-sm font-medium">
             <BookOpen className="w-4 h-4" /> Summary
+          </TabsTrigger>
+          <TabsTrigger value="scenarios" className="gap-1.5 text-sm font-medium">
+            <Lightbulb className="w-4 h-4" /> Scenarios
           </TabsTrigger>
           <TabsTrigger value="quiz" className="gap-1.5 text-sm font-medium">
             <Gamepad2 className="w-4 h-4" /> Games
@@ -347,7 +351,12 @@ export default function StudySession() {
             cards={cards}
             bookTitle={flashcardSet.book_title}
             selectedChapters={flashcardSet.selected_chapters || []}
+            prefillSummary={flashcardSet.summary}
           />
+        </TabsContent>
+
+        <TabsContent value="scenarios" className="mt-8">
+          <ScenarioView scenarios={flashcardSet.scenarios || []} />
         </TabsContent>
 
         {/* ── GAMES TAB ── */}

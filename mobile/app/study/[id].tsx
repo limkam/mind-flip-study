@@ -21,6 +21,7 @@ import { GameSelector } from "../../components/games";
 import { Screen } from "../../components/Screen";
 import { SummaryView as SessionSummaryView } from "../../components/SummaryView";
 import { ChapterSummaryView } from "../../components/study/ChapterSummaryView";
+import { ScenarioView } from "../../components/study/ScenarioView";
 import { EmptyState } from "../../components/EmptyState";
 import { StudySkeleton } from "../../components/skeletons/StudySkeleton";
 import { api } from "../../api/client";
@@ -37,7 +38,7 @@ import { hapticImpact, hapticSuccess } from "../../lib/haptics";
 import type { DueFlashcardOut, FlashcardSetOut } from "../../types/api";
 import type { GameSlug } from "../../components/games/types";
 
-type StudyMode = "study" | "summary" | "games";
+type StudyMode = "study" | "summary" | "scenarios" | "games";
 
 type StudyCard = {
   id: string;
@@ -121,6 +122,8 @@ export default function StudyByIdScreen() {
       return {
         title: setMeta?.title ?? "Study",
         bookTitle: setMeta?.book_title,
+        summary: setMeta?.summary ?? null,
+        scenarios: setMeta?.scenarios ?? [],
         cards,
         allCards,
         fromCache,
@@ -248,6 +251,7 @@ export default function StudyByIdScreen() {
       <View style={[styles.tabRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <TabButton label="Study" active={mode === "study"} onPress={() => setMode("study")} colors={colors} />
         <TabButton label="Summary" active={mode === "summary"} onPress={() => setMode("summary")} colors={colors} />
+        <TabButton label="Scenarios" active={mode === "scenarios"} onPress={() => setMode("scenarios")} colors={colors} />
         <TabButton label="Games" active={mode === "games"} onPress={() => setMode("games")} colors={colors} />
       </View>
 
@@ -275,7 +279,17 @@ export default function StudyByIdScreen() {
         />
       ) : mode === "summary" ? (
         <ScrollView contentContainerStyle={styles.tabScroll} showsVerticalScrollIndicator>
+          {data?.summary ? (
+            <View style={[styles.summaryBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.summaryTitle, { color: colors.text }]}>Study Summary</Text>
+              <Text style={[styles.summaryBody, { color: colors.muted }]}>{data.summary}</Text>
+            </View>
+          ) : null}
           <ChapterSummaryView cards={allCards} bookTitle={data?.bookTitle} />
+        </ScrollView>
+      ) : mode === "scenarios" ? (
+        <ScrollView contentContainerStyle={styles.tabScroll} showsVerticalScrollIndicator>
+          <ScenarioView scenarios={data?.scenarios ?? []} />
         </ScrollView>
       ) : mode === "games" ? (
         <ScrollView contentContainerStyle={styles.tabScroll} showsVerticalScrollIndicator>
@@ -463,6 +477,14 @@ const styles = StyleSheet.create({
   },
   tabBtnText: { fontSize: 14, fontWeight: "700" },
   tabScroll: { paddingHorizontal: 16, paddingBottom: 32 },
+  summaryBox: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 16,
+  },
+  summaryTitle: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
+  summaryBody: { fontSize: 14, lineHeight: 21 },
   iconBtn: {
     minWidth: 44,
     minHeight: 44,

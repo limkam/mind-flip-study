@@ -1,10 +1,10 @@
-import json
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ai_generation import parse_set_description
 from models.enums import WorkbookStatus
 
 
@@ -22,13 +22,14 @@ class FlashcardOut(BaseModel):
     difficulty: str | None = None
 
 
+class ScenarioOut(BaseModel):
+    title: str
+    prompt: str
+    guidance: str = ""
+
+
 def flashcard_set_meta_from_description(description: str | None) -> dict[str, Any]:
-    if not description or not description.strip().startswith("{"):
-        return {}
-    try:
-        return json.loads(description)
-    except json.JSONDecodeError:
-        return {}
+    return parse_set_description(description)
 
 
 class FlashcardSetOut(BaseModel):
@@ -48,6 +49,8 @@ class FlashcardSetOut(BaseModel):
     cards: list[FlashcardOut] = Field(default_factory=list)
     card_count: int = 0
     selected_chapters: list[Any] = Field(default_factory=list)
+    summary: str | None = None
+    scenarios: list[ScenarioOut] = Field(default_factory=list)
 
 
 class FlashcardSetUpdate(BaseModel):
