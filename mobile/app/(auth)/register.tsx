@@ -11,6 +11,7 @@ import {
 } from "react-native";
 
 import { PasswordInput } from "../../components/PasswordInput";
+import { MindFlipBrand } from "../../components/brand/MindFlipBrand";
 import { Screen } from "../../components/Screen";
 import { api } from "../../api/client";
 import { useTheme } from "../../hooks/useTheme";
@@ -55,7 +56,9 @@ export default function RegisterScreen() {
   return (
     <Screen keyboard style={styles.root}>
       <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <MindFlipBrand centered style={{ marginBottom: 16 }} />
         <Text style={[styles.title, { color: colors.text }]}>Create account</Text>
+        <Text style={[styles.subtitle, { color: colors.muted }]}>Start learning with MindFlip</Text>
         <TextInput
           style={inputStyle}
           placeholder="Full name"
@@ -106,7 +109,8 @@ const styles = StyleSheet.create({
     gap: 12,
     borderWidth: 1,
   },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 8 },
+  title: { fontSize: 22, fontWeight: "700", marginBottom: 4, textAlign: "center" },
+  subtitle: { fontSize: 14, textAlign: "center", marginBottom: 8 },
   input: {
     borderWidth: 1,
     borderRadius: 10,

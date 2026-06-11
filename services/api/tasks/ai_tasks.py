@@ -61,7 +61,8 @@ Output format: {"sections": [{"title": "...", "summary": "...", "key_points": [.
 
 
 def _update_job_progress(task_id: str, phase: str, **extra: Any) -> None:
-    cache_job(task_id, {"status": "started", "phase": phase, **extra})
+    existing = get_cached_job(task_id) or {}
+    cache_job(task_id, {**existing, "status": "started", "phase": phase, **extra})
 
 
 def _extract_pdf_text(data: bytes) -> str:
@@ -222,7 +223,8 @@ def _generate_chapter_summary(
 def _generate_scenarios(
     *,
     book_title: str,
-    segments_text: str,
+    chapter_title: str,
+    chapter_text: str,
     user_id: UUID,
     celery_task_id: str,
     generation_seed: int,
@@ -233,7 +235,8 @@ def _generate_scenarios(
         system=SCENARIO_SYSTEM,
         user_content=scenarios_user_prompt(
             book_title=book_title,
-            chapter_excerpts=segments_text[:CHAPTER_EXCERPT_JOIN_MAX],
+            chapter_title=chapter_title,
+            chapter_excerpt=chapter_text[:4000],
             seed_note=seed_note,
         ),
         max_tokens=4096,
@@ -242,7 +245,10 @@ def _generate_scenarios(
         celery_task_id=celery_task_id,
     )
     scenarios_raw = data.get("scenarios") or []
-    return validate_scenarios(scenarios_raw, expected=5)
+    validated = validate_scenarios(scenarios_raw, expected=5)
+    for sc in validated:
+        sc["chapter"] = chapter_title
+    return validated
 
 
 def _generate_overview_summary(
@@ -284,14 +290,23 @@ def _generate_study_content(
     allocations = allocate_card_quotas(num_cards, segments)
     chapter_titles = [seg.title for seg, _ in allocations]
     quotas = {seg.title: quota for seg, quota in allocations}
+    total_chapters = len(allocations)
 
     last_qa_errors: list[str] = []
     for qa_attempt in range(QA_MAX_ATTEMPTS):
         qa_feedback = "; ".join(last_qa_errors) if last_qa_errors else ""
         all_cards: list[dict[str, str]] = []
         chapter_summaries: list[dict[str, Any]] = []
+        all_scenarios: list[dict[str, str]] = []
+        cards_chapters_done = 0
 
-        _update_job_progress(celery_task_id, "generating_summary")
+        _update_job_progress(
+            celery_task_id,
+            "generating_summary",
+            chapters_total=total_chapters,
+            chapters_done=0,
+            percent_complete=0,
+        )
         _update_job_progress(celery_task_id, "generating_flashcards")
 
         with ThreadPoolExecutor(max_workers=min(8, len(allocations) + 2)) as pool:
@@ -321,25 +336,56 @@ def _generate_study_content(
                 ): seg.title
                 for seg, _ in allocations
             }
-            excerpt = "\n\n---\n\n".join(f"## {s.title}\n{s.text[:2000]}" for s, _ in allocations)
-            scenario_future = pool.submit(
-                _generate_scenarios,
-                book_title=book_title,
-                segments_text=excerpt,
-                user_id=user_id,
-                celery_task_id=celery_task_id,
-                generation_seed=generation_seed + qa_attempt,
-                qa_feedback=qa_feedback,
-            )
+            scenario_futures = {
+                pool.submit(
+                    _generate_scenarios,
+                    book_title=book_title,
+                    chapter_title=seg.title,
+                    chapter_text=seg.text,
+                    user_id=user_id,
+                    celery_task_id=celery_task_id,
+                    generation_seed=generation_seed + qa_attempt + i,
+                    qa_feedback=qa_feedback,
+                ): seg.title
+                for i, (seg, _) in enumerate(allocations)
+            }
 
             for fut in as_completed(card_futures):
                 all_cards.extend(fut.result())
+                cards_chapters_done += 1
+                pct = min(70, int((cards_chapters_done / max(total_chapters, 1)) * 70))
+                _update_job_progress(
+                    celery_task_id,
+                    "generating_flashcards",
+                    chapters_total=total_chapters,
+                    chapters_done=cards_chapters_done,
+                    percent_complete=pct,
+                )
 
-            _update_job_progress(celery_task_id, "generating_scenarios")
+            _update_job_progress(
+                celery_task_id,
+                "generating_scenarios",
+                chapters_total=total_chapters,
+                chapters_done=0,
+                percent_complete=72,
+            )
             for fut in as_completed(summary_futures):
                 chapter_summaries.append(fut.result())
             chapter_summaries.sort(key=lambda s: chapter_titles.index(s["chapter"]) if s["chapter"] in chapter_titles else 999)
-            scenarios = scenario_future.result()
+
+            scenario_chapters_done = 0
+            for fut in as_completed(scenario_futures):
+                all_scenarios.extend(fut.result())
+                scenario_chapters_done += 1
+                pct = min(92, 72 + int((scenario_chapters_done / max(total_chapters, 1)) * 20))
+                _update_job_progress(
+                    celery_task_id,
+                    "generating_scenarios",
+                    chapters_total=total_chapters,
+                    chapters_done=scenario_chapters_done,
+                    percent_complete=pct,
+                )
+            scenarios = all_scenarios
 
         overview = _generate_overview_summary(
             book_title=book_title,

@@ -98,16 +98,35 @@ def chapter_summary_user_prompt(*, book_title: str, chapter_title: str, chapter_
     )
 
 
-def scenarios_user_prompt(*, book_title: str, chapter_excerpts: str, seed_note: str) -> str:
+def scenarios_user_prompt(*, book_title: str, chapter_title: str, chapter_excerpt: str, seed_note: str) -> str:
     specs = "\n".join(
         f"{i + 1}. type={t} — {desc}" for i, (t, desc) in enumerate(SCENARIO_TYPE_SPECS)
     )
     return (
-        f'Create exactly 5 scenarios for "{book_title}" following these specifications:\n'
+        f'Create exactly 5 scenarios for chapter "{chapter_title}" from "{book_title}" '
+        f"following these specifications:\n"
         f"{specs}\n"
         f"Variation note: {seed_note}\n\n"
-        f"SOURCE EXCERPTS (multiple chapters):\n{chapter_excerpts}\n\n"
+        f"CHAPTER EXCERPT:\n{chapter_excerpt}\n\n"
         "Respond with ONLY valid JSON containing exactly 5 scenarios."
+    )
+
+
+def single_scenario_user_prompt(
+    *,
+    book_title: str,
+    chapter_title: str,
+    chapter_excerpt: str,
+    scenario_type: str,
+    type_description: str,
+    seed_note: str,
+) -> str:
+    return (
+        f'Create exactly 1 scenario for chapter "{chapter_title}" from "{book_title}".\n'
+        f"Required type: {scenario_type} — {type_description}\n"
+        f"Variation note: {seed_note}\n\n"
+        f"CHAPTER EXCERPT:\n{chapter_excerpt}\n\n"
+        'Respond with ONLY valid JSON: {"scenarios": [{ ... one scenario ... }]}'
     )
 
 

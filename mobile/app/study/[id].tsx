@@ -21,6 +21,7 @@ import { GameSelector } from "../../components/games";
 import { Screen } from "../../components/Screen";
 import { SummaryView as SessionSummaryView } from "../../components/SummaryView";
 import { ChapterSummaryView } from "../../components/study/ChapterSummaryView";
+import { StudySetHeader } from "../../components/study/StudySetHeader";
 import { ScenarioView } from "../../components/study/ScenarioView";
 import { EmptyState } from "../../components/EmptyState";
 import { StudySkeleton } from "../../components/skeletons/StudySkeleton";
@@ -35,7 +36,8 @@ import {
 } from "../../lib/offlineStudy";
 import { maybeRegisterPushAfterStudy } from "../../hooks/usePushNotifications";
 import { hapticImpact, hapticSuccess } from "../../lib/haptics";
-import type { DueFlashcardOut, FlashcardSetOut } from "../../types/api";
+import type { DueFlashcardOut, FlashcardSetOut, ScenarioOut } from "../../types/api";
+import { parseStudySetDisplay } from "../../lib/studySetDisplay";
 import type { GameSlug } from "../../components/games/types";
 
 type StudyMode = "study" | "summary" | "scenarios" | "games";
@@ -59,6 +61,7 @@ export default function StudyByIdScreen() {
   const [mode, setMode] = useState<StudyMode>("study");
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [offlineNote, setOfflineNote] = useState(false);
+  const [localScenarios, setLocalScenarios] = useState<ScenarioOut[] | null>(null);
 
   const progress = useSharedValue(0);
 
@@ -122,6 +125,8 @@ export default function StudyByIdScreen() {
       return {
         title: setMeta?.title ?? "Study",
         bookTitle: setMeta?.book_title,
+        selectedChapters: setMeta?.selected_chapters ?? [],
+        cardCount: setMeta?.card_count ?? allCards.length,
         summary: setMeta?.summary ?? null,
         scenarios: setMeta?.scenarios ?? [],
         chapterSummaries: setMeta?.chapter_summaries ?? [],
@@ -145,6 +150,7 @@ export default function StudyByIdScreen() {
     setMode("study");
     setRatings({});
     setOfflineNote(false);
+    setLocalScenarios(null);
     progress.value = 0;
   }, [id, progress]);
 
@@ -212,13 +218,19 @@ export default function StudyByIdScreen() {
     void refetch();
   }, [refetch]);
 
-  const title = data?.title ?? "Study";
+  const displayTitle = parseStudySetDisplay({
+    title: data?.title,
+    book_title: data?.bookTitle,
+    selected_chapters: data?.selectedChapters,
+  }).title;
+
+  const scenarios = localScenarios ?? data?.scenarios ?? [];
 
   return (
     <Screen edges={["bottom"]} style={{ backgroundColor: colors.background }}>
       <Stack.Screen
         options={{
-          title,
+          title: displayTitle || "Study",
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.text,
         }}
@@ -256,6 +268,18 @@ export default function StudyByIdScreen() {
         <TabButton label="Scenarios" active={mode === "scenarios"} onPress={() => setMode("scenarios")} colors={colors} />
         <TabButton label="Games" active={mode === "games"} onPress={() => setMode("games")} colors={colors} />
       </View>
+
+      {data && mode !== "study" ? (
+        <StudySetHeader
+          setMeta={{
+            title: data.title,
+            book_title: data.bookTitle,
+            selected_chapters: data.selectedChapters,
+            card_count: data.cardCount,
+          }}
+          cardCount={data.cardCount}
+        />
+      ) : null}
 
       {offlineNote || data?.fromCache ? (
         <Text style={[styles.offlineBanner, { backgroundColor: colors.surface, color: colors.warning }]}>
@@ -300,7 +324,11 @@ export default function StudyByIdScreen() {
         </ScrollView>
       ) : mode === "scenarios" ? (
         <ScrollView contentContainerStyle={styles.tabScroll} showsVerticalScrollIndicator>
-          <ScenarioView scenarios={data?.scenarios ?? []} />
+          <ScenarioView
+            scenarios={scenarios}
+            setId={id as string}
+            onScenariosChange={setLocalScenarios}
+          />
         </ScrollView>
       ) : mode === "games" ? (
         <ScrollView contentContainerStyle={styles.tabScroll} showsVerticalScrollIndicator>

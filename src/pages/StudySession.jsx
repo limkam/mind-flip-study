@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "@/api/client";
@@ -14,10 +14,12 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   ArrowLeft, GraduationCap, Gamepad2, Loader2,
-  ChevronLeft, ChevronRight, BookOpen, Brain, Lightbulb
+  BookOpen, Lightbulb
 } from "lucide-react";
 import { selectGameCards } from "@/lib/gameUtils";
 import FlashCard from "@/components/study/FlashCard";
+import FlashcardNavigation from "@/components/study/FlashcardNavigation";
+import StudySetHeader from "@/components/study/StudySetHeader";
 import SummaryView from "@/components/study/SummaryView";
 import ScenarioView from "@/components/study/ScenarioView";
 import QuizGame from "@/components/study/QuizGame";
@@ -46,6 +48,7 @@ export default function StudySession() {
   const [cardProgressMap, setCardProgressMap] = useState({}); // index -> progress record
   const [retryCards, setRetryCards] = useState(null); // null = hidden, array = show retry
   const [offlineHint, setOfflineHint] = useState(false);
+  const [localScenarios, setLocalScenarios] = useState(null);
 
   const { data: flashcardSet, isLoading } = useQuery({
     queryKey: ["flashcard-set", id],
@@ -87,6 +90,22 @@ export default function StudySession() {
     };
     load();
   }, [flashcardSet?.id]);
+
+  useEffect(() => {
+    setLocalScenarios(null);
+  }, [flashcardSet?.id]);
+
+  const scenarios = localScenarios ?? flashcardSet?.scenarios ?? [];
+
+  const cards = flashcardSet?.cards || [];
+  const gameSeed = flashcardSet?.generation_seed || 0;
+  const hardCount = Object.values(cardProgressMap).filter(p => p.rating === "hard").length;
+  const easyCount = Object.values(cardProgressMap).filter(p => p.rating === "easy").length;
+  const ratedCount = Object.values(cardProgressMap).length;
+  const gameCards = useMemo(() => {
+    const perf = ratedCount / Math.max(cards.length, 1);
+    return selectGameCards(cards, cards.length, gameSeed, perf);
+  }, [cards, gameSeed, ratedCount]);
 
   const handleCardRate = async (index, rating) => {
     if (!user || !flashcardSet) return;
@@ -178,44 +197,21 @@ export default function StudySession() {
     );
   }
 
-  const cards = flashcardSet.cards || [];
-  const gameSeed = flashcardSet.generation_seed || 0;
-
-  // Spaced repetition stats
-  const hardCount = Object.values(cardProgressMap).filter(p => p.rating === "hard").length;
-  const easyCount = Object.values(cardProgressMap).filter(p => p.rating === "easy").length;
-  const ratedCount = Object.values(cardProgressMap).length;
-
-  const gameCards = React.useMemo(() => {
-    const perf = ratedCount / Math.max(cards.length, 1);
-    return selectGameCards(cards, cards.length, gameSeed, perf);
-  }, [cards, gameSeed, ratedCount]);
-
   return (
     <div className="max-w-4xl mx-auto">
       <Button variant="ghost" className="gap-2 mb-6 text-muted-foreground" onClick={() => navigate(-1)}>
         <ArrowLeft className="w-4 h-4" /> Back
       </Button>
 
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-        <h1 className="font-heading text-2xl lg:text-3xl font-bold">{flashcardSet.title}</h1>
-        <p className="text-muted-foreground mt-1">
-          {cards.length} cards • {flashcardSet.book_title}
-        </p>
-        {offlineHint && (
-          <p className="text-xs text-amber-600 mt-2">
-            Offline — progress saved locally and will sync when you reconnect.
-          </p>
-        )}
-        {ratedCount > 0 && (
-          <div className="flex items-center gap-3 mt-3 flex-wrap">
-            <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <Brain className="w-3.5 h-3.5" /> {ratedCount}/{cards.length} rated
-            </span>
-            {easyCount > 0 && <span className="text-xs font-semibold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full">{easyCount} easy</span>}
-            {hardCount > 0 && <span className="text-xs font-semibold text-rose-600 bg-rose-500/10 px-2 py-0.5 rounded-full">{hardCount} hard</span>}
-          </div>
-        )}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+        <StudySetHeader
+          flashcardSet={flashcardSet}
+          cardCount={cards.length}
+          ratedCount={ratedCount}
+          easyCount={easyCount}
+          hardCount={hardCount}
+          offlineHint={offlineHint}
+        />
       </motion.div>
 
       <Tabs value={mode} onValueChange={(v) => { setMode(v); setSelectedGame(null); }} className="mb-8">
@@ -283,55 +279,14 @@ export default function StudySession() {
               </div>
 
               {/* Navigation */}
-              <div className="flex items-center gap-5">
-                <motion.div whileTap={{ scale: 0.92 }}>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="w-11 h-11 rounded-full shadow-sm"
-                    onClick={() => { setSlideDirection(-1); setCurrentCardIndex(prev => Math.max(0, prev - 1)); }}
-                    disabled={currentCardIndex === 0}
-                  >
-                    <ChevronLeft className="w-5 h-5" />
-                  </Button>
-                </motion.div>
-
-                {/* Dot indicators — max 10 visible */}
-                <div className="flex items-center gap-1.5">
-                  {cards.map((_, i) => {
-                    const progress = cardProgressMap[i];
-                    const dotColor = progress?.rating === "easy"
-                      ? "bg-emerald-400"
-                      : progress?.rating === "hard"
-                      ? "bg-rose-400"
-                      : progress?.rating === "medium"
-                      ? "bg-amber-400"
-                      : "bg-muted-foreground/25";
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => { setSlideDirection(i > currentCardIndex ? 1 : -1); setCurrentCardIndex(i); }}
-                        className={`rounded-full transition-all duration-300 hover:scale-125
-                          ${i === currentCardIndex
-                            ? "w-5 h-2.5 bg-primary"
-                            : `w-2 h-2 ${dotColor}`}`}
-                      />
-                    );
-                  })}
-                </div>
-
-                <motion.div whileTap={{ scale: 0.92 }}>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="w-11 h-11 rounded-full shadow-sm"
-                    onClick={() => { setSlideDirection(1); setCurrentCardIndex(prev => Math.min(cards.length - 1, prev + 1)); }}
-                    disabled={currentCardIndex === cards.length - 1}
-                  >
-                    <ChevronRight className="w-5 h-5" />
-                  </Button>
-                </motion.div>
-              </div>
+              <FlashcardNavigation
+                currentIndex={currentCardIndex}
+                total={cards.length}
+                cardProgressMap={cardProgressMap}
+                onPrev={() => { setSlideDirection(-1); setCurrentCardIndex(prev => Math.max(0, prev - 1)); }}
+                onNext={() => { setSlideDirection(1); setCurrentCardIndex(prev => Math.min(cards.length - 1, prev + 1)); }}
+                onSelect={(i) => { setSlideDirection(i > currentCardIndex ? 1 : -1); setCurrentCardIndex(i); }}
+              />
 
               {/* Spaced repetition rating */}
               <div className="w-full max-w-xl">
@@ -364,7 +319,11 @@ export default function StudySession() {
         </TabsContent>
 
         <TabsContent value="scenarios" className="mt-8">
-          <ScenarioView scenarios={flashcardSet.scenarios || []} />
+          <ScenarioView
+            scenarios={scenarios}
+            setId={id}
+            onScenariosChange={setLocalScenarios}
+          />
         </TabsContent>
 
         {/* ── GAMES TAB ── */}

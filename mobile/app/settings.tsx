@@ -104,7 +104,7 @@ export default function SettingsScreen() {
     <Screen>
       {header}
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <PageHeader title="Settings" subtitle="Customize your FlashLearn experience" />
+        <PageHeader title="Settings" subtitle="Customize your MindFlip experience" />
 
         <Section title="Appearance" colors={colors}>
           <ToggleRow

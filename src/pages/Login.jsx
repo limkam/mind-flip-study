@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { Loader2 } from 'lucide-react';
+import { MindFlipBrand } from '@/components/brand/MindFlipLogo';
 
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
@@ -47,9 +48,10 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-6 rounded-2xl border border-border bg-card p-8 shadow-sm">
-        <div>
+        <div className="flex flex-col items-center text-center mb-2">
+          <MindFlipBrand centered className="mb-4" />
           <h1 className="font-heading text-2xl font-bold">Sign in</h1>
-          <p className="text-sm text-muted-foreground mt-1">MindFlip account</p>
+          <p className="text-sm text-muted-foreground mt-1">Welcome back to MindFlip</p>
         </div>
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-2">

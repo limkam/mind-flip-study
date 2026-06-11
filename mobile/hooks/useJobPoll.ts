@@ -19,6 +19,12 @@ export function useJobPoll(jobId: string | null | undefined, fetchStatus: () => 
   const onTerminal = options?.onTerminal;
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appState = useRef<AppStateStatus>(AppState.currentState);
+  const terminalHandledRef = useRef(false);
+  const fetchStatusRef = useRef(fetchStatus);
+  const onTerminalRef = useRef(onTerminal);
+
+  fetchStatusRef.current = fetchStatus;
+  onTerminalRef.current = onTerminal;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -30,15 +36,18 @@ export function useJobPoll(jobId: string | null | undefined, fetchStatus: () => 
   const tick = useCallback(async () => {
     if (appState.current !== "active" || !jobId) return;
     try {
-      const body = await fetchStatus();
+      const body = await fetchStatusRef.current();
       if (TERMINAL.has(body.status)) {
         clearTimer();
-        onTerminal?.(body);
+        if (!terminalHandledRef.current) {
+          terminalHandledRef.current = true;
+          onTerminalRef.current?.(body);
+        }
       }
     } catch {
       /* transient network errors — next tick retries */
     }
-  }, [jobId, fetchStatus, onTerminal, clearTimer]);
+  }, [jobId, clearTimer]);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
@@ -51,6 +60,7 @@ export function useJobPoll(jobId: string | null | undefined, fetchStatus: () => 
   useEffect(() => {
     clearTimer();
     if (!jobId) return;
+    terminalHandledRef.current = false;
     void tick();
     timerRef.current = setInterval(() => void tick(), intervalMs);
     return clearTimer;

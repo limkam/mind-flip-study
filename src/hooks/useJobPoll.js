@@ -12,6 +12,12 @@ export function useJobPoll(jobId, options = {}) {
     typeof document !== 'undefined' && document.visibilityState === 'visible',
   );
   const lastPhaseRef = useRef(null);
+  const terminalHandledRef = useRef(false);
+  const onTerminalRef = useRef(onTerminal);
+  const onProgressRef = useRef(onProgress);
+
+  onTerminalRef.current = onTerminal;
+  onProgressRef.current = onProgress;
 
   useEffect(() => {
     const onVis = () => {
@@ -25,27 +31,38 @@ export function useJobPoll(jobId, options = {}) {
     if (!jobId || !visibleRef.current) return;
     try {
       const { data } = await client.get(`/jobs/${jobId}`);
-      if (data.phase !== lastPhaseRef.current) {
+      const phaseChanged = data.phase !== lastPhaseRef.current;
+      if (phaseChanged) {
         lastPhaseRef.current = data.phase;
-        onProgress?.(data);
-      } else if (data.status === 'started' || data.status === 'pending') {
-        onProgress?.(data);
+      }
+      if (
+        phaseChanged
+        || data.status === 'started'
+        || data.status === 'pending'
+        || data.chapters_done != null
+        || data.percent_complete != null
+      ) {
+        onProgressRef.current?.(data);
       }
       if (data.status === 'complete' || data.status === 'failed') {
         if (timerRef.current) {
           clearInterval(timerRef.current);
           timerRef.current = null;
         }
-        onTerminal?.(data);
+        if (!terminalHandledRef.current) {
+          terminalHandledRef.current = true;
+          onTerminalRef.current?.(data);
+        }
       }
     } catch {
       /* ignore transient errors */
     }
-  }, [jobId, onTerminal, onProgress]);
+  }, [jobId]);
 
   useEffect(() => {
     if (!jobId) return;
     lastPhaseRef.current = null;
+    terminalHandledRef.current = false;
     void tick();
     timerRef.current = setInterval(() => void tick(), intervalMs);
     return () => {

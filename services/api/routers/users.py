@@ -8,15 +8,32 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_credits import ai_credits_snapshot
 from age_utils import validate_date_of_birth
 from database import get_db
 from dependencies import get_current_user, require_role
 from models.user import User
 from passwords import hash_password
+from pydantic import BaseModel
 from schemas.push import PushTokenBody, PushTokenResponse
 from schemas.user import AdminCreateUserRequest, AdminPatchUserRole, UserPublic, UserSearchHit, UserSelfPatch
 
 router = APIRouter(tags=["users"])
+
+
+class AiCreditsOut(BaseModel):
+    limit: int
+    used: int
+    remaining: int
+
+
+@router.get("/me/ai-credits", response_model=AiCreditsOut)
+async def read_ai_credits(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AiCreditsOut:
+    snap = await ai_credits_snapshot(db, current_user)
+    return AiCreditsOut(**snap)
 
 
 @router.get("/me", response_model=UserPublic)

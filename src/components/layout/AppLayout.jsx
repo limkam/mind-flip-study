@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { DesktopSidebar, MobileNav } from "./Sidebar";
 import UpgradeBanner from "@/components/billing/UpgradeBanner";
 import DarkModeToggle from "./DarkModeToggle";
+import GenerationStatusBanner from "@/components/generation/GenerationStatusBanner";
 
 export default function AppLayout() {
   const { user } = useAuth();
@@ -25,6 +26,7 @@ export default function AppLayout() {
         </div>
         <Outlet context={{ user }} />
       </main>
+      <GenerationStatusBanner />
     </div>
   );
 }

@@ -51,7 +51,7 @@ export default function MoreTab() {
 
         <View style={[styles.footer, { borderTopColor: colors.border }]}>
           <Text style={[styles.footerText, { color: colors.muted }]}>
-            FlashLearn · MindFlip mobile
+            MindFlip mobile
           </Text>
         </View>
       </ScrollView>

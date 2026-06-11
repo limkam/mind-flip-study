@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { Loader2 } from 'lucide-react';
+import { MindFlipBrand } from '@/components/brand/MindFlipLogo';
 
 export default function Register() {
   const navigate = useNavigate();
@@ -38,7 +39,8 @@ export default function Register() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-6 rounded-2xl border border-border bg-card p-8 shadow-sm">
-        <div>
+        <div className="flex flex-col items-center text-center mb-2">
+          <MindFlipBrand centered className="mb-4" />
           <h1 className="font-heading text-2xl font-bold">Create account</h1>
           <p className="text-sm text-muted-foreground mt-1">Start learning with MindFlip</p>
         </div>

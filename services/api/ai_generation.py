@@ -103,6 +103,7 @@ def validate_scenarios(raw: list[Any], *, expected: int = 5) -> list[dict[str, s
                 "explanation": explanation,
                 "prompt": question,
                 "guidance": f"{model_answer}\n\n{explanation}".strip(),
+                "chapter": str(item.get("chapter", "")).strip(),
             },
         )
     if len(validated) < expected:
@@ -120,6 +121,25 @@ def validate_scenario_types(scenarios: list[dict[str, str]]) -> list[str]:
         got = str(scenario.get("type", "")).lower()
         if got != want:
             errors.append(f"Scenario {i + 1} type mismatch: got {got}, expected {want}")
+    return errors
+
+
+def validate_all_scenario_groups(scenarios: list[dict[str, str]], chapter_titles: list[str]) -> list[str]:
+    """Validate 5 scenarios per chapter, grouped by chapter field."""
+    errors: list[str] = []
+    if not chapter_titles:
+        return validate_scenario_types(scenarios)
+    by_chapter: dict[str, list[dict[str, str]]] = {t: [] for t in chapter_titles}
+    for sc in scenarios:
+        ch = str(sc.get("chapter") or "").strip()
+        if ch in by_chapter:
+            by_chapter[ch].append(sc)
+    for title in chapter_titles:
+        group = by_chapter.get(title, [])
+        if len(group) != 5:
+            errors.append(f"Chapter '{title}' scenarios: expected 5, got {len(group)}")
+            continue
+        errors.extend(validate_scenario_types(group))
     return errors
 
 
@@ -230,7 +250,10 @@ def validate_generation_bundle(
     errors.extend(validate_chapter_coverage(cards, chapter_titles, quotas))
     errors.extend(validate_difficulty_mix(cards))
     errors.extend(validate_cognitive_depth(cards))
-    errors.extend(validate_scenario_types(scenarios))
+    expected_scenarios = max(5, 5 * max(len(chapter_titles), 1))
+    if len(scenarios) < expected_scenarios:
+        errors.append(f"Scenario count shortfall: {len(scenarios)}/{expected_scenarios}")
+    errors.extend(validate_all_scenario_groups(scenarios, chapter_titles))
     definition_heavy = sum(
         1
         for c in cards

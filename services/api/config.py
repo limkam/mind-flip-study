@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     APPLE_BUNDLE_ID: str = ""
 
+    AI_CREDITS_FREE_MONTHLY: int = 30
+    AI_CREDITS_STUDENT_MONTHLY: int = 500
+
     STRIPE_SECRET_KEY: str = ""
     #: Legacy single-price fallback; prefer STRIPE_PRICE_ID_BASIC / _PREMIUM.
     STRIPE_PRICE_ID: str = ""

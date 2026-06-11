@@ -5,6 +5,7 @@ import { queryClientInstance } from '@/lib/query-client'
 import { BrowserRouter as Router, Route, Routes, Navigate, Outlet, useLocation } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
+import { GenerationJobProvider } from '@/lib/GenerationJobContext';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import InstallPrompt from '@/components/InstallPrompt';
 import client from '@/api/client';
@@ -132,13 +133,15 @@ function App() {
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
-        <Router>
-          <ErrorBoundary>
-            <AppRoutes />
-          </ErrorBoundary>
-        </Router>
-        <InstallPrompt />
-        <Toaster />
+        <GenerationJobProvider>
+          <Router>
+            <ErrorBoundary>
+              <AppRoutes />
+            </ErrorBoundary>
+          </Router>
+          <InstallPrompt />
+          <Toaster />
+        </GenerationJobProvider>
       </QueryClientProvider>
     </AuthProvider>
   )

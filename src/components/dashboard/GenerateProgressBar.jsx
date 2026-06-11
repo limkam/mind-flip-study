@@ -20,23 +20,46 @@ function stepIndex(phase) {
 }
 
 /**
- * Indeterminate progress strip for long-running jobs (e.g. flashcard generation).
+ * Progress strip for long-running flashcard generation jobs.
  */
-export default function GenerateProgressBar({ label, phase }) {
+export default function GenerateProgressBar({
+  label,
+  phase,
+  chaptersTotal,
+  chaptersDone,
+  percentComplete,
+}) {
   const activeIdx = stepIndex(phase);
   const displayLabel = label || generationPhaseLabel(phase);
+  const hasPercent = typeof percentComplete === 'number' && percentComplete >= 0;
+  const progressWidth = hasPercent ? `${Math.min(100, percentComplete)}%` : '33%';
 
   return (
     <div className="w-full space-y-3 py-1">
       <p className="text-sm text-muted-foreground">{displayLabel}</p>
       <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
-        <motion.div
-          className="absolute top-0 h-full w-1/3 rounded-full bg-primary"
-          initial={{ left: '-30%' }}
-          animate={{ left: ['-30%', '100%'] }}
-          transition={{ duration: 1.15, repeat: Infinity, ease: 'linear' }}
-        />
+        {hasPercent ? (
+          <motion.div
+            className="absolute top-0 left-0 h-full rounded-full bg-primary"
+            initial={{ width: 0 }}
+            animate={{ width: progressWidth }}
+            transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+          />
+        ) : (
+          <motion.div
+            className="absolute top-0 h-full w-1/3 rounded-full bg-primary"
+            initial={{ left: '-30%' }}
+            animate={{ left: ['-30%', '100%'] }}
+            transition={{ duration: 1.15, repeat: Infinity, ease: 'linear' }}
+          />
+        )}
       </div>
+      {chaptersTotal && chaptersDone != null ? (
+        <p className="text-xs text-muted-foreground">
+          Chapter {chaptersDone} of {chaptersTotal}
+          {hasPercent ? ` · ${percentComplete}% complete` : ''}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         {STEPS.map((step, i) => {
           const done = activeIdx > i;

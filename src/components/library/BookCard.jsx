@@ -31,7 +31,7 @@ export default function BookCard({ book, index = 0, onDelete }) {
     setIsDeleting(true);
     try {
       await client.delete(`/books/${book.id}`);
-      toast({ title: "Book deleted" });
+      toast({ title: "Book deleted", dedupeKey: "book-deleted" });
       if (onDelete) onDelete();
     } catch (error) {
       console.error("Delete error:", error);

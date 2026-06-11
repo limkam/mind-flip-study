@@ -2,9 +2,11 @@ import React, { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "@/api/client";
-import { useJobPoll } from "@/hooks/useJobPoll";
 import GenerateProgressBar from "@/components/dashboard/GenerateProgressBar";
-import { extractJobError, extractSetIdFromJob, generationPhaseLabel } from "@/lib/generationPhases";
+import SelectedChaptersList from "@/components/study/SelectedChaptersList";
+import { generationPhaseLabel } from "@/lib/generationPhases";
+import { buildFlashcardSetTitle, chapterSelectionSubtitle } from "@/lib/studySetDisplay";
+import { useBookGenerationJob, useGenerationJobs } from "@/lib/GenerationJobContext";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,59 +43,11 @@ export default function BookDetail() {
   const [expandedChapters, setExpandedChapters] = useState({});
   const [generating, setGenerating] = useState(false);
   const [editingTags, setEditingTags] = useState(false);
-  const [activeJobId, setActiveJobId] = useState(null);
-  const [generationPhase, setGenerationPhase] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  useJobPoll(activeJobId, {
-    intervalMs: 1500,
-    onProgress: (data) => {
-      if (data?.phase) setGenerationPhase(data.phase);
-    },
-    onTerminal: async (data) => {
-      const setId = extractSetIdFromJob(data);
-      if (data.status === "complete" && setId) {
-        setActiveJobId(null);
-        setGenerating(false);
-        setGenerationPhase(null);
-        queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
-        toast({
-          title: data?.result?.recovered ? "Flashcards ready" : "Study content generated!",
-          description: "Summary, flashcards, and scenarios are ready.",
-        });
-        navigate(`/study/${setId}`);
-        return;
-      }
-
-      if (data.status === "failed" && id) {
-        try {
-          const { data: sets } = await client.get("/flashcard-sets/", { params: { include_cards: false } });
-          const bookSets = (sets || []).filter((s) => s.book_id === id);
-          const recent = bookSets[0];
-          if (recent?.id) {
-            setActiveJobId(null);
-            setGenerating(false);
-            setGenerationPhase(null);
-            queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
-            toast({
-              title: "Flashcards ready",
-              description: "Generation finished — your study set was saved.",
-            });
-            navigate(`/study/${recent.id}`);
-            return;
-          }
-        } catch {
-          /* fall through to error toast */
-        }
-      }
-
-      setActiveJobId(null);
-      setGenerating(false);
-      setGenerationPhase(null);
-      const err = extractJobError(data) || "Generation failed";
-      toast({ title: "Generation failed", description: err, variant: "destructive" });
-    },
-  });
+  const { startJob } = useGenerationJobs();
+  const activeBookJob = useBookGenerationJob(id);
+  const activeJobId = activeBookJob?.jobId || null;
+  const isGenerating = !!activeJobId || generating;
 
   const { data: book, isLoading } = useQuery({
     queryKey: ["book", id],
@@ -138,11 +92,7 @@ export default function BookDetail() {
     setGenerating(true);
     setGenerationPhase("starting");
     try {
-      const count = parseInt(cardCount, 10);
-      const title =
-        toc.length === 0
-          ? `${book.title} — Study set`
-          : `${book.title} — ${selectedChapters.join(", ")}`;
+      const title = buildFlashcardSetTitle(book.title, selectedChapters);
 
       const { data: job } = await client.post("/flashcard-sets/generate", {
         book_id: id,
@@ -150,11 +100,15 @@ export default function BookDetail() {
         num_cards: cardCount,
         selected_chapters: selectedChapters,
       });
-      setActiveJobId(job.job_id);
-      toast({ title: "Generation started", description: "Creating summary, flashcards, and scenarios…" });
+      startJob({ jobId: job.job_id, bookId: id, bookTitle: book.title });
+      setGenerating(false);
+      toast({
+        title: "Generation started",
+        description: "Creating summary, flashcards, and scenarios in the background. You can keep browsing MindFlip.",
+        dedupeKey: "generation-started",
+      });
     } catch (e) {
       setGenerating(false);
-      setGenerationPhase(null);
       const msg = e.response?.data?.detail;
       const description = typeof msg === "object" ? msg.message : msg || e.message;
       
@@ -170,7 +124,7 @@ export default function BookDetail() {
     setIsDeleting(true);
     try {
       await client.delete(`/books/${id}`);
-      toast({ title: "Book deleted" });
+      toast({ title: "Book deleted", dedupeKey: "book-deleted" });
       navigate("/library");
     } catch (e) {
       setIsDeleting(false);
@@ -376,10 +330,19 @@ export default function BookDetail() {
         transition={{ delay: 0.2 }}
         className="bg-card rounded-2xl border border-border p-6 lg:p-8"
       >
-        <h2 className="font-heading text-xl font-semibold mb-4">Generate Flashcards</h2>
-        <p className="text-sm text-muted-foreground mb-6">
-          {selectedChapters.length} chapter{selectedChapters.length !== 1 ? 's' : ''} selected
-        </p>
+        <h2 className="font-heading text-xl font-semibold mb-2">Generate Flashcards</h2>
+        {selectedChapters.length > 0 ? (
+          <>
+            <p className="text-sm font-medium text-primary mb-2">
+              {chapterSelectionSubtitle(selectedChapters.length)}
+            </p>
+            <SelectedChaptersList chapters={selectedChapters} className="mb-6" />
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground mb-6">
+            Select chapters above to generate flashcards
+          </p>
+        )}
 
         <div className="mb-6">
           <Label className="text-sm font-medium mb-3 block">Number of Flashcards</Label>
@@ -400,16 +363,28 @@ export default function BookDetail() {
         </div>
 
         {activeJobId ? (
-          <GenerateProgressBar phase={generationPhase} label={generationPhaseLabel(generationPhase)} />
+          <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2">
+            <p className="text-sm font-medium">Generating flashcards…</p>
+            <p className="text-xs text-muted-foreground">
+              This may take a few moments. You may continue using MindFlip while generation completes.
+            </p>
+            <GenerateProgressBar
+              phase={activeBookJob?.phase}
+              label={generationPhaseLabel(activeBookJob?.phase)}
+              chaptersTotal={activeBookJob?.chaptersTotal}
+              chaptersDone={activeBookJob?.chaptersDone}
+              percentComplete={activeBookJob?.percentComplete}
+            />
+          </div>
         ) : null}
 
         <Button
           onClick={generateFlashcards}
-          disabled={generating || ((book.table_of_contents || []).length > 0 && selectedChapters.length === 0)}
+          disabled={isGenerating || ((book.table_of_contents || []).length > 0 && selectedChapters.length === 0)}
           size="lg"
           className="w-full gap-2 h-14 text-base font-semibold"
         >
-          {generating ? (
+          {isGenerating ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
               {activeJobId ? "Almost there…" : "Starting…"}

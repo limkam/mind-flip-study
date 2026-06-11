@@ -21,7 +21,6 @@ class FlashcardOut(BaseModel):
     chapter: str | None = None
     difficulty: str | None = None
     cognitive_level: str | None = None
-    cognitive_level: str | None = None
 
 
 class ScenarioOut(BaseModel):
@@ -34,6 +33,7 @@ class ScenarioOut(BaseModel):
     explanation: str = ""
     prompt: str = ""
     guidance: str = ""
+    chapter: str = ""
 
 
 def flashcard_set_meta_from_description(description: str | None) -> dict[str, Any]:
@@ -113,3 +113,7 @@ class WorkbookPatch(BaseModel):
 class AiInvokeRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=200_000)
     response_json_schema: dict[str, Any] | None = None
+
+
+class RegenerateScenariosResponse(BaseModel):
+    scenarios: list[ScenarioOut] = Field(default_factory=list)

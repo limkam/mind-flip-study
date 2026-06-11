@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { Stack, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,27 +12,29 @@ import {
 
 import { GenerateProgressBar } from "../../components/GenerateProgressBar";
 import { Screen } from "../../components/Screen";
+import { SelectedChaptersList } from "../../components/study/SelectedChaptersList";
 import { api } from "../../api/client";
-import { useJobPoll } from "../../hooks/useJobPoll";
-import { extractJobError, extractSetIdFromJob, generationPhaseLabel } from "../../lib/generationPhases";
+import { generationPhaseLabel } from "../../lib/generationPhases";
+import { chapterSelectionSubtitle } from "../../lib/studySetDisplay";
+import { useGenerationJobStore } from "../../store/generationJobStore";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
-import type { BookOut, FlashcardSetOut, JobStatusResponse } from "../../types/api";
+import type { BookOut } from "../../types/api";
 
 const COUNTS = [20, 50, 100] as const;
 
 export default function BookByIdScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const { colors } = useTheme();
+  const startJob = useGenerationJobStore((s) => s.startJob);
+  const activeBookJob = useGenerationJobStore((s) => (id ? s.getBookJob(id) : undefined));
 
   const [cardCount, setCardCount] = useState<(typeof COUNTS)[number]>(20);
   const [selectedChapters, setSelectedChapters] = useState<string[]>([]);
   const [expandedChapters, setExpandedChapters] = useState<Record<number, boolean>>({});
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [generationPhase, setGenerationPhase] = useState<string | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
 
   const { data: book, isLoading, isError, refetch } = useQuery({
     queryKey: ["book", id],
@@ -73,76 +75,36 @@ export default function BookByIdScreen() {
     setExpandedChapters((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
 
-  const fetchJob = useCallback(async () => {
-    const { data } = await api.get<JobStatusResponse>(`/jobs/${jobId!}`);
-    if (data.phase) setGenerationPhase(data.phase);
-    return data;
-  }, [jobId]);
-
-  useJobPoll(jobId, fetchJob, {
-    intervalMs: 2000,
-    onTerminal: async (body) => {
-      const setId = extractSetIdFromJob(body);
-      if (body.status === "complete" && setId) {
-        setJobId(null);
-        setGenerationPhase(null);
-        void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
-        router.replace(`/study/${setId}`);
-        return;
-      }
-
-      if (body.status === "failed" && book?.id) {
-        try {
-          const { data: sets } = await api.get<FlashcardSetOut[]>("/flashcard-sets/", {
-            params: { include_cards: false },
-          });
-          const recent = (sets || []).find((s) => s.book_id === book.id);
-          if (recent?.id) {
-            setJobId(null);
-            setGenerationPhase(null);
-            void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
-            router.replace(`/study/${recent.id}`);
-            return;
-          }
-        } catch {
-          /* fall through */
-        }
-      }
-
-      setJobId(null);
-      setGenerationPhase(null);
-      setGenError(extractJobError(body) || "Generation failed. Try again.");
-    },
-  });
-
   const startGenerate = async () => {
-    if (!book) return;
+    if (!book || !id) return;
     if (chapters.length > 0 && selectedChapters.length === 0) {
       setGenError("Select at least one chapter.");
       return;
     }
     setGenError(null);
-    setGenerationPhase("starting");
+    setStarting(true);
     try {
-      const title =
-        chapters.length === 0 ? `${book.title} — Study set` : `${book.title} — ${selectedChapters.join(", ")}`;
       const { data: job } = await api.post<{ job_id: string }>("/flashcard-sets/generate", {
         book_id: book.id,
-        title,
+        title: book.title,
         num_cards: cardCount,
         selected_chapters: selectedChapters,
       });
-      setJobId(job.job_id);
+      startJob({ jobId: job.job_id, bookId: id, bookTitle: book.title });
+      void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
     } catch (e: unknown) {
       const msg =
         e && typeof e === "object" && "response" in e
           ? String((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Request failed")
           : "Request failed";
       setGenError(msg);
+    } finally {
+      setStarting(false);
     }
   };
 
-  const canGenerate = !jobId && !(chapters.length > 0 && selectedChapters.length === 0);
+  const isGenerating = !!activeBookJob || starting;
+  const canGenerate = !isGenerating && !(chapters.length > 0 && selectedChapters.length === 0);
 
   return (
     <Screen edges={["bottom"]}>
@@ -247,11 +209,20 @@ export default function BookByIdScreen() {
 
           <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Generate flashcards</Text>
-            <Text style={[styles.sectionSub, { color: colors.muted, marginBottom: 12 }]}>
-              {selectedChapters.length} chapter{selectedChapters.length !== 1 ? "s" : ""} selected
-            </Text>
+            {selectedChapters.length > 0 ? (
+              <>
+                <Text style={[styles.sectionSub, { color: colors.primary, fontWeight: "600" }]}>
+                  {chapterSelectionSubtitle(selectedChapters.length)}
+                </Text>
+                <SelectedChaptersList chapters={selectedChapters} />
+              </>
+            ) : (
+              <Text style={[styles.sectionSub, { color: colors.muted, marginBottom: 12 }]}>
+                Select chapters above to generate flashcards
+              </Text>
+            )}
 
-            <Text style={[styles.label, { color: colors.text }]}>Number of flashcards</Text>
+            <Text style={[styles.label, { color: colors.text, marginTop: 12 }]}>Number of flashcards</Text>
             <View style={styles.countRow}>
               {COUNTS.map((n) => (
                 <Pressable
@@ -273,7 +244,22 @@ export default function BookByIdScreen() {
             </View>
 
             {genError ? <Text style={[styles.error, { color: colors.danger }]}>{genError}</Text> : null}
-            {jobId ? <GenerateProgressBar phase={generationPhase} label={generationPhaseLabel(generationPhase)} /> : null}
+
+            {activeBookJob ? (
+              <View style={[styles.progressBox, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}33` }]}>
+                <Text style={[styles.progressTitle, { color: colors.text }]}>Generating flashcards…</Text>
+                <Text style={[styles.progressHint, { color: colors.muted }]}>
+                  This may take a few moments. You may continue using MindFlip while generation completes.
+                </Text>
+                <GenerateProgressBar
+                  phase={activeBookJob.phase}
+                  label={generationPhaseLabel(activeBookJob.phase)}
+                  chaptersTotal={activeBookJob.chaptersTotal}
+                  chaptersDone={activeBookJob.chaptersDone}
+                  percentComplete={activeBookJob.percentComplete}
+                />
+              </View>
+            ) : null}
 
             <Pressable
               style={[styles.primaryBtn, { backgroundColor: colors.primary }, !canGenerate && { opacity: 0.6 }]}
@@ -283,7 +269,7 @@ export default function BookByIdScreen() {
                 void startGenerate();
               }}
             >
-              {jobId ? (
+              {isGenerating ? (
                 <ActivityIndicator color="#fff" />
               ) : (
                 <Text style={styles.primaryBtnText}>Generate {cardCount} flashcards</Text>
@@ -350,6 +336,14 @@ const styles = StyleSheet.create({
   countNum: { fontSize: 20, fontWeight: "800" },
   countLabel: { fontSize: 11, marginTop: 2 },
   error: { fontSize: 13, marginBottom: 8 },
+  progressBox: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 8,
+  },
+  progressTitle: { fontSize: 14, fontWeight: "700", marginBottom: 4 },
+  progressHint: { fontSize: 12, lineHeight: 17, marginBottom: 4 },
   primaryBtn: {
     marginTop: 8,
     borderRadius: 12,

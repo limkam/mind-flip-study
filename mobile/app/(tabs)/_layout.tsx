@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
+import { View } from "react-native";
 
+import { GenerationStatusBanner } from "../../components/GenerationStatusBanner";
 import { useTheme } from "../../hooks/useTheme";
 import { useAuthStore } from "../../store/authStore";
 
@@ -20,14 +22,15 @@ export default function TabsLayout() {
   }
 
   return (
-    <Tabs
+    <View style={{ flex: 1 }}>
+      <Tabs
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
         headerStyle: { backgroundColor: colors.background },
         headerTintColor: colors.text,
-        headerTitle: "FlashLearn",
+        headerTitle: "MindFlip",
         headerShown: false,
       }}
     >
@@ -77,6 +80,8 @@ export default function TabsLayout() {
         }}
       />
       {/* Legacy tab files removed to prevent redirect loops */}
-    </Tabs>
+      </Tabs>
+      <GenerationStatusBanner />
+    </View>
   );
 }

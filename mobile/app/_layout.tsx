@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
+import { GenerationJobPoller } from "../components/GenerationJobPoller";
 import { flushPendingProgress, subscribeConnectivity } from "../lib/offlineStudy";
 import { setupNotificationHandlers } from "../hooks/usePushNotifications";
 import { useTheme } from "../hooks/useTheme";
@@ -86,6 +87,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
+          <GenerationJobPoller />
           <RootNavigator />
         </QueryClientProvider>
       </SafeAreaProvider>

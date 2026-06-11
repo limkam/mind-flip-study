@@ -7,6 +7,9 @@ import { generationPhaseLabel } from "../lib/generationPhases";
 type Props = {
   label?: string;
   phase?: string | null;
+  chaptersTotal?: number | null;
+  chaptersDone?: number | null;
+  percentComplete?: number | null;
 };
 
 const STEPS = [
@@ -24,16 +27,28 @@ function stepIndex(phase?: string | null): number {
   return 0;
 }
 
-export function GenerateProgressBar({ label, phase }: Props) {
+export function GenerateProgressBar({
+  label,
+  phase,
+  chaptersTotal,
+  chaptersDone,
+  percentComplete,
+}: Props) {
   const trackW = useSharedValue(240);
   const t = useSharedValue(0);
+  const fill = useSharedValue(0);
   const activeIdx = stepIndex(phase);
   const displayLabel = label || generationPhaseLabel(phase);
+  const hasPercent = typeof percentComplete === "number" && percentComplete >= 0;
 
   useEffect(() => {
+    if (hasPercent) {
+      fill.value = withTiming(Math.min(100, percentComplete) / 100, { duration: 350 });
+      return;
+    }
     t.value = 0;
     t.value = withRepeat(withTiming(1, { duration: 1200, easing: Easing.linear }), -1, false);
-  }, [t]);
+  }, [hasPercent, percentComplete, t, fill]);
 
   const onLayout = (e: LayoutChangeEvent) => {
     const w = e.nativeEvent.layout.width;
@@ -41,6 +56,9 @@ export function GenerateProgressBar({ label, phase }: Props) {
   };
 
   const knob = useAnimatedStyle(() => {
+    if (hasPercent) {
+      return { width: trackW.value * fill.value, left: 0 };
+    }
     const w = trackW.value;
     const knobW = w * 0.32;
     const maxX = Math.max(0, w - knobW);
@@ -56,6 +74,12 @@ export function GenerateProgressBar({ label, phase }: Props) {
       <View style={styles.track} onLayout={onLayout}>
         <Animated.View style={[styles.knob, knob]} />
       </View>
+      {chaptersTotal != null && chaptersDone != null ? (
+        <Text style={styles.chapterMeta}>
+          Chapter {chaptersDone} of {chaptersTotal}
+          {hasPercent ? ` · ${percentComplete}% complete` : ""}
+        </Text>
+      ) : null}
       <View style={styles.steps}>
         {STEPS.map((step, i) => {
           const done = activeIdx > i;
@@ -82,6 +106,7 @@ export function GenerateProgressBar({ label, phase }: Props) {
 const styles = StyleSheet.create({
   wrap: { width: "100%", marginVertical: 8 },
   label: { fontSize: 13, color: "#64748b", marginBottom: 8 },
+  chapterMeta: { fontSize: 11, color: "#64748b", marginTop: 6, fontWeight: "600" },
   track: {
     height: 8,
     borderRadius: 999,

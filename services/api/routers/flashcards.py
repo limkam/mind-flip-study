@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 from uuid import UUID
 
@@ -7,20 +8,24 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_credits import record_ai_generation_sync
 from config import settings
 from database import get_db
+from database_sync import sync_session
 from dependencies import enforce_tier_limit, get_current_user
 from models.book import Book
 from models.enums import QuizChallengeStatus
 from models.flashcard import Flashcard, FlashcardSet
 from models.quiz import QuizChallenge
 from models.user import User
+from scenario_regeneration import regenerate_all_scenarios_sync, replace_set_scenarios_in_description
 from schemas.flashcards_api import (
     FlashcardOut,
     FlashcardSetCreate,
     FlashcardSetOut,
     FlashcardSetUpdate,
     GenerateFlashcardsRequest,
+    RegenerateScenariosResponse,
     ScenarioOut,
     flashcard_set_meta_from_description,
 )
@@ -52,6 +57,7 @@ async def _serialize_set(db: AsyncSession, s: FlashcardSet, *, include_cards: bo
             explanation=str(sc.get("explanation", "")),
             prompt=str(sc.get("prompt", sc.get("question", ""))),
             guidance=str(sc.get("guidance", "")),
+            chapter=str(sc.get("chapter", "")),
         )
         for sc in (meta.get("scenarios") or [])
         if isinstance(sc, dict) and sc.get("title")
@@ -242,3 +248,58 @@ async def update_flashcard_set(
     await db.commit()
     await db.refresh(s)
     return await _serialize_set(db, s)
+
+
+@router.post("/{set_id}/scenarios/regenerate", response_model=RegenerateScenariosResponse)
+async def regenerate_scenarios(
+    set_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> RegenerateScenariosResponse:
+    r = await db.execute(
+        select(FlashcardSet).where(FlashcardSet.id == set_id, FlashcardSet.user_id == current_user.id),
+    )
+    s = r.scalar_one_or_none()
+    if s is None:
+        raise HTTPException(status_code=404, detail="Set not found")
+
+    meta = flashcard_set_meta_from_description(s.description)
+    book_title = await _book_title(db, s.book_id) or s.title
+
+    try:
+        new_scenarios = await asyncio.to_thread(
+            regenerate_all_scenarios_sync,
+            book_title=book_title,
+            meta=meta,
+            user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Scenario regeneration failed: {exc}") from exc
+
+    s.description = replace_set_scenarios_in_description(s.description, new_scenarios)
+
+    with sync_session() as sync_db:
+        record_ai_generation_sync(sync_db, user_id=current_user.id, set_id=s.id)
+        sync_db.commit()
+
+    await db.commit()
+    await db.refresh(s)
+
+    rows = [
+        ScenarioOut(
+            type=str(sc.get("type", "real_life")),
+            title=str(sc.get("title", "")),
+            context=str(sc.get("context", "")),
+            challenge=str(sc.get("challenge", "")),
+            question=str(sc.get("question", sc.get("prompt", ""))),
+            model_answer=str(sc.get("model_answer", "")),
+            explanation=str(sc.get("explanation", "")),
+            prompt=str(sc.get("prompt", sc.get("question", ""))),
+            guidance=str(sc.get("guidance", "")),
+            chapter=str(sc.get("chapter", "")),
+        )
+        for sc in new_scenarios
+    ]
+    return RegenerateScenariosResponse(scenarios=rows)

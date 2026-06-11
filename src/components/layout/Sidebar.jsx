@@ -3,9 +3,10 @@ import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Library, GraduationCap,
   Users, ChevronLeft, ChevronRight,
-  Sparkles, LogOut, Trophy, X, Menu, UserCircle, Swords, Settings, FolderOpen,
+  LogOut, Trophy, X, Menu, UserCircle, Swords, Settings, FolderOpen,
   BarChart2, Brain, Flame, MessageSquare
 } from "lucide-react";
+import { MindFlipBrand } from "@/components/brand/MindFlipLogo";
 import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -121,16 +122,8 @@ export function DesktopSidebar({ user }) {
 
   return (
     <div className={`fixed left-0 top-0 h-screen bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-300 z-50 ${collapsed ? "w-[72px]" : "w-64"}`}>
-      <div className="p-4 flex items-center gap-3 border-b border-sidebar-border">
-        <div className="w-10 h-10 rounded-xl bg-sidebar-primary flex items-center justify-center flex-shrink-0">
-          <Sparkles className="w-5 h-5 text-sidebar-primary-foreground" />
-        </div>
-        {!collapsed && (
-          <div className="overflow-hidden">
-            <h1 className="font-heading font-bold text-sidebar-foreground text-lg leading-tight">FlashLearn</h1>
-            <p className="text-xs text-sidebar-foreground/50">AI-Powered Learning</p>
-          </div>
-        )}
+      <div className="p-4 border-b border-sidebar-border">
+        <MindFlipBrand collapsed={collapsed} />
       </div>
 
       <NavLinks user={user} collapsed={collapsed} onLinkClick={() => {}} />
@@ -154,11 +147,8 @@ export function MobileNav({ user }) {
   return (
     <>
       <div className="fixed top-0 left-0 right-0 h-14 bg-sidebar border-b border-sidebar-border flex items-center justify-between px-4 z-50">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-sidebar-primary flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-sidebar-primary-foreground" />
-          </div>
-          <span className="font-heading font-bold text-sidebar-foreground text-base">FlashLearn</span>
+        <div className="flex-1 min-w-0 pr-3">
+          <MindFlipBrand showTagline={false} size="sm" />
         </div>
         <button
           type="button"
@@ -174,12 +164,7 @@ export function MobileNav({ user }) {
           <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
           <div className="relative w-72 h-full bg-sidebar flex flex-col shadow-2xl">
             <div className="p-4 flex items-center justify-between border-b border-sidebar-border">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-sidebar-primary flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-sidebar-primary-foreground" />
-                </div>
-                <span className="font-heading font-bold text-sidebar-foreground text-base">FlashLearn</span>
-              </div>
+              <MindFlipBrand />
               <button type="button" onClick={() => setDrawerOpen(false)} className="text-sidebar-foreground/60 hover:text-sidebar-foreground">
                 <X className="w-5 h-5" />
               </button>

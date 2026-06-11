@@ -102,10 +102,19 @@ async def get_job_status(
         status = "complete"
 
     phase = None
+    chapters_total = None
+    chapters_done = None
+    percent_complete = None
     if isinstance(result, dict):
         phase = result.get("phase")
+        chapters_total = result.get("chapters_total")
+        chapters_done = result.get("chapters_done")
+        percent_complete = result.get("percent_complete")
     if phase is None and cached:
         phase = cached.get("phase")
+        chapters_total = chapters_total if chapters_total is not None else cached.get("chapters_total")
+        chapters_done = chapters_done if chapters_done is not None else cached.get("chapters_done")
+        percent_complete = percent_complete if percent_complete is not None else cached.get("percent_complete")
     if phase is None:
         if status == "pending":
             phase = "queued"
@@ -116,4 +125,11 @@ async def get_job_status(
         elif status == "failed":
             phase = "failed"
 
-    return JobStatusResponse(status=status, phase=phase, result=result)
+    return JobStatusResponse(
+        status=status,
+        phase=phase,
+        result=result,
+        chapters_total=chapters_total,
+        chapters_done=chapters_done,
+        percent_complete=percent_complete,
+    )

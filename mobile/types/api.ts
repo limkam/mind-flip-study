@@ -130,6 +130,7 @@ export type ScenarioOut = {
   model_answer?: string;
   explanation?: string;
   guidance?: string;
+  chapter?: string;
 };
 
 export type ChapterSummaryOut = {
@@ -149,10 +150,14 @@ export type FlashcardSetOut = {
   scenarios?: ScenarioOut[];
   chapter_summaries?: ChapterSummaryOut[];
   generation_seed?: number | null;
+  selected_chapters?: string[];
 };
 
 export type JobStatusResponse = {
   status: "pending" | "started" | "complete" | "failed";
   phase?: string | null;
   result?: unknown;
+  chapters_total?: number | null;
+  chapters_done?: number | null;
+  percent_complete?: number | null;
 };
