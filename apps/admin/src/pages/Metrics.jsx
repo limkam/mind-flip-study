@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import {
   Bar,
   BarChart,
@@ -33,11 +34,16 @@ export default function Metrics() {
   return (
     <div>
       <h2 className="page-title">Metrics</h2>
+      <p className="text-muted" style={{ marginBottom: '1rem' }}>
+        For per-call token usage, pipeline version, and generation job details, open{' '}
+        <Link to="/admin/ai-usage">AI Usage &amp; Cost</Link>.
+      </p>
       <div className="metrics-grid">
         <MetricCard label="DAU" value={data.dau} />
         <MetricCard label="Signups (30d)" value={data.signups_30d} />
         <MetricCard label="Total Books" value={data.total_books} />
         <MetricCard label="AI Generations (30d)" value={data.ai_generations_30d} />
+        <MetricCard label="AI Cost (30d USD)" value={`$${Number(data.ai_cost_30d_usd ?? 0).toFixed(4)}`} />
         <MetricCard label="Paying Users" value={data.paying_users} />
         <MetricCard label="MRR (USD)" value={`$${data.mrr_usd}`} />
       </div>

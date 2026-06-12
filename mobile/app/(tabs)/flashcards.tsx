@@ -1,13 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useFocusEffect, useRouter } from "expo-router";
-import { useCallback } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { EmptyState } from "../../components/EmptyState";
 import { PageHeader } from "../../components/PageHeader";
 import { Screen } from "../../components/Screen";
 import { StudySkeleton } from "../../components/skeletons/StudySkeleton";
-import { fetchFlashcardSetsList } from "../../lib/flashcardSets";
+import { deleteFlashcardSet, fetchFlashcardSetsList } from "../../lib/flashcardSets";
 import { getApiErrorMessage } from "../../lib/apiErrors";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
@@ -17,6 +17,8 @@ export default function FlashcardsTab() {
   const { colors } = useTheme();
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
+  const queryClient = useQueryClient();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const { data: sets = [], isLoading, isError, error, refetch, isRefetching } = useQuery({
     queryKey: ["flashcard-sets", "list"],
@@ -29,6 +31,33 @@ export default function FlashcardsTab() {
       void refetch();
     }, [refetch]),
   );
+
+  const confirmDelete = (setId: string, title: string, cardCount: number) => {
+    Alert.alert(
+      "Delete flashcard set?",
+      `This permanently deletes "${title}" and all ${cardCount} flashcards.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setDeletingId(setId);
+              try {
+                await deleteFlashcardSet(setId);
+                await queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
+              } catch (e) {
+                Alert.alert("Could not delete set", getApiErrorMessage(e, "Please try again."));
+              } finally {
+                setDeletingId(null);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
 
   if (isLoading) {
     return (
@@ -82,15 +111,30 @@ export default function FlashcardsTab() {
         }
         renderItem={({ item }) => (
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Link href={`/study/${item.id}`} asChild>
-              <Pressable onPress={() => void hapticImpact("light")}>
-                <Text style={[styles.cardTitle, { color: colors.text }]}>{item.title}</Text>
-                <Text style={[styles.cardMeta, { color: colors.muted }]}>
-                  {item.card_count} cards
-                  {item.book_title ? ` · ${item.book_title}` : ""}
+            <View style={styles.cardRow}>
+              <Link href={`/study/${item.id}`} asChild>
+                <Pressable style={styles.cardBody} onPress={() => void hapticImpact("light")}>
+                  <Text style={[styles.cardTitle, { color: colors.text }]}>{item.title}</Text>
+                  <Text style={[styles.cardMeta, { color: colors.muted }]}>
+                    {item.card_count} cards
+                    {item.book_title ? ` · ${item.book_title}` : ""}
+                  </Text>
+                </Pressable>
+              </Link>
+              <Pressable
+                style={styles.deleteBtn}
+                disabled={deletingId === item.id}
+                onPress={() => {
+                  void hapticImpact("light");
+                  confirmDelete(item.id, item.title, item.card_count);
+                }}
+                accessibilityLabel={`Delete ${item.title}`}
+              >
+                <Text style={[styles.deleteBtnText, { color: colors.destructive ?? "#ef4444" }]}>
+                  {deletingId === item.id ? "…" : "Delete"}
                 </Text>
               </Pressable>
-            </Link>
+            </View>
             {item.card_count >= 4 ? (
               <Link href={`/games/${item.id}`} asChild>
                 <Pressable
@@ -117,8 +161,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 10,
   },
+  cardRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  cardBody: { flex: 1 },
   cardTitle: { fontSize: 16, fontWeight: "600" },
   cardMeta: { fontSize: 13, marginTop: 4 },
+  deleteBtn: { minHeight: 44, justifyContent: "center", paddingHorizontal: 4 },
+  deleteBtnText: { fontSize: 13, fontWeight: "600" },
   gameBtn: {
     marginTop: 10,
     minHeight: 44,

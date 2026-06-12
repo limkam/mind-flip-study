@@ -275,6 +275,23 @@ async def update_flashcard_set(
     return await _serialize_set(db, s)
 
 
+@router.delete("/{set_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_flashcard_set(
+    set_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    """Delete a flashcard set and all its cards (owner only)."""
+    r = await db.execute(
+        select(FlashcardSet).where(FlashcardSet.id == set_id, FlashcardSet.user_id == current_user.id),
+    )
+    s = r.scalar_one_or_none()
+    if s is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Set not found")
+    await db.delete(s)
+    await db.commit()
+
+
 @router.post("/{set_id}/scenarios/regenerate", response_model=RegenerateScenariosResponse)
 async def regenerate_scenarios(
     set_id: UUID,

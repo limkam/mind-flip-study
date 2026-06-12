@@ -3,14 +3,28 @@ import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "@/api/client";
 import { motion } from "framer-motion";
-import { GraduationCap, BookOpen, Gamepad2, Tag } from "lucide-react";
+import { GraduationCap, BookOpen, Gamepad2, Tag, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import TagInput from "@/components/common/TagInput";
+import { useToast } from "@/components/ui/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export default function FlashcardSets() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [editingTagsId, setEditingTagsId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   const { data: sets = [], isLoading } = useQuery({
     queryKey: ["flashcard-sets"],
@@ -23,6 +37,23 @@ export default function FlashcardSets() {
   const handleTagsChange = async (setId, tags) => {
     await client.put(`/flashcard-sets/${setId}`, { tags });
     queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
+  };
+
+  const deleteSet = async (setId, title) => {
+    setDeletingId(setId);
+    try {
+      await client.delete(`/flashcard-sets/${setId}`);
+      queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
+      toast({ title: "Flashcard set deleted", description: `"${title}" was removed.` });
+    } catch (e) {
+      toast({
+        title: "Could not delete set",
+        description: e.response?.data?.detail || e.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -113,6 +144,37 @@ export default function FlashcardSets() {
                         <Gamepad2 className="w-3.5 h-3.5" /> Quiz
                       </Button>
                     </Link>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-muted-foreground hover:text-destructive"
+                          disabled={deletingId === set.id}
+                          aria-label={`Delete ${set.title}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete flashcard set?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This permanently deletes &quot;{set.title}&quot; and all {set.card_count} flashcards.
+                            This cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() => deleteSet(set.id, set.title)}
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </div>
               </div>

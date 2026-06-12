@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import client from '../api/client';
+import client, { apiBaseUrl } from '../api/client';
 import MetricCard from '../components/MetricCard';
 import FetchErrorBanner from '../components/FetchErrorBanner';
 
@@ -81,10 +81,32 @@ export default function AiUsageAnalytics() {
 
   const totalLogPages = logs ? Math.ceil(logs.total / logLimit) : 0;
   const currentLogPage = Math.floor(logOffset / logLimit) + 1;
+  const isLocalApi = apiBaseUrl.includes('localhost') || apiBaseUrl.includes('127.0.0.1');
 
   return (
     <div>
       <h2 className="page-title">AI Usage &amp; Cost Analytics</h2>
+      {isLocalApi ? (
+        <div
+          style={{
+            marginBottom: '1rem',
+            padding: '0.75rem 1rem',
+            border: '1px solid #f59e0b',
+            borderRadius: '6px',
+            background: 'rgba(245, 158, 11, 0.08)',
+          }}
+        >
+          <strong>Connected to local API:</strong> <code>{apiBaseUrl}</code>
+          <p className="text-muted" style={{ margin: '0.35rem 0 0' }}>
+            Production generations will not appear here unless <code>VITE_API_URL</code> points at
+            your deployed backend (e.g. Railway). Redeploy the admin app after changing it.
+          </p>
+        </div>
+      ) : (
+        <p className="text-muted" style={{ marginBottom: '0.5rem' }}>
+          API: <code>{apiBaseUrl}</code>
+        </p>
+      )}
       <p className="text-muted" style={{ marginBottom: '0.5rem' }}>
         Every Anthropic API call is stored in the <code>token_usage</code> table when flashcards,
         summaries, scenarios, or TOC extraction run.
@@ -350,6 +372,8 @@ export default function AiUsageAnalytics() {
                   <th>Chapter</th>
                   <th>Attempt</th>
                   <th>Repair</th>
+                  <th>Pipeline</th>
+                  <th>Max tokens</th>
                   <th>QA Validator</th>
                   <th>Job ID</th>
                 </tr>
@@ -373,6 +397,8 @@ export default function AiUsageAnalytics() {
                     <td>{row.call_metadata?.chapter || '—'}</td>
                     <td>{row.call_metadata?.attempt ?? '—'}</td>
                     <td>{row.call_metadata?.repair_mode || '—'}</td>
+                    <td style={{ fontSize: '0.7rem' }}>{row.call_metadata?.pipeline_version || '—'}</td>
+                    <td>{row.call_metadata?.max_tokens_requested ?? '—'}</td>
                     <td>{row.call_metadata?.validator_failure || '—'}</td>
                     <td
                       style={{ fontSize: '0.7rem', maxWidth: '8rem', overflow: 'hidden', textOverflow: 'ellipsis', cursor: row.celery_task_id ? 'pointer' : 'default' }}

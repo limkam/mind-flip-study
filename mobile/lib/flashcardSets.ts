@@ -8,3 +8,7 @@ export async function fetchFlashcardSetsList(): Promise<FlashcardSetOut[]> {
   });
   return normalizeList(data);
 }
+
+export async function deleteFlashcardSet(setId: string): Promise<void> {
+  await api.delete(`/flashcard-sets/${setId}`);
+}
