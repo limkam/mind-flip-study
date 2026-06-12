@@ -224,14 +224,20 @@ def validate_flashcards(
     expected: int | None = None,
     chapter_title: str | None = None,
     min_ratio: float = 0.5,
+    allow_empty: bool = False,
+    skip_invalid: bool = False,
 ) -> list[dict[str, str]]:
     if not cards:
+        if allow_empty:
+            return []
         raise ValueError("Model returned no flashcards")
     validated: list[dict[str, str]] = []
     for i, c in enumerate(cards):
         front = str(c.get("front", "")).strip()
         back = str(c.get("back", "")).strip()
         if not front or not back:
+            if skip_invalid:
+                continue
             raise ValueError(f"Card {i} missing non-empty front/back")
         difficulty = normalize_difficulty(str(c.get("difficulty", "")))
         cognitive = normalize_cognitive(str(c.get("cognitive_level", "")), difficulty)

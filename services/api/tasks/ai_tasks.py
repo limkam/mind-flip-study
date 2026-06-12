@@ -123,8 +123,8 @@ def _extract_response_text(message: Any) -> str:
 
 
 def _max_tokens_for_study_content(num_cards: int) -> int:
-    """Hard cap 2200 output tokens — budget scales with card count."""
-    return min(STUDY_OUTPUT_TOKEN_HARD_CAP, 550 + num_cards * 42)
+    """Hard cap 2200 output tokens — room for summary+scenarios+cards; micro-repair fills shortfalls."""
+    return min(STUDY_OUTPUT_TOKEN_HARD_CAP, 650 + num_cards * 70)
 
 
 def _max_tokens_for_cards(num_cards: int) -> int:
@@ -352,7 +352,24 @@ def _generate_chapter_study_content_once(
         qa_attempt=1,
     )
     cards_raw = data.get("flashcards") or data.get("cards") or []
-    cards = validate_flashcards(cards_raw, expected=num_cards, chapter_title=chapter_title)
+    cards = validate_flashcards(
+        cards_raw,
+        expected=None,
+        chapter_title=chapter_title,
+        allow_empty=True,
+        skip_invalid=True,
+    )
+    if len(cards) < num_cards:
+        log.warning(
+            "partial_study_content_cards",
+            extra={
+                "celery_task_id": celery_task_id,
+                "chapter": chapter_title,
+                "got": len(cards),
+                "expected": num_cards,
+                "max_tokens": _max_tokens_for_study_content(num_cards),
+            },
+        )
     for card in cards:
         card["chapter"] = chapter_title
     chapter_summary = _chapter_summary_from_data(data, chapter_title)
@@ -647,12 +664,17 @@ def _micro_repair_chapter_cards(
         validator_failure="card_count",
     )
     cards_raw = data.get("flashcards") or data.get("cards") or []
-    cards = validate_flashcards(
-        cards_raw,
-        expected=missing_count,
-        chapter_title=chapter_title,
-        min_ratio=0.0 if missing_count == 1 else 0.25,
-    )
+    try:
+        cards = validate_flashcards(
+            cards_raw,
+            expected=missing_count,
+            chapter_title=chapter_title,
+            min_ratio=0.0 if missing_count <= 2 else 0.25,
+            allow_empty=True,
+            skip_invalid=True,
+        )
+    except ValueError:
+        cards = []
     seen = {_normalize_front(str(c.get("front", ""))) for c in existing_cards}
     out: list[dict[str, str]] = []
     for card in cards:

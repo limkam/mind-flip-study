@@ -7,7 +7,7 @@ from difficulty_engine import difficulty_mix_instruction
 # Hard output token budget (enforced via prompt + max_tokens API cap)
 STUDY_OUTPUT_TOKEN_HARD_CAP = 2200
 STUDY_OUTPUT_TOKEN_TARGET = 1800
-GENERATION_PIPELINE_VERSION = "2026-06-13-compact-v2"
+GENERATION_PIPELINE_VERSION = "2026-06-13-compact-v3"
 
 TOKEN_BUDGET_BLOCK = """STRICT TOKEN BUDGETS (mandatory — responses exceeding limits will be rejected):
 - summary: 120–150 tokens max
