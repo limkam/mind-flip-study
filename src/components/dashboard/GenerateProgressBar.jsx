@@ -4,9 +4,8 @@ import { motion } from 'framer-motion';
 import { generationPhaseLabel } from '@/lib/generationPhases';
 
 const STEPS = [
-  { key: 'generating_summary', label: 'Summary' },
-  { key: 'generating_flashcards', label: 'Flashcards' },
-  { key: 'generating_scenarios', label: 'Scenarios' },
+  { key: 'extracting_text', label: 'Extract' },
+  { key: 'generating_chapter_breakdown', label: 'Chapters' },
   { key: 'saving_content', label: 'Saving' },
 ];
 
@@ -14,8 +13,16 @@ function stepIndex(phase) {
   const idx = STEPS.findIndex((s) => s.key === phase);
   if (idx >= 0) return idx;
   if (phase === 'completed') return STEPS.length;
-  if (phase === 'extracting_text' || phase === 'starting' || phase === 'queued') return -1;
-  if (phase === 'retrying') return 0;
+  if (phase === 'starting' || phase === 'queued') return -1;
+  if (
+    phase === 'generating_summary' ||
+    phase === 'generating_flashcards' ||
+    phase === 'generating_scenarios' ||
+    phase === 'generating_content'
+  ) {
+    return STEPS.findIndex((s) => s.key === 'generating_chapter_breakdown');
+  }
+  if (phase === 'retrying' || phase === 'refining_content') return 1;
   return 0;
 }
 
@@ -28,9 +35,12 @@ export default function GenerateProgressBar({
   chaptersTotal,
   chaptersDone,
   percentComplete,
+  currentChapter,
 }) {
   const activeIdx = stepIndex(phase);
-  const displayLabel = label || generationPhaseLabel(phase);
+  const displayLabel =
+    label
+    || (currentChapter ? `Summarizing: ${currentChapter}` : generationPhaseLabel(phase));
   const hasPercent = typeof percentComplete === 'number' && percentComplete >= 0;
   const progressWidth = hasPercent ? `${Math.min(100, percentComplete)}%` : '33%';
 
@@ -41,7 +51,7 @@ export default function GenerateProgressBar({
         {hasPercent ? (
           <motion.div
             className="absolute top-0 left-0 h-full rounded-full bg-primary"
-            initial={{ width: 0 }}
+            initial={false}
             animate={{ width: progressWidth }}
             transition={{ type: 'spring', stiffness: 120, damping: 20 }}
           />
@@ -59,6 +69,8 @@ export default function GenerateProgressBar({
           Chapter {chaptersDone} of {chaptersTotal}
           {hasPercent ? ` · ${percentComplete}% complete` : ''}
         </p>
+      ) : currentChapter ? (
+        <p className="text-xs text-muted-foreground truncate">{currentChapter}</p>
       ) : null}
       <div className="flex flex-wrap gap-2">
         {STEPS.map((step, i) => {

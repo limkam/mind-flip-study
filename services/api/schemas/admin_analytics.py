@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -131,3 +132,103 @@ class FinancialAnalyticsOut(BaseModel):
     revenue_by_plan: list[LabeledAmount]
     revenue_by_continent: list[LabeledAmount]
     revenue_by_country: list[RevenueByCountryRow]
+
+
+class AiUsageByFeature(BaseModel):
+    feature_type: str
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    cached_tokens: int
+    total_cost_usd: float
+    avg_duration_ms: float
+
+
+class AiUsageByUser(BaseModel):
+    user_id: str
+    email: str
+    total_cost_usd: float
+    total_calls: int
+    input_tokens: int
+    output_tokens: int
+    cached_tokens: int
+    avg_duration_ms: float = 0
+
+
+class AiUsageByTask(BaseModel):
+    task: str
+    feature_type: str | None = None
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    cached_tokens: int
+    total_cost_usd: float
+    avg_duration_ms: float
+
+
+class AiUsageLogEntry(BaseModel):
+    id: str
+    created_at: datetime
+    user_id: str
+    email: str
+    task: str
+    feature_type: str | None = None
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cached_tokens: int
+    duration_ms: int | None = None
+    estimated_cost_usd: float
+    book_id: str | None = None
+    book_title: str | None = None
+    celery_task_id: str | None = None
+    call_metadata: dict[str, Any] | None = None
+
+
+class AiUsageLogsOut(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[AiUsageLogEntry]
+
+
+class GenerationJobDetailOut(BaseModel):
+    job_id: str
+    status: str | None = None
+    phase: str | None = None
+    qa_status: str | None = None
+    qa_failure_reason: str | None = None
+    qa_failure_validator: str | None = None
+    qa_attempt: int | None = None
+    qa_failures: list[dict[str, Any]] | None = None
+    generation_metrics: list[dict[str, Any]] | None = None
+    set_id: str | None = None
+    card_count: int | None = None
+    scenario_count: int | None = None
+    percent_complete: int | None = None
+    error: str | None = None
+
+
+class AiUsageByBook(BaseModel):
+    book_id: str
+    book_title: str
+    total_cost_usd: float
+    total_calls: int
+    input_tokens: int
+    output_tokens: int
+
+
+class AiUsageAnalyticsOut(BaseModel):
+    updated_at: datetime
+    total_cost_usd: float
+    total_calls: int
+    total_input_tokens: int
+    total_output_tokens: int
+    total_cached_tokens: int
+    avg_duration_ms: float
+    cache_hit_rate_pct: float
+    by_feature: list[AiUsageByFeature]
+    by_task: list[AiUsageByTask]
+    by_user: list[AiUsageByUser]
+    by_book: list[AiUsageByBook]
+    most_expensive_operations: list[AiUsageByFeature]

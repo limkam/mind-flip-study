@@ -87,6 +87,12 @@ async def get_job_status(
             status="complete",
             phase=str(cached.get("phase") or "completed"),
             result=cached,
+            qa_status=cached.get("qa_status"),
+            qa_failure_reason=cached.get("qa_failure_reason"),
+            qa_failure_validator=cached.get("qa_failure_validator"),
+            qa_attempt=cached.get("qa_attempt"),
+            qa_failures=cached.get("qa_failures"),
+            generation_metrics=cached.get("generation_metrics"),
         )
 
     status = _map_state(st)
@@ -105,16 +111,35 @@ async def get_job_status(
     chapters_total = None
     chapters_done = None
     percent_complete = None
+    current_chapter = None
+    qa_status = None
+    qa_failure_reason = None
+    qa_failure_validator = None
+    qa_attempt = None
+    qa_failures = None
+    generation_metrics = None
+
+    source = cached if cached else (result if isinstance(result, dict) else {})
     if isinstance(result, dict):
         phase = result.get("phase")
         chapters_total = result.get("chapters_total")
         chapters_done = result.get("chapters_done")
         percent_complete = result.get("percent_complete")
+        current_chapter = result.get("current_chapter")
     if phase is None and cached:
         phase = cached.get("phase")
         chapters_total = chapters_total if chapters_total is not None else cached.get("chapters_total")
         chapters_done = chapters_done if chapters_done is not None else cached.get("chapters_done")
         percent_complete = percent_complete if percent_complete is not None else cached.get("percent_complete")
+        current_chapter = current_chapter if current_chapter is not None else cached.get("current_chapter")
+
+    if isinstance(source, dict):
+        qa_status = source.get("qa_status")
+        qa_failure_reason = source.get("qa_failure_reason")
+        qa_failure_validator = source.get("qa_failure_validator")
+        qa_attempt = source.get("qa_attempt")
+        qa_failures = source.get("qa_failures")
+        generation_metrics = source.get("generation_metrics")
     if phase is None:
         if status == "pending":
             phase = "queued"
@@ -132,4 +157,11 @@ async def get_job_status(
         chapters_total=chapters_total,
         chapters_done=chapters_done,
         percent_complete=percent_complete,
+        current_chapter=current_chapter,
+        qa_status=qa_status,
+        qa_failure_reason=qa_failure_reason,
+        qa_failure_validator=qa_failure_validator,
+        qa_attempt=qa_attempt,
+        qa_failures=qa_failures,
+        generation_metrics=generation_metrics,
     )

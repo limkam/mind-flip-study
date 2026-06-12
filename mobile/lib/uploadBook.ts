@@ -6,6 +6,13 @@ export type TocChapter = {
   subtopics?: string[];
 };
 
+export type DetectMetadataResult = {
+  title: string;
+  author: string;
+  title_detected: boolean;
+  author_detected: boolean;
+};
+
 export type UploadBookOptions = {
   title: string;
   author: string;
@@ -16,11 +23,27 @@ export type UploadBookOptions = {
   description?: string;
   subject?: string;
   tags?: string[];
-  onProgress?: (phase: "uploading" | "extracting_toc" | "creating") => void;
+  onProgress?: (phase: "detecting" | "uploading" | "creating") => void;
 };
 
+/** Detect title/author from a local PDF before upload. */
+export async function detectPdfMetadataFromUri(
+  uri: string,
+  name: string,
+): Promise<DetectMetadataResult> {
+  const form = new FormData();
+  form.append("file", {
+    uri,
+    name: name || "upload.pdf",
+    type: "application/pdf",
+  } as unknown as Blob);
+  const { data } = await api.post<DetectMetadataResult>("/books/detect-metadata", form);
+  return data;
+}
+
 /**
- * Presigned PUT to object storage, PDF-based TOC extraction, then create book row.
+ * Presigned PUT to object storage, then create book row.
+ * TOC extraction is user-triggered from book detail.
  */
 export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<void> {
   const {
@@ -35,7 +58,7 @@ export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<voi
     tags = [],
     onProgress,
   } = opts;
-  const contentType = mimeType || "application/octet-stream";
+  const contentType = mimeType || "application/pdf";
 
   onProgress?.("uploading");
   const { data: presign } = await api.post<{ upload_url: string; s3_key: string }>("/books/upload-url", {
@@ -53,28 +76,14 @@ export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<voi
     throw new Error(`Storage upload failed (${putRes.status})`);
   }
 
-  onProgress?.("extracting_toc");
-  let chapters: TocChapter[] = [];
-  try {
-    const { data: toc } = await api.post<{ chapters: TocChapter[] }>("/books/extract-toc", {
-      s3_key: presign.s3_key,
-      title,
-      author,
-      description: description || undefined,
-    });
-    chapters = toc.chapters ?? [];
-  } catch {
-    chapters = [];
-  }
-
   onProgress?.("creating");
   await api.post("/books/", {
-    title,
-    author,
+    title: title.trim(),
+    author: author.trim(),
     s3_key: presign.s3_key,
     file_size_bytes: size,
     extras: {
-      table_of_contents: chapters,
+      table_of_contents: [],
       tags,
       subject,
       description,

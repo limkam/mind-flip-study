@@ -27,12 +27,13 @@ from routers.card_progress import router as card_progress_router
 from routers.flashcards import router as flashcards_router
 from routers.folders import router as folders_router
 from routers.jobs import router as jobs_router
+from routers.challenge_leaderboard import router as challenge_leaderboard_router
 from routers.leaderboard import router as leaderboard_router
 from routers.quiz_challenges import router as quiz_challenges_router
 from routers.quiz_results import router as quiz_results_router
 from routers.study import router as study_router
+from routers.study_groups import router as study_groups_router
 from routers.users import router as users_router
-from routers.workbooks import router as workbooks_router
 
 if settings.SENTRY_DSN_API:
     sentry_sdk.init(
@@ -127,14 +128,15 @@ app.include_router(billing_router, prefix="/billing")
 app.include_router(users_router, prefix="/users")
 app.include_router(books_router, prefix="/books")
 app.include_router(flashcards_router, prefix="/flashcard-sets")
-app.include_router(workbooks_router, prefix="/workbooks")
 app.include_router(jobs_router, prefix="/jobs")
 app.include_router(ai_router, prefix="/ai")
 app.include_router(card_progress_router, prefix="/card-progress")
 app.include_router(study_router, prefix="/study")
 app.include_router(quiz_results_router, prefix="/quiz-results")
 app.include_router(leaderboard_router, prefix="/leaderboard")
+app.include_router(challenge_leaderboard_router, prefix="/challenge-leaderboard")
 app.include_router(quiz_challenges_router, prefix="/quiz-challenges")
+app.include_router(study_groups_router, prefix="/study-groups")
 app.include_router(folders_router, prefix="/folders")
 app.include_router(achievements_router, prefix="/achievements")
 app.include_router(feedback_router) # already has /feedback prefix

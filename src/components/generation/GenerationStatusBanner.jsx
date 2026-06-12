@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { Loader2, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import GenerateProgressBar from '@/components/dashboard/GenerateProgressBar';
@@ -54,6 +53,7 @@ export default function GenerationStatusBanner() {
         chaptersTotal={active.chaptersTotal}
         chaptersDone={active.chaptersDone}
         percentComplete={active.percentComplete}
+        currentChapter={active.currentChapter}
       />
 
       {(chapterLine || active.percentComplete != null) ? (
@@ -67,15 +67,6 @@ export default function GenerationStatusBanner() {
             </span>
           )}
         </div>
-      ) : null}
-
-      {active.bookId ? (
-        <Link
-          to={`/library/${active.bookId}`}
-          className="text-xs text-primary font-medium hover:underline mt-3 inline-block"
-        >
-          View book details
-        </Link>
       ) : null}
     </div>
   );

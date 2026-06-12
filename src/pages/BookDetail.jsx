@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import {
   BookOpen, User, Sparkles, Loader2, ChevronDown, ChevronRight,
-  GraduationCap, ArrowLeft, FileText, Tag, Trash2
+  ArrowLeft, FileText, Tag, Trash2
 } from "lucide-react";
 import {
   AlertDialog,
@@ -30,7 +30,9 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import TagInput from "@/components/common/TagInput";
-import GenerateWorkbookButton from "@/components/workbook/GenerateWorkbookButton";
+import { tocPhaseLabel } from "@/lib/bookUpload";
+import { FLASHCARD_COUNT_OPTIONS, DEFAULT_FLASHCARD_COUNT } from "@/lib/flashcardOptions";
+import { useJobPoll } from "@/hooks/useJobPoll";
 
 export default function BookDetail() {
   const { id } = useParams();
@@ -38,12 +40,15 @@ export default function BookDetail() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const [selectedChapters, setSelectedChapters] = useState([]);
-  const [cardCount, setCardCount] = useState("20");
+  const [selectedChapter, setSelectedChapter] = useState("");
+  const [cardCount, setCardCount] = useState(String(DEFAULT_FLASHCARD_COUNT));
   const [expandedChapters, setExpandedChapters] = useState({});
   const [generating, setGenerating] = useState(false);
   const [editingTags, setEditingTags] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [forceRegenerate, setForceRegenerate] = useState(false);
+  const [tocJobId, setTocJobId] = useState(null);
+  const [tocPhase, setTocPhase] = useState(null);
   const { startJob } = useGenerationJobs();
   const activeBookJob = useBookGenerationJob(id);
   const activeJobId = activeBookJob?.jobId || null;
@@ -55,28 +60,50 @@ export default function BookDetail() {
       const { data } = await client.get(`/books/${id}`);
       return data;
     },
-  });
-
-  const { data: existingWorkbooks = [] } = useQuery({
-    queryKey: ["workbooks", id],
-    queryFn: async () => {
-      const { data } = await client.get(`/workbooks/`, { params: { book_id: id } });
-      return data;
+    refetchInterval: (query) => {
+      const b = query.state.data;
+      return b?.is_analyzing || tocJobId ? 2000 : false;
     },
-    enabled: !!id,
   });
 
-  const toggleChapter = (title) => {
-    setSelectedChapters(prev =>
-      prev.includes(title) ? prev.filter(t => t !== title) : [...prev, title]
-    );
+  useJobPoll(tocJobId, {
+    enabled: !!tocJobId,
+    intervalMs: 1500,
+    onProgress: (data) => {
+      setTocPhase(data?.phase || null);
+    },
+    onTerminal: async (data) => {
+      setTocJobId(null);
+      setTocPhase(null);
+      if (data.status === "complete") {
+        await queryClient.invalidateQueries({ queryKey: ["book", id] });
+        toast({ title: "Table of contents ready", description: "Chapters are listed below." });
+      } else {
+        toast({
+          title: "TOC extraction failed",
+          description: data?.result?.error || "Please try again.",
+          variant: "destructive",
+        });
+      }
+    },
+  });
+
+  const extractToc = async () => {
+    try {
+      setTocPhase("extracting_contents");
+      const { data: job } = await client.post(`/books/${id}/extract-toc`);
+      setTocJobId(job.job_id);
+    } catch (e) {
+      setTocPhase(null);
+      const msg = e.response?.data?.detail;
+      toast({
+        title: "Could not start TOC extraction",
+        description: typeof msg === "string" ? msg : e.message,
+        variant: "destructive",
+      });
+    }
   };
 
-  const selectAll = () => {
-    if (!book?.table_of_contents) return;
-    const all = book.table_of_contents.map(ch => ch.title);
-    setSelectedChapters(prev => prev.length === all.length ? [] : all);
-  };
 
   const toggleExpand = (idx) => {
     setExpandedChapters(prev => ({ ...prev, [idx]: !prev[idx] }));
@@ -84,14 +111,14 @@ export default function BookDetail() {
 
   const generateFlashcards = async () => {
     const toc = book.table_of_contents || [];
-    if (toc.length > 0 && selectedChapters.length === 0) {
-      toast({ title: "Please select at least one chapter", variant: "destructive" });
+    if (toc.length > 0 && !selectedChapter) {
+      toast({ title: "Please select a chapter", variant: "destructive" });
       return;
     }
 
     setGenerating(true);
-    setGenerationPhase("starting");
     try {
+      const selectedChapters = selectedChapter ? [selectedChapter] : [];
       const title = buildFlashcardSetTitle(book.title, selectedChapters);
 
       const { data: job } = await client.post("/flashcard-sets/generate", {
@@ -99,7 +126,19 @@ export default function BookDetail() {
         title: title,
         num_cards: cardCount,
         selected_chapters: selectedChapters,
+        force_regenerate: forceRegenerate,
       });
+
+      if (job.reused && job.set_id) {
+        setGenerating(false);
+        toast({
+          title: "Flashcards ready",
+          description: "Using your existing flashcard set for these chapters.",
+        });
+        navigate(`/study/${job.set_id}`);
+        return;
+      }
+
       startJob({ jobId: job.job_id, bookId: id, bookTitle: book.title });
       setGenerating(false);
       toast({
@@ -174,7 +213,7 @@ export default function BookDetail() {
             <AlertDialogHeader>
               <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will permanently delete "{book.title}" and all generated flashcards and workbooks associated with it. This action cannot be undone.
+                This will permanently delete "{book.title}" and all generated flashcards associated with it. This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -222,12 +261,6 @@ export default function BookDetail() {
                 <FileText className="w-4 h-4" /> {toc.length} chapters
               </span>
             </div>
-            <div className="mt-5">
-              <GenerateWorkbookButton
-                book={book}
-                existingWorkbookId={existingWorkbooks[0]?.id}
-              />
-            </div>
             <div className="mt-4">
               {editingTags ? (
                 <div>
@@ -269,40 +302,64 @@ export default function BookDetail() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="font-heading text-xl font-semibold">Table of Contents</h2>
-            <p className="text-sm text-muted-foreground mt-1">Select chapters to generate flashcards from</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {toc.length > 0
+                ? "Select one chapter to generate flashcards from"
+                : "Extract the table of contents to select a chapter"}
+            </p>
           </div>
-          <Button variant="outline" size="sm" onClick={selectAll}>
-            {selectedChapters.length === toc.length ? "Deselect All" : "Select All"}
-          </Button>
         </div>
+
+        {book.toc_extraction_method && book.toc_extraction_method !== "ai" && toc.length > 0 && (
+          <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 mb-4">
+            Chapter list may be incomplete — AI did not run on the server (method: {book.toc_extraction_method}).
+            Ensure <code className="text-xs">ANTHROPIC_API_KEY</code> is set on both API and worker in production, then extract TOC again.
+          </p>
+        )}
 
         {toc.length === 0 ? (
           <div className="text-center py-10">
             <FileText className="w-12 h-12 mx-auto text-muted-foreground/20 mb-3" />
-            <p className="text-muted-foreground">No table of contents extracted yet.</p>
-            <p className="text-sm text-muted-foreground mt-1">Try re-uploading the book with a PDF file.</p>
+            {tocJobId || book.is_analyzing || tocPhase ? (
+              <>
+                <Loader2 className="w-6 h-6 mx-auto animate-spin text-primary mb-3" />
+                <p className="text-muted-foreground font-medium">
+                  {tocPhaseLabel(tocPhase || book.processing_phase || "extracting_contents")}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
+                  Reading your PDF and building a structured chapter list. This may take a minute.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-muted-foreground mb-1">No table of contents yet</p>
+                <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
+                  Extract the TOC to browse chapters and generate targeted flashcards.
+                </p>
+                <Button onClick={extractToc} className="gap-2">
+                  <FileText className="w-4 h-4" />
+                  Extract Table of Contents (TOC)
+                </Button>
+              </>
+            )}
           </div>
         ) : (
-          <div className="space-y-2">
+          <RadioGroup value={selectedChapter} onValueChange={setSelectedChapter} className="space-y-2">
             {toc.map((chapter, idx) => {
-              const isSelected = selectedChapters.includes(chapter.title);
+              const isSelected = selectedChapter === chapter.title;
               const isExpanded = expandedChapters[idx];
               return (
                 <div key={idx} className={`rounded-xl border transition-colors ${isSelected ? "border-primary/30 bg-primary/5" : "border-border"}`}>
                   <div className="flex items-center gap-3 p-4">
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={() => toggleChapter(chapter.title)}
-                      className="flex-shrink-0"
-                    />
-                    <div className="flex-1 cursor-pointer" onClick={() => toggleChapter(chapter.title)}>
+                    <RadioGroupItem value={chapter.title} id={`chapter-${idx}`} className="flex-shrink-0" />
+                    <Label htmlFor={`chapter-${idx}`} className="flex-1 cursor-pointer font-normal">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded">
                           Ch. {chapter.chapter_number || idx + 1}
                         </span>
                         <span className="font-medium text-sm">{chapter.title}</span>
                       </div>
-                    </div>
+                    </Label>
                     {chapter.subtopics?.length > 0 && (
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleExpand(idx)}>
                         {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -319,7 +376,7 @@ export default function BookDetail() {
                 </div>
               );
             })}
-          </div>
+          </RadioGroup>
         )}
       </motion.div>
 
@@ -331,36 +388,41 @@ export default function BookDetail() {
         className="bg-card rounded-2xl border border-border p-6 lg:p-8"
       >
         <h2 className="font-heading text-xl font-semibold mb-2">Generate Flashcards</h2>
-        {selectedChapters.length > 0 ? (
+        {selectedChapter ? (
           <>
             <p className="text-sm font-medium text-primary mb-2">
-              {chapterSelectionSubtitle(selectedChapters.length)}
+              {chapterSelectionSubtitle(1)}
             </p>
-            <SelectedChaptersList chapters={selectedChapters} className="mb-6" />
+            <SelectedChaptersList chapters={[selectedChapter]} className="mb-6" />
           </>
         ) : (
           <p className="text-sm text-muted-foreground mb-6">
-            Select chapters above to generate flashcards
+            Select one chapter above to generate flashcards
           </p>
         )}
 
         <div className="mb-6">
           <Label className="text-sm font-medium mb-3 block">Number of Flashcards</Label>
-          <RadioGroup value={cardCount} onValueChange={setCardCount} className="flex gap-4">
-            {["20", "50", "100"].map(n => (
+          <RadioGroup value={cardCount} onValueChange={setCardCount} className="flex flex-wrap gap-2">
+            {FLASHCARD_COUNT_OPTIONS.map(n => (
               <Label
                 key={n}
                 htmlFor={`count-${n}`}
-                className={`flex items-center gap-3 px-5 py-3 rounded-xl border-2 cursor-pointer transition-all
-                  ${cardCount === n ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"}`}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 cursor-pointer transition-all
+                  ${cardCount === String(n) ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"}`}
               >
-                <RadioGroupItem value={n} id={`count-${n}`} />
-                <span className="font-heading font-semibold text-lg">{n}</span>
+                <RadioGroupItem value={String(n)} id={`count-${n}`} />
+                <span className="font-heading font-semibold text-base">{n}</span>
                 <span className="text-xs text-muted-foreground">cards</span>
               </Label>
             ))}
           </RadioGroup>
         </div>
+
+        <label className="flex items-center gap-2 mb-4 text-sm text-muted-foreground cursor-pointer">
+          <Checkbox checked={forceRegenerate} onCheckedChange={setForceRegenerate} />
+          Regenerate even if flashcards already exist for these chapters
+        </label>
 
         {activeJobId ? (
           <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2">
@@ -374,13 +436,14 @@ export default function BookDetail() {
               chaptersTotal={activeBookJob?.chaptersTotal}
               chaptersDone={activeBookJob?.chaptersDone}
               percentComplete={activeBookJob?.percentComplete}
+              currentChapter={activeBookJob?.currentChapter}
             />
           </div>
         ) : null}
 
         <Button
           onClick={generateFlashcards}
-          disabled={isGenerating || ((book.table_of_contents || []).length > 0 && selectedChapters.length === 0)}
+          disabled={isGenerating || ((book.table_of_contents || []).length > 0 && !selectedChapter)}
           size="lg"
           className="w-full gap-2 h-14 text-base font-semibold"
         >

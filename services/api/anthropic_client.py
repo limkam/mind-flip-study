@@ -1,4 +1,4 @@
-"""Anthropic client factory — dev uses .env; production uses AWS Secrets Manager."""
+"""Anthropic client factory — env var first, then AWS Secrets Manager in production."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def _load_api_key_from_secrets_manager() -> str:
     raw = resp.get("SecretString") or ""
     key = parse_secret_string(raw)
     log.info(
-        "anthropic_secret_loaded",
+        "anthropic_key_loaded",
         extra={"source": "aws_secrets_manager", "secret_id": settings.ANTHROPIC_SECRET_ID},
     )
     return key
@@ -63,13 +63,27 @@ def get_anthropic_api_key() -> str:
     global _api_key_cache
     if _api_key_cache:
         return _api_key_cache
+
+    env_key = (settings.ANTHROPIC_API_KEY or "").strip()
+    if env_key:
+        _api_key_cache = env_key
+        log.info("anthropic_key_loaded", extra={"source": "env"})
+        return _api_key_cache
+
     if settings.ENVIRONMENT == "production":
-        _api_key_cache = _load_api_key_from_secrets_manager()
-    else:
-        _api_key_cache = (settings.ANTHROPIC_API_KEY or "").strip()
-    if not _api_key_cache:
-        raise RuntimeError("Anthropic API key is not configured")
-    return _api_key_cache
+        try:
+            _api_key_cache = _load_api_key_from_secrets_manager()
+            return _api_key_cache
+        except Exception as exc:
+            log.error("anthropic_secrets_manager_failed", extra={"error": str(exc)})
+            raise RuntimeError(
+                "Anthropic API key is not configured. Set ANTHROPIC_API_KEY on the API "
+                "and worker services, or configure AWS Secrets Manager."
+            ) from exc
+
+    raise RuntimeError(
+        "Anthropic API key is not configured. Set ANTHROPIC_API_KEY in .env and restart the API/worker."
+    )
 
 
 def get_anthropic_client() -> Anthropic:
@@ -77,3 +91,10 @@ def get_anthropic_client() -> Anthropic:
     if _client_cache is None:
         _client_cache = Anthropic(api_key=get_anthropic_api_key())
     return _client_cache
+
+
+def reset_anthropic_client_cache() -> None:
+    """Testing helper — clear cached key/client."""
+    global _api_key_cache, _client_cache
+    _api_key_cache = None
+    _client_cache = None

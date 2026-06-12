@@ -21,7 +21,7 @@ import { api } from "../../api/client";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
 import { flattenPages, normalizePage } from "../../lib/pagination";
-import { uploadBookFromPicker } from "../../lib/uploadBook";
+import { uploadBookFromPicker, detectPdfMetadataFromUri } from "../../lib/uploadBook";
 import type { BookOut, Paginated } from "../../types/api";
 
 const PAGE_SIZE = 20;
@@ -40,13 +40,16 @@ export default function LibraryTab() {
   } | null>(null);
   const [uploadPhase, setUploadPhase] = useState<string | null>(null);
 
+  const [detecting, setDetecting] = useState(false);
+  const [detectHint, setDetectHint] = useState<string | null>(null);
+
   const uploadPhaseLabel =
-    uploadPhase === "uploading"
-      ? "Uploading PDF…"
-      : uploadPhase === "extracting_toc"
-        ? "Extracting table of contents…"
+    uploadPhase === "detecting"
+      ? "Detecting title and author…"
+      : uploadPhase === "uploading"
+        ? "Uploading PDF…"
         : uploadPhase === "creating"
-          ? "Creating book…"
+          ? "Saving book…"
           : null;
 
   const {
@@ -120,6 +123,24 @@ export default function LibraryTab() {
       size,
       mimeType: a.mimeType,
     });
+    setTitle("");
+    setAuthor("");
+    setDetectHint(null);
+    setDetecting(true);
+    try {
+      const meta = await detectPdfMetadataFromUri(a.uri, a.name);
+      setTitle(meta.title || "");
+      setAuthor(meta.author || "");
+      if (meta.title_detected && meta.author_detected) {
+        setDetectHint("Title and author detected from your PDF.");
+      } else {
+        setDetectHint("Enter the missing title and author below.");
+      }
+    } catch {
+      setDetectHint("Could not detect metadata. Enter title and author manually.");
+    } finally {
+      setDetecting(false);
+    }
   }, []);
 
   const renderItem = useCallback(
@@ -181,7 +202,7 @@ export default function LibraryTab() {
           <EmptyState
             icon="📚"
             title="No books yet"
-            message="Upload your first PDF to generate AI flashcards and workbooks."
+            message="Upload your first PDF to generate AI flashcards."
             actionLabel="Upload book"
             onAction={() => setUploadOpen(true)}
           />
@@ -192,25 +213,34 @@ export default function LibraryTab() {
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Upload book</Text>
-            <Text style={[styles.label, { color: colors.muted }]}>Title</Text>
+            <Pressable
+              style={[styles.secondaryBtn, { borderColor: colors.primary, marginTop: 0 }]}
+              onPress={pickFile}
+              disabled={detecting || uploadMutation.isPending}
+            >
+              <Text style={{ color: colors.primary, fontWeight: "600" }}>
+                {detecting ? "Detecting title and author…" : picked ? picked.name : "Choose PDF (required first step)"}
+              </Text>
+            </Pressable>
+            {detectHint ? (
+              <Text style={{ color: colors.muted, marginTop: 8, fontSize: 13 }}>{detectHint}</Text>
+            ) : null}
+            <Text style={[styles.label, { color: colors.muted }]}>Title *</Text>
             <TextInput
               value={title}
               onChangeText={setTitle}
-              placeholder="Title"
+              placeholder="Required"
               placeholderTextColor={colors.muted}
               style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
             />
-            <Text style={[styles.label, { color: colors.muted }]}>Author</Text>
+            <Text style={[styles.label, { color: colors.muted }]}>Author *</Text>
             <TextInput
               value={author}
               onChangeText={setAuthor}
-              placeholder="Author"
+              placeholder="Required"
               placeholderTextColor={colors.muted}
               style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
             />
-            <Pressable style={[styles.secondaryBtn, { borderColor: colors.border }]} onPress={pickFile}>
-              <Text style={{ color: colors.text }}>{picked ? picked.name : "Choose PDF"}</Text>
-            </Pressable>
             {uploadPhaseLabel ? (
               <Text style={{ color: colors.primary, marginTop: 8, fontWeight: "600" }}>{uploadPhaseLabel}</Text>
             ) : null}
@@ -225,11 +255,11 @@ export default function LibraryTab() {
               </Pressable>
               <Pressable
                 style={[styles.primaryBtn, uploadMutation.isPending && { opacity: 0.6 }]}
-                disabled={uploadMutation.isPending}
+                disabled={uploadMutation.isPending || detecting || !picked || !title.trim() || !author.trim()}
                 onPress={() => uploadMutation.mutate()}
               >
                 <Text style={styles.primaryBtnText}>
-                  {uploadMutation.isPending ? uploadPhaseLabel ?? "Uploading…" : "Start upload"}
+                  {uploadMutation.isPending ? uploadPhaseLabel ?? "Uploading…" : "Upload Book"}
                 </Text>
               </Pressable>
             </View>

@@ -47,7 +47,6 @@ const ToggleRow = ({ label, description, checked, onChange }) => (
 const DEFAULTS = {
   learning_pace: "medium",
   daily_goal_minutes: 20,
-  notify_workbook: true,
   notify_quiz_results: true,
   notify_streak_reminder: true,
   notify_challenges: true,
@@ -173,12 +172,6 @@ export default function Settings() {
 
         {/* Notifications */}
         <Section icon={Bell} title="Notifications" description="Choose what you want to be notified about">
-          <ToggleRow
-            label="New Workbook Generated"
-            description="Get notified when an AI workbook is ready"
-            checked={prefs.notify_workbook}
-            onChange={v => set("notify_workbook", v)}
-          />
           <ToggleRow
             label="Quiz Results"
             description="Receive a summary after completing a quiz"

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -14,14 +14,25 @@ import { GenerateProgressBar } from "../../components/GenerateProgressBar";
 import { Screen } from "../../components/Screen";
 import { SelectedChaptersList } from "../../components/study/SelectedChaptersList";
 import { api } from "../../api/client";
+import { useJobPoll } from "../../hooks/useJobPoll";
 import { generationPhaseLabel } from "../../lib/generationPhases";
 import { chapterSelectionSubtitle } from "../../lib/studySetDisplay";
 import { useGenerationJobStore } from "../../store/generationJobStore";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
-import type { BookOut } from "../../types/api";
+import type { BookOut, JobStatusResponse } from "../../types/api";
 
-const COUNTS = [20, 50, 100] as const;
+const TOC_PHASE_LABELS: Record<string, string> = {
+  extracting_contents: "Extracting contents…",
+  analyzing_structure: "Analyzing document structure…",
+  extracting_toc: "Analyzing document structure…",
+};
+
+function tocPhaseLabel(phase?: string | null) {
+  return (phase && TOC_PHASE_LABELS[phase]) || "Processing…";
+}
+
+const COUNTS = [5, 10, 20, 30, 40, 50] as const;
 
 export default function BookByIdScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -31,10 +42,13 @@ export default function BookByIdScreen() {
   const activeBookJob = useGenerationJobStore((s) => (id ? s.getBookJob(id) : undefined));
 
   const [cardCount, setCardCount] = useState<(typeof COUNTS)[number]>(20);
-  const [selectedChapters, setSelectedChapters] = useState<string[]>([]);
+  const [selectedChapter, setSelectedChapter] = useState("");
   const [expandedChapters, setExpandedChapters] = useState<Record<number, boolean>>({});
   const [genError, setGenError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [tocJobId, setTocJobId] = useState<string | null>(null);
+  const [tocPhase, setTocPhase] = useState<string | null>(null);
+  const [tocError, setTocError] = useState<string | null>(null);
 
   const { data: book, isLoading, isError, refetch } = useQuery({
     queryKey: ["book", id],
@@ -43,32 +57,56 @@ export default function BookByIdScreen() {
       const { data } = await api.get<BookOut>(`/books/${id}`);
       return data;
     },
+    refetchInterval: tocJobId ? 2000 : false,
   });
+
+  const fetchTocJobStatus = useCallback(async () => {
+    if (!tocJobId) throw new Error("no job");
+    const { data } = await api.get<JobStatusResponse>(`/jobs/${tocJobId}`);
+    setTocPhase(data.phase ?? null);
+    return data;
+  }, [tocJobId]);
+
+  useJobPoll(tocJobId, fetchTocJobStatus, {
+    intervalMs: 1500,
+    onTerminal: async (data) => {
+      setTocJobId(null);
+      setTocPhase(null);
+      if (data.status === "complete") {
+        await refetch();
+      } else {
+        setTocError(String((data.result as { error?: string })?.error ?? "TOC extraction failed"));
+      }
+    },
+  });
+
+  const extractToc = async () => {
+    if (!id) return;
+    setTocError(null);
+    setTocPhase("extracting_contents");
+    try {
+      const { data: job } = await api.post<{ job_id: string }>(`/books/${id}/extract-toc`);
+      setTocJobId(job.job_id);
+    } catch (e: unknown) {
+      setTocPhase(null);
+      const msg =
+        e && typeof e === "object" && "response" in e
+          ? String((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Request failed")
+          : "Request failed";
+      setTocError(msg);
+    }
+  };
 
   const chapters = book?.table_of_contents ?? [];
   const tocKey = JSON.stringify(book?.table_of_contents ?? null);
 
   useEffect(() => {
     if (!book?.id) return;
-    const toc = book.table_of_contents ?? [];
-    if (toc.length > 0) {
-      const titles = toc
-        .map((c) => c.title)
-        .filter((t): t is string => !!t && String(t).trim().length > 0);
-      setSelectedChapters(titles);
-    } else {
-      setSelectedChapters([]);
-    }
+    setSelectedChapter("");
   }, [book?.id, tocKey]);
 
-  const toggleChapter = (title: string) => {
-    setSelectedChapters((prev) => (prev.includes(title) ? prev.filter((t) => t !== title) : [...prev, title]));
-  };
-
-  const selectAll = () => {
-    if (!chapters.length) return;
-    const all = chapters.map((ch, i) => ch.title ?? `Chapter ${i + 1}`);
-    setSelectedChapters((prev) => (prev.length === all.length ? [] : all));
+  const selectChapter = (title: string) => {
+    setSelectedChapter((prev) => (prev === title ? "" : title));
   };
 
   const toggleExpand = (idx: number) => {
@@ -77,8 +115,8 @@ export default function BookByIdScreen() {
 
   const startGenerate = async () => {
     if (!book || !id) return;
-    if (chapters.length > 0 && selectedChapters.length === 0) {
-      setGenError("Select at least one chapter.");
+    if (chapters.length > 0 && !selectedChapter) {
+      setGenError("Select one chapter.");
       return;
     }
     setGenError(null);
@@ -88,7 +126,7 @@ export default function BookByIdScreen() {
         book_id: book.id,
         title: book.title,
         num_cards: cardCount,
-        selected_chapters: selectedChapters,
+        selected_chapters: selectedChapter ? [selectedChapter] : [],
       });
       startJob({ jobId: job.job_id, bookId: id, bookTitle: book.title });
       void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
@@ -104,7 +142,7 @@ export default function BookByIdScreen() {
   };
 
   const isGenerating = !!activeBookJob || starting;
-  const canGenerate = !isGenerating && !(chapters.length > 0 && selectedChapters.length === 0);
+  const canGenerate = !isGenerating && !(chapters.length > 0 && !selectedChapter);
 
   return (
     <Screen edges={["bottom"]}>
@@ -123,7 +161,9 @@ export default function BookByIdScreen() {
           <Text style={[styles.title, { color: colors.text }]}>{book.title}</Text>
           {book.author ? <Text style={[styles.meta, { color: colors.muted }]}>{book.author}</Text> : null}
           <Text style={[styles.meta, { color: colors.muted }]}>
-            {chapters.length} chapter{chapters.length !== 1 ? "s" : ""} extracted
+            {chapters.length > 0
+              ? `${chapters.length} chapter${chapters.length !== 1 ? "s" : ""} extracted`
+              : "TOC not extracted yet"}
           </Text>
           {book.description ? (
             <Text style={[styles.body, { color: colors.text }]}>{book.description}</Text>
@@ -134,32 +174,43 @@ export default function BookByIdScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>Table of contents</Text>
                 <Text style={[styles.sectionSub, { color: colors.muted }]}>
-                  Select chapters to generate flashcards from
+                  Select one chapter to generate flashcards from
                 </Text>
               </View>
-              {chapters.length > 0 ? (
-                <Pressable
-                  onPress={() => {
-                    void hapticImpact("light");
-                    selectAll();
-                  }}
-                  style={[styles.linkBtn, { borderColor: colors.border }]}
-                >
-                  <Text style={[styles.linkBtnText, { color: colors.primary }]}>
-                    {selectedChapters.length === chapters.length ? "Deselect all" : "Select all"}
-                  </Text>
-                </Pressable>
-              ) : null}
             </View>
 
             {chapters.length === 0 ? (
-              <Text style={[styles.emptyToc, { color: colors.muted }]}>
-                No table of contents extracted yet. Try re-uploading the book with a PDF that has a clear TOC.
-              </Text>
+              tocJobId || tocPhase ? (
+                <View style={styles.tocEmpty}>
+                  <ActivityIndicator color={colors.primary} style={{ marginBottom: 12 }} />
+                  <Text style={[styles.emptyToc, { color: colors.text, fontWeight: "600" }]}>
+                    {tocPhaseLabel(tocPhase)}
+                  </Text>
+                  <Text style={[styles.emptyToc, { color: colors.muted, marginTop: 8 }]}>
+                    Reading your PDF and building a structured chapter list.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.tocEmpty}>
+                  <Text style={[styles.emptyToc, { color: colors.muted }]}>
+                    Extract the table of contents to select chapters for flashcards.
+                  </Text>
+                  {tocError ? <Text style={[styles.error, { color: colors.danger }]}>{tocError}</Text> : null}
+                  <Pressable
+                    style={[styles.primaryBtn, { backgroundColor: colors.primary, marginTop: 12 }]}
+                    onPress={() => {
+                      void hapticImpact("light");
+                      void extractToc();
+                    }}
+                  >
+                    <Text style={styles.primaryBtnText}>Extract Table of Contents (TOC)</Text>
+                  </Pressable>
+                </View>
+              )
             ) : (
               chapters.map((chapter, idx) => {
                 const t = chapter.title ?? `Chapter ${idx + 1}`;
-                const on = selectedChapters.includes(t);
+                const on = selectedChapter === t;
                 const expanded = expandedChapters[idx];
                 const hasSubs = (chapter.subtopics?.length ?? 0) > 0;
                 return (
@@ -170,9 +221,9 @@ export default function BookByIdScreen() {
                       { borderColor: on ? colors.primary : colors.border, backgroundColor: on ? `${colors.primary}10` : colors.background },
                     ]}
                   >
-                    <Pressable style={styles.chapterRow} onPress={() => toggleChapter(t)}>
-                      <View style={[styles.chBox, { borderColor: on ? colors.primary : colors.border }, on && { backgroundColor: `${colors.primary}20` }]}>
-                        {on ? <Text style={[styles.chMark, { color: colors.primary }]}>✓</Text> : null}
+                    <Pressable style={styles.chapterRow} onPress={() => selectChapter(t)}>
+                      <View style={[styles.chBox, styles.radioOuter, { borderColor: on ? colors.primary : colors.border }]}>
+                        {on ? <View style={[styles.radioInner, { backgroundColor: colors.primary }]} /> : null}
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.chNum, { color: colors.muted, backgroundColor: colors.border + "55" }]}>
@@ -209,16 +260,16 @@ export default function BookByIdScreen() {
 
           <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Generate flashcards</Text>
-            {selectedChapters.length > 0 ? (
+            {selectedChapter ? (
               <>
                 <Text style={[styles.sectionSub, { color: colors.primary, fontWeight: "600" }]}>
-                  {chapterSelectionSubtitle(selectedChapters.length)}
+                  {chapterSelectionSubtitle(1)}
                 </Text>
-                <SelectedChaptersList chapters={selectedChapters} />
+                <SelectedChaptersList chapters={[selectedChapter]} />
               </>
             ) : (
               <Text style={[styles.sectionSub, { color: colors.muted, marginBottom: 12 }]}>
-                Select chapters above to generate flashcards
+                Select one chapter above to generate flashcards
               </Text>
             )}
 
@@ -299,7 +350,8 @@ const styles = StyleSheet.create({
   sectionSub: { fontSize: 13, marginTop: 4 },
   linkBtn: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
   linkBtnText: { fontSize: 12, fontWeight: "700" },
-  emptyToc: { fontSize: 14, lineHeight: 20, textAlign: "center", paddingVertical: 16 },
+  emptyToc: { fontSize: 14, lineHeight: 20, textAlign: "center", paddingVertical: 8 },
+  tocEmpty: { alignItems: "center", paddingVertical: 12 },
   chapterCard: { borderRadius: 12, borderWidth: 1, marginBottom: 8, overflow: "hidden" },
   chapterRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12 },
   chBox: {
@@ -310,7 +362,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  chMark: { fontSize: 12, fontWeight: "800" },
+  radioOuter: { borderRadius: 11 },
+  radioInner: { width: 10, height: 10, borderRadius: 5 },
   chNum: {
     alignSelf: "flex-start",
     fontSize: 11,
@@ -325,7 +378,7 @@ const styles = StyleSheet.create({
   subtopics: { paddingHorizontal: 12, paddingBottom: 12, paddingLeft: 44, gap: 4 },
   subtopic: { fontSize: 13, lineHeight: 18 },
   label: { fontSize: 14, fontWeight: "600", marginBottom: 8 },
-  countRow: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  countRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 12 },
   countChip: {
     flex: 1,
     borderRadius: 12,

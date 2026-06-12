@@ -81,13 +81,19 @@ class GenerateFlashcardsRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=512)
     num_cards: int = Field(..., ge=1, le=200)
     selected_chapters: list[str] | None = None
+    force_regenerate: bool = False
 
 
 class GenerateWorkbookRequest(BaseModel):
     book_id: UUID
     title: str = Field(..., min_length=1, max_length=512)
     chapter_hint: str | None = Field(None, max_length=4000)
-    selected_chapters: list[str] | None = None
+    selected_chapters: list[str] | None = Field(
+        None,
+        description="Must contain exactly one chapter title.",
+        max_length=1,
+    )
+    force_regenerate: bool = False
 
 
 class WorkbookOut(BaseModel):

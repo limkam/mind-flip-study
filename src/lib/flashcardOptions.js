@@ -1,0 +1,2 @@
+export const FLASHCARD_COUNT_OPTIONS = [5, 10, 20, 30, 40, 50];
+export const DEFAULT_FLASHCARD_COUNT = 20;

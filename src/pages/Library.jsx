@@ -125,7 +125,6 @@ export default function Library() {
               key={book.id} 
               book={book} 
               index={i} 
-              onDelete={() => queryClient.invalidateQueries({ queryKey: ["books"] })}
             />
           ))}
         </div>

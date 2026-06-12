@@ -42,14 +42,7 @@ function ActiveJobPoller({
       if (body.status === "complete" && setId) {
         void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
         removeJob(jobId);
-        Alert.alert(
-          "Study content ready",
-          `${bookTitle} — summary, flashcards, and scenarios are ready.`,
-          [
-            { text: "Later", style: "cancel" },
-            { text: "Open study set", onPress: () => router.push(`/study/${setId}`) },
-          ],
-        );
+        router.push(`/study/${setId}`);
         return;
       }
 
@@ -62,14 +55,7 @@ function ActiveJobPoller({
           if (recent?.id) {
             void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
             removeJob(jobId);
-            Alert.alert(
-              "Flashcards ready",
-              "Generation finished — your study set was saved.",
-              [
-                { text: "Later", style: "cancel" },
-                { text: "Open study set", onPress: () => router.push(`/study/${recent.id}`) },
-              ],
-            );
+            router.push(`/study/${recent.id}`);
             return;
           }
         } catch {

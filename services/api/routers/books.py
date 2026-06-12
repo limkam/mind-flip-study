@@ -8,7 +8,7 @@ from pathlib import PurePosixPath
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,10 +33,14 @@ from schemas.book import (
     BookPatch,
     BookUploadUrlRequest,
     BookUploadUrlResponse,
+    DetectMetadataResponse,
     ExtractTocRequest,
     ExtractTocResponse,
 )
+from schemas.job import JobEnqueueResponse
 from schemas.pagination import total_pages
+from pdf_metadata import detect_metadata_from_pdf_bytes
+from tasks.book_tasks import extract_book_toc_task
 from toc_extraction import extract_toc_from_pdf_bytes
 
 router = APIRouter(tags=["books"])
@@ -110,13 +114,13 @@ async def extract_toc_from_upload(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="S3 object not found")
     try:
         pdf_bytes = get_object_bytes(body.s3_key)
-        chapters = extract_toc_from_pdf_bytes(
+        chapters, _method, _ = extract_toc_from_pdf_bytes(
             pdf_bytes,
             title=body.title,
             author=body.author,
             description=body.description,
         )
-        return ExtractTocResponse(chapters=chapters)
+        return ExtractTocResponse(chapters=chapters, method=_method)
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -126,6 +130,42 @@ async def extract_toc_from_upload(
         logger.exception("extract-toc failed for user %s", current_user.id)
         detail = str(exc) if settings.ENVIRONMENT == "development" else "TOC extraction failed"
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail) from exc
+
+
+@router.post("/detect-metadata", response_model=DetectMetadataResponse)
+async def detect_metadata_from_pdf(
+    file: Annotated[UploadFile, File(...)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> DetectMetadataResponse:
+    """Detect title and author from PDF before upload (fast PDF metadata, then AI on first pages)."""
+    _ = current_user
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        ctype = (file.content_type or "").lower()
+        if "pdf" not in ctype:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are supported")
+    raw = await file.read()
+    if len(raw) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File too large (max 100MB)")
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
+    if not raw[:4].startswith(b"%PDF"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is not a valid PDF")
+
+    try:
+        result = detect_metadata_from_pdf_bytes(raw)
+    except Exception as exc:
+        logger.exception("detect_metadata_failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Metadata detection failed: {exc}" if settings.ENVIRONMENT == "development" else "Metadata detection failed",
+        ) from exc
+
+    return DetectMetadataResponse(
+        title=result.get("title") or "",
+        author=result.get("author") or "",
+        title_detected=bool(result.get("title_detected")),
+        author_detected=bool(result.get("author_detected")),
+    )
 
 
 @router.post("/", response_model=BookOut, status_code=status.HTTP_201_CREATED)
@@ -152,14 +192,19 @@ async def create_book(
 
     book = Book(
         user_id=current_user.id,
-        title=body.title,
-        author=body.author,
+        title=body.title.strip(),
+        author=body.author.strip(),
         s3_key=body.s3_key,
         s3_url=build_s3_https_url(body.s3_key),
         file_size_bytes=body.file_size_bytes,
         status=BookStatus.ready,
         extras=body.extras if body.extras is not None else {},
     )
+    if book.extras is not None:
+        merged = dict(book.extras)
+        merged.setdefault("table_of_contents", [])
+        merged.setdefault("processing", {"phase": "awaiting_toc", "kind": "none"})
+        book.extras = merged
     db.add(book)
     await db.commit()
     await db.refresh(book)
@@ -213,6 +258,32 @@ async def get_book(
     if book is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
     return BookOut.model_validate(book)
+
+
+@router.post("/{book_id}/extract-toc", response_model=JobEnqueueResponse, status_code=status.HTTP_202_ACCEPTED)
+async def extract_toc_for_book(
+    book_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> JobEnqueueResponse:
+    """User-triggered TOC extraction from book detail."""
+    result = await db.execute(
+        select(Book).where(Book.id == book_id, Book.user_id == current_user.id),
+    )
+    book = result.scalar_one_or_none()
+    if book is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    proc = (book.extras or {}).get("processing") or {}
+    if proc.get("phase") in ("extracting_contents", "analyzing_structure", "extracting_toc"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="TOC extraction already in progress")
+
+    task = extract_book_toc_task.delay(str(book.id))
+    extras = dict(book.extras or {})
+    extras["processing"] = {"phase": "extracting_contents", "kind": "toc_extraction", "job_id": task.id}
+    book.extras = extras
+    await db.commit()
+    return JobEnqueueResponse(job_id=task.id, message="TOC extraction started")
 
 
 @router.patch("/{book_id}", response_model=BookOut)

@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Library, GraduationCap,
   Users, ChevronLeft, ChevronRight,
   LogOut, Trophy, X, Menu, UserCircle, Swords, Settings, FolderOpen,
-  BarChart2, Brain, Flame, MessageSquare
+  BarChart2, Brain, Flame, MessageSquare, Medal
 } from "lucide-react";
 import { MindFlipBrand } from "@/components/brand/MindFlipLogo";
 import { useAuth } from "@/lib/AuthContext";
@@ -17,9 +17,11 @@ const navItems = [
   { path: "/flashcard-sets", icon: GraduationCap, label: "My Flashcards" },
   { path: "/quiz-history", icon: Trophy, label: "Quiz Results" },
   { path: "/challenges", icon: Swords, label: "Challenges" },
+  { path: "/challenge-leaderboard", icon: Medal, label: "Challenge Board" },
   { path: "/daily-review", icon: Brain, label: "Daily Review" },
   { path: "/analytics", icon: BarChart2, label: "Analytics" },
   { path: "/leaderboard", icon: Flame, label: "Leaderboard" },
+  { path: "/study-groups", icon: Users, label: "Study Groups" },
   { path: "/folders", icon: FolderOpen, label: "Collections" },
   { path: "/profile", icon: UserCircle, label: "My Profile" },
   { path: "/settings", icon: Settings, label: "Settings" },

@@ -10,6 +10,7 @@ import PlatformStats from './pages/PlatformStats';
 import AppMonitoring from './pages/AppMonitoring';
 import Demographics from './pages/Demographics';
 import FinancialAnalytics from './pages/FinancialAnalytics';
+import AiUsageAnalytics from './pages/AiUsageAnalytics';
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="admin/app-monitoring" element={<AppMonitoring />} />
         <Route path="admin/demographics" element={<Demographics />} />
         <Route path="admin/financial-analytics" element={<FinancialAnalytics />} />
+        <Route path="admin/ai-usage" element={<AiUsageAnalytics />} />
       </Route>
       <Route path="*" element={<Navigate to="/users" replace />} />
     </Routes>

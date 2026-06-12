@@ -10,6 +10,7 @@ const nav = [
   { to: '/admin/app-monitoring', label: 'App Monitoring' },
   { to: '/admin/demographics', label: 'Demographics' },
   { to: '/admin/financial-analytics', label: 'Financial Analytics' },
+  { to: '/admin/ai-usage', label: 'AI Usage & Cost' },
 ];
 
 export default function AdminLayout() {

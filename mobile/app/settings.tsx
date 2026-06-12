@@ -22,7 +22,6 @@ import { type User, useAuthStore } from "../store/authStore";
 type SettingsPrefs = {
   learning_pace: string;
   daily_goal_minutes: number;
-  notify_workbook: boolean;
   notify_quiz_results: boolean;
   notify_streak_reminder: boolean;
   notify_challenges: boolean;
@@ -38,7 +37,6 @@ type SettingsPrefs = {
 const DEFAULTS: SettingsPrefs = {
   learning_pace: "medium",
   daily_goal_minutes: 20,
-  notify_workbook: true,
   notify_quiz_results: true,
   notify_streak_reminder: true,
   notify_challenges: true,
@@ -171,12 +169,6 @@ export default function SettingsScreen() {
         </Section>
 
         <Section title="Notifications" colors={colors}>
-          <ToggleRow
-            label="Workbook ready"
-            value={prefs.notify_workbook}
-            onValueChange={(v) => set("notify_workbook", v)}
-            colors={colors}
-          />
           <ToggleRow
             label="Quiz results"
             value={prefs.notify_quiz_results}

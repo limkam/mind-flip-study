@@ -34,3 +34,14 @@ def get_cached_job(task_id: str) -> dict | None:
     except Exception as exc:
         log.warning("job_redis_read_failed", extra={"task_id": task_id, "error": str(exc)})
     return None
+
+
+def append_job_entries(task_id: str, field: str, entries: list[dict]) -> None:
+    """Append structured entries (qa_failures, generation_metrics) to a job cache list."""
+    if not entries:
+        return
+    existing = get_cached_job(task_id) or {}
+    current = existing.get(field)
+    if not isinstance(current, list):
+        current = []
+    cache_job(task_id, {**existing, field: [*current, *entries]})

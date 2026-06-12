@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import client from '@/api/client';
 import { useJobPoll } from '@/hooks/useJobPoll';
@@ -43,6 +44,7 @@ function ActiveJobPoller({ job, onUpdate, onTerminal }) {
         chaptersTotal: data?.chapters_total ?? job.chaptersTotal,
         chaptersDone: data?.chapters_done ?? job.chaptersDone,
         percentComplete: data?.percent_complete ?? job.percentComplete,
+        currentChapter: data?.current_chapter ?? job.currentChapter,
       });
     },
     onTerminal: (data) => onTerminal(job.jobId, data),
@@ -54,6 +56,7 @@ export function GenerationJobProvider({ children }) {
   const [jobs, setJobs] = useState(() => loadStoredJobs());
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   useEffect(() => {
     persistJobs(jobs);
@@ -84,6 +87,7 @@ export function GenerationJobProvider({ children }) {
         dedupeKey: `generation-complete-${jobId}`,
       });
       removeJob(jobId);
+      navigate(`/study/${setId}`);
       return;
     }
 
@@ -99,6 +103,7 @@ export function GenerationJobProvider({ children }) {
             dedupeKey: `generation-recovered-${jobId}`,
           });
           removeJob(jobId);
+          navigate(`/study/${recent.id}`);
           return;
         }
       } catch {
@@ -114,9 +119,9 @@ export function GenerationJobProvider({ children }) {
       dedupeKey: `generation-failed-${jobId}`,
     });
     removeJob(jobId);
-  }, [queryClient, removeJob, toast]);
+  }, [navigate, queryClient, removeJob, toast]);
 
-  const startJob = useCallback(({ jobId, bookId, bookTitle }) => {
+  const startJob = useCallback(({ jobId, bookId, bookTitle, kind = 'flashcards' }) => {
     setJobs((prev) => {
       const filtered = prev.filter((j) => j.jobId !== jobId);
       return [
@@ -125,6 +130,7 @@ export function GenerationJobProvider({ children }) {
           jobId,
           bookId,
           bookTitle,
+          kind,
           phase: 'starting',
           chaptersTotal: null,
           chaptersDone: null,

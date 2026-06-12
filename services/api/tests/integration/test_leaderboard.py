@@ -7,8 +7,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from dependencies import get_current_user, get_redis
+from database import get_db
+from dependencies import get_current_user
 from main import app
 from models.enums import UserRole
 from models.user import User
@@ -30,62 +32,63 @@ def _student() -> User:
     )
 
 
+def _mock_db_session() -> AsyncMock:
+    mock_db = AsyncMock(spec=AsyncSession)
+    count_result = MagicMock()
+    count_result.scalar.return_value = 0
+    empty_result = MagicMock()
+    empty_result.all.return_value = []
+    mock_db.execute = AsyncMock(side_effect=[count_result, empty_result])
+    return mock_db
+
+
 @pytest.mark.asyncio
-async def test_leaderboard_uses_redis():
+async def test_leaderboard_queries_database():
     student = _student()
-    mock_redis = AsyncMock()
-    mock_redis.zrevrange = AsyncMock(return_value=[])
-    mock_redis.zcard = AsyncMock(return_value=0)
-    mock_pipe = MagicMock()
-    mock_pipe.hmget = MagicMock(return_value=mock_pipe)
-    mock_pipe.execute = AsyncMock(return_value=[])
-    mock_redis.pipeline = MagicMock(return_value=mock_pipe)
+    mock_db = _mock_db_session()
 
     async def _user() -> User:
         return student
 
-    async def _redis_dep() -> AsyncMock:
-        return mock_redis
+    async def _db_dep() -> AsyncMock:
+        return mock_db
 
     app.dependency_overrides[get_current_user] = _user
-    app.dependency_overrides[get_redis] = _redis_dep
+    app.dependency_overrides[get_db] = _db_dep
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/leaderboard")
         assert r.status_code == 200
-        mock_redis.zrevrange.assert_called_once()
+        data = r.json()
+        assert data["metric"] == "avg_score"
+        assert mock_db.execute.await_count >= 1
     finally:
         app.dependency_overrides.pop(get_current_user, None)
-        app.dependency_overrides.pop(get_redis, None)
+        app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.mark.asyncio
 async def test_leaderboard_pagination():
     student = _student()
-    mock_redis = AsyncMock()
-    mock_redis.zrevrange = AsyncMock(return_value=[])
-    mock_redis.zcard = AsyncMock(return_value=0)
-    mock_pipe = MagicMock()
-    mock_pipe.hmget = MagicMock(return_value=mock_pipe)
-    mock_pipe.execute = AsyncMock(return_value=[])
-    mock_redis.pipeline = MagicMock(return_value=mock_pipe)
+    mock_db = _mock_db_session()
 
     async def _user() -> User:
         return student
 
-    async def _redis_dep() -> AsyncMock:
-        return mock_redis
+    async def _db_dep() -> AsyncMock:
+        return mock_db
 
     app.dependency_overrides[get_current_user] = _user
-    app.dependency_overrides[get_redis] = _redis_dep
+    app.dependency_overrides[get_db] = _db_dep
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            r = await client.get("/leaderboard?page=1&size=10")
+            r = await client.get("/leaderboard?page=1&size=10&metric=most_quizzes")
         assert r.status_code == 200
         data = r.json()
         assert "items" in data
         assert "total" in data
+        assert data["metric"] == "most_quizzes"
         assert len(data["items"]) <= 10
     finally:
         app.dependency_overrides.pop(get_current_user, None)
-        app.dependency_overrides.pop(get_redis, None)
+        app.dependency_overrides.pop(get_db, None)

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_generation import find_existing_flashcard_set
 from ai_credits import record_ai_generation_sync
 from config import settings
 from database import get_db
@@ -160,17 +161,41 @@ async def enqueue_generate_flashcards(
     _: Annotated[None, Depends(enforce_tier_limit("flashcard_sets"))],
 ) -> JobEnqueueResponse:
     await _assert_free_tier_card_headroom(current_user, db, int(body.num_cards))
+    chapters = [c.strip() for c in (body.selected_chapters or []) if c and str(c).strip()]
+    if len(chapters) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Select only one chapter at a time for flashcard generation.",
+        )
     br = await db.execute(
         select(Book).where(Book.id == body.book_id, Book.user_id == current_user.id),
     )
     if br.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    if not body.force_regenerate:
+        with sync_session() as sync_db:
+            existing = find_existing_flashcard_set(
+                sync_db,
+                user_id=current_user.id,
+                book_id=body.book_id,
+                selected_chapters=chapters or None,
+                num_cards=int(body.num_cards),
+            )
+            if existing is not None:
+                return JobEnqueueResponse(
+                    job_id=f"existing-{existing.id}",
+                    set_id=str(existing.id),
+                    reused=True,
+                    message="Returning existing flashcard set. Pass force_regenerate=true to regenerate.",
+                )
+
     task = generate_flashcards_task.delay(
         str(body.book_id),
         str(current_user.id),
         body.title,
         int(body.num_cards),
-        selected_chapters=body.selected_chapters,
+        selected_chapters=chapters or None,
     )
     return JobEnqueueResponse(job_id=task.id)
 

@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -12,7 +11,6 @@ export function GenerationStatusBanner() {
   const removeJob = useGenerationJobStore((s) => s.removeJob);
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const active = jobs[0];
 
   if (!active) return null;
@@ -64,10 +62,6 @@ export function GenerationStatusBanner() {
           ) : null}
         </View>
       ) : null}
-
-      <Pressable onPress={() => router.push(`/book/${active.bookId}`)}>
-        <Text style={[styles.link, { color: colors.primary }]}>View book details</Text>
-      </Pressable>
     </View>
   );
 }
@@ -94,5 +88,4 @@ const styles = StyleSheet.create({
   dismiss: { fontSize: 18, padding: 4 },
   metaRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
   meta: { fontSize: 11, fontWeight: "600" },
-  link: { fontSize: 12, fontWeight: "700", marginTop: 8 },
 });

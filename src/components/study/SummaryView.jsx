@@ -73,24 +73,19 @@ Return structured JSON covering every chapter listed.`,
     <div className="space-y-4">
       {chapterSummaries.length > 0 && (
         <div className="space-y-3">
-          <h3 className="font-heading text-lg font-semibold">Chapter Summaries</h3>
+          <h3 className="font-heading text-lg font-semibold">Chapter Breakdown</h3>
           {chapterSummaries.map((ch, i) => (
-            <motion.div
+            <SummaryCard
               key={ch.chapter || i}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="rounded-2xl border border-border bg-card p-5"
-            >
-              <h4 className="font-semibold text-sm mb-2">{ch.chapter}</h4>
-              <p className="text-sm text-muted-foreground leading-relaxed">{ch.summary}</p>
-              {(ch.key_points || []).length > 0 && (
-                <ul className="mt-3 space-y-1 text-sm text-muted-foreground list-disc pl-5">
-                  {ch.key_points.map((kp, ki) => (
-                    <li key={ki}>{kp}</li>
-                  ))}
-                </ul>
-              )}
-            </motion.div>
+              index={i}
+              chapter={ch.chapter}
+              overview={ch.overview || ch.summary}
+              coreConcept={ch.core_concept}
+              keyPoints={ch.key_points || []}
+              commonMistakes={ch.watch_out_for || ch.common_mistakes || []}
+              difficulty={ch.difficulty}
+              defaultOpen={i === 0}
+            />
           ))}
         </div>
       )}
@@ -106,37 +101,20 @@ Return structured JSON covering every chapter listed.`,
         </motion.div>
       )}
 
-      {!generated && !loading && hasPrefill && (
+      {!generated && !loading && chapterSummaries.length === 0 && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-center py-10 bg-card rounded-2xl border border-border"
         >
-          <h3 className="font-heading text-lg font-semibold mb-2">Chapter Summaries</h3>
+          <h3 className="font-heading text-lg font-semibold mb-2">Enhanced Summaries</h3>
           <p className="text-muted-foreground text-sm max-w-sm mx-auto mb-6">
-            Generate detailed per-chapter summaries from your flashcards.
+            {hasPrefill
+              ? "Optional: generate richer per-chapter summaries from your flashcards."
+              : "Summaries are created when you generate flashcards. You can also create enhanced summaries from your cards."}
           </p>
           <Button onClick={generateSummaries} className="gap-2 px-8">
-            <Sparkles className="w-4 h-4" /> Generate Chapter Summaries
-          </Button>
-        </motion.div>
-      )}
-
-      {!generated && !loading && !hasPrefill && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center py-16 bg-card rounded-2xl border border-border"
-        >
-          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
-            <BookOpen className="w-8 h-8 text-primary" />
-          </div>
-          <h3 className="font-heading text-xl font-semibold mb-2">Chapter Summaries</h3>
-          <p className="text-muted-foreground text-sm max-w-sm mx-auto mb-6">
-            Generate rich AI-powered summaries, key insights, core concepts, and common pitfalls for each chapter.
-          </p>
-          <Button onClick={generateSummaries} className="gap-2 px-8">
-            <Sparkles className="w-4 h-4" /> Generate Summaries
+            <Sparkles className="w-4 h-4" /> Generate Enhanced Summaries
           </Button>
         </motion.div>
       )}

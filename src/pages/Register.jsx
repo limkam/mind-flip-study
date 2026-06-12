@@ -40,7 +40,7 @@ export default function Register() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-6 rounded-2xl border border-border bg-card p-8 shadow-sm">
         <div className="flex flex-col items-center text-center mb-2">
-          <MindFlipBrand centered className="mb-4" />
+          <MindFlipBrand centered className="mb-4" surface="on-light" />
           <h1 className="font-heading text-2xl font-bold">Create account</h1>
           <p className="text-sm text-muted-foreground mt-1">Start learning with MindFlip</p>
         </div>

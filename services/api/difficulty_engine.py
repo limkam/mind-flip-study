@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from qa_types import QAFailure
+
 DIFFICULTY_EASY = "easy"
 DIFFICULTY_MEDIUM = "medium"
 DIFFICULTY_HARD = "hard"
@@ -87,35 +89,105 @@ def cognitive_bucket(level: str) -> str:
     return "application"
 
 
-def validate_difficulty_mix(cards: list[dict[str, Any]], *, tolerance: float = 0.2) -> list[str]:
-    errors: list[str] = []
-    if not cards:
-        return ["No flashcards to validate"]
-    total = len(cards)
+def _difficulty_distribution(cards: list[dict[str, Any]]) -> dict[str, int]:
     counts = Counter(normalize_difficulty(c.get("difficulty")) for c in cards)
+    return {
+        DIFFICULTY_EASY: counts.get(DIFFICULTY_EASY, 0),
+        DIFFICULTY_MEDIUM: counts.get(DIFFICULTY_MEDIUM, 0),
+        DIFFICULTY_HARD: counts.get(DIFFICULTY_HARD, 0),
+    }
+
+
+def validate_difficulty_mix(
+    cards: list[dict[str, Any]],
+    *,
+    tolerance: float = 0.3,
+) -> tuple[list[str], list[QAFailure]]:
+    """Allow ±30% deviation from target difficulty quota."""
+    errors: list[str] = []
+    failures: list[QAFailure] = []
+    if not cards:
+        msg = "No flashcards to validate"
+        errors.append(msg)
+        failures.append(
+            {
+                "validator": "validate_difficulty_mix",
+                "section": "cards",
+                "error": msg,
+            },
+        )
+        return errors, failures
+
+    total = len(cards)
+    if total < 6:
+        return errors, failures
+
+    actual = _difficulty_distribution(cards)
     targets = difficulty_quota(total)
+    off_levels: list[str] = []
     for level in (DIFFICULTY_EASY, DIFFICULTY_MEDIUM, DIFFICULTY_HARD):
-        got = counts.get(level, 0)
+        got = actual[level]
         want = targets[level]
         if want == 0:
             continue
-        if abs(got - want) / max(want, 1) > tolerance and total >= 6:
-            errors.append(f"Difficulty mix off for {level}: got {got}, target ~{want}")
-    return errors
+        if abs(got - want) / max(want, 1) > tolerance:
+            off_levels.append(f"{level}: got {got}, target ~{want}")
+
+    if off_levels:
+        msg = f"Expected balanced difficulty distribution ({'; '.join(off_levels)})"
+        errors.append(msg)
+        failures.append(
+            {
+                "validator": "validate_difficulty_mix",
+                "section": "cards",
+                "error": msg,
+                "actual_distribution": actual,
+                "target_distribution": targets,
+            },
+        )
+    return errors, failures
 
 
-def validate_cognitive_depth(cards: list[dict[str, Any]], *, tolerance: float = 0.2) -> list[str]:
+def validate_cognitive_depth(cards: list[dict[str, Any]]) -> tuple[list[str], list[QAFailure]]:
+    """Reject only if one bucket exceeds 70% or a bucket is missing entirely."""
     errors: list[str] = []
+    failures: list[QAFailure] = []
     if len(cards) < 6:
-        return errors
+        return errors, failures
+
     buckets = Counter(
         cognitive_bucket(normalize_cognitive(c.get("cognitive_level"), normalize_difficulty(c.get("difficulty"))))
         for c in cards
     )
     total = len(cards)
-    targets = {"recall": 0.30, "application": 0.40, "analysis": 0.30}
-    for bucket, target_pct in targets.items():
-        got = buckets.get(bucket, 0) / total
-        if abs(got - target_pct) > tolerance:
-            errors.append(f"Cognitive depth off for {bucket}: {got:.0%} vs target {target_pct:.0%}")
-    return errors
+    percentages = {bucket: buckets.get(bucket, 0) / total for bucket in ("recall", "application", "analysis")}
+    counts = {bucket: buckets.get(bucket, 0) for bucket in ("recall", "application", "analysis")}
+
+    for bucket, pct in percentages.items():
+        if pct > 0.70:
+            msg = f"Cognitive depth: {bucket} exceeds 70% ({pct:.0%})"
+            errors.append(msg)
+            failures.append(
+                {
+                    "validator": "validate_cognitive_depth",
+                    "section": "cards",
+                    "error": msg,
+                    "actual_percentages": percentages,
+                    "actual_distribution": counts,
+                },
+            )
+
+    for bucket, count in counts.items():
+        if count == 0:
+            msg = f"Cognitive depth: {bucket} category missing entirely"
+            errors.append(msg)
+            failures.append(
+                {
+                    "validator": "validate_cognitive_depth",
+                    "section": "cards",
+                    "error": msg,
+                    "actual_percentages": percentages,
+                    "actual_distribution": counts,
+                },
+            )
+    return errors, failures

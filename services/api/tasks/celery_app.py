@@ -78,6 +78,7 @@ celery.conf.beat_schedule = {
 }
 
 # Register task modules (import side effects bind tasks to ``celery``).
+import tasks.book_tasks  # noqa: E402, F401
 import tasks.ai_tasks  # noqa: E402, F401
 import tasks.email_tasks  # noqa: E402, F401
 import tasks.leaderboard_tasks  # noqa: E402, F401

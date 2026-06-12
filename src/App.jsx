@@ -21,11 +21,13 @@ import QuizHistory from './pages/QuizHistory';
 import UserManagement from './pages/UserManagement';
 import Profile from './pages/Profile';
 import QuizChallenges from './pages/QuizChallenges';
-import WorkbookView from './pages/WorkbookView';
 import Settings from './pages/Settings';
 import Folders from './pages/Folders';
 import Analytics from './pages/Analytics';
 import Leaderboard from './pages/Leaderboard';
+import ChallengeLeaderboard from './pages/ChallengeLeaderboard';
+import StudyGroups from './pages/StudyGroups';
+import StudyGroupDetail from './pages/StudyGroupDetail';
 import DailyReview from './pages/DailyReview';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -101,12 +103,14 @@ function AppRoutes() {
           <Route path="/users" element={<UserManagement />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/challenges" element={<QuizChallenges />} />
-          <Route path="/workbook/:id" element={<WorkbookView />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/feedback" element={<Feedback />} />
           <Route path="/folders" element={<Folders />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
+          <Route path="/challenge-leaderboard" element={<ChallengeLeaderboard />} />
+          <Route path="/study-groups" element={<StudyGroups />} />
+          <Route path="/study-groups/:id" element={<StudyGroupDetail />} />
           <Route path="/daily-review" element={<DailyReview />} />
           <Route path="/billing/success" element={<BillingSuccess />} />
           <Route path="/billing/cancel" element={<BillingCancel />} />
@@ -133,15 +137,15 @@ function App() {
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
-        <GenerationJobProvider>
-          <Router>
+        <Router>
+          <GenerationJobProvider>
             <ErrorBoundary>
               <AppRoutes />
             </ErrorBoundary>
-          </Router>
-          <InstallPrompt />
-          <Toaster />
-        </GenerationJobProvider>
+            <InstallPrompt />
+            <Toaster />
+          </GenerationJobProvider>
+        </Router>
       </QueryClientProvider>
     </AuthProvider>
   )

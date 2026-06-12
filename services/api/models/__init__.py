@@ -13,7 +13,7 @@ from models.achievement import Achievement
 from models.book import Book
 from models.flashcard import Flashcard, FlashcardSet, Folder, Workbook
 from models.quiz import CardProgress, QuizChallenge, QuizResult, StudyEvent
-from models.token_usage import TokenUsage
+from models.study_group import StudyGroup, StudyGroupMaterial, StudyGroupMember
 from models.user import User
 from models.feedback import Feedback
 
@@ -35,6 +35,9 @@ __all__ = [
     "QuizChallengeStatus",
     "QuizResult",
     "StudyEvent",
+    "StudyGroup",
+    "StudyGroupMaterial",
+    "StudyGroupMember",
     "TokenUsage",
     "User",
     "UserRole",

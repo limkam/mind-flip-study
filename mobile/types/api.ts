@@ -56,11 +56,16 @@ export type LeaderboardItemOut = {
   user_id: string;
   full_name: string;
   avatar_url: string | null;
+  value: number;
+  metric: string;
   xp: number;
 };
 
 export type LeaderboardMeOut = {
   rank: number | null;
+  value: number;
+  metric: string;
+  metric_label: string;
   xp: number;
 };
 

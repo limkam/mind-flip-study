@@ -29,6 +29,14 @@ class ExtractTocRequest(BaseModel):
 
 class ExtractTocResponse(BaseModel):
     chapters: list[Any] = Field(default_factory=list)
+    method: str | None = None
+
+
+class DetectMetadataResponse(BaseModel):
+    title: str = ""
+    author: str = ""
+    title_detected: bool = False
+    author_detected: bool = False
 
 
 class BookCreate(BaseModel):
@@ -79,12 +87,22 @@ class BookOut(BaseModel):
     description: str = ""
     subject: str = ""
     cover_url: str | None = None
+    processing_phase: str = ""
+    is_analyzing: bool = False
+    toc_extraction_method: str = ""
 
     @model_validator(mode="before")
     @classmethod
     def _from_orm(cls, data: Any) -> Any:
         if isinstance(data, Book):
             ex = data.extras or {}
+            proc = ex.get("processing") or {}
+            phase = str(proc.get("phase") or "")
+            analyzing = phase in (
+                "extracting_contents",
+                "analyzing_structure",
+                "extracting_toc",
+            )
             return {
                 "id": data.id,
                 "user_id": data.user_id,
@@ -102,6 +120,9 @@ class BookOut(BaseModel):
                 "description": ex.get("description") or "",
                 "subject": ex.get("subject") or "",
                 "cover_url": ex.get("cover_url"),
+                "processing_phase": phase,
+                "is_analyzing": analyzing,
+                "toc_extraction_method": ex.get("toc_extraction_method") or "",
             }
         return data
 

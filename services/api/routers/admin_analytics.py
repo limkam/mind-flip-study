@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta, time
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Date, cast, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,9 +19,17 @@ from models.enums import AssignmentStatus
 from models.flashcard import Flashcard, FlashcardSet, Workbook
 from models.license import License
 from models.quiz import QuizResult, StudyEvent
+from models.token_usage import TokenUsage
 from models.user import User
 from schemas.admin_analytics import (
     ActiveUserRow,
+    AiUsageAnalyticsOut,
+    AiUsageByBook,
+    AiUsageByFeature,
+    AiUsageByTask,
+    AiUsageByUser,
+    AiUsageLogEntry,
+    AiUsageLogsOut,
     AppMonitoringOut,
     AssignmentHealthOut,
     ContentCreatedMonth,
@@ -28,6 +37,7 @@ from schemas.admin_analytics import (
     DemographicsOut,
     FeatureUsagePoint,
     FinancialAnalyticsOut,
+    GenerationJobDetailOut,
     LabeledAmount,
     LabeledCount,
     PlatformStatsOut,
@@ -36,6 +46,7 @@ from schemas.admin_analytics import (
     RevenueMonthPoint,
     UserGrowthMonth,
 )
+from job_cache import get_cached_job
 
 router = APIRouter(tags=["admin-analytics"])
 
@@ -565,4 +576,241 @@ async def financial_analytics(
         revenue_by_plan=revenue_by_plan,
         revenue_by_continent=revenue_by_continent,
         revenue_by_country=revenue_by_country,
+    )
+
+
+@router.get("/ai-usage", response_model=AiUsageAnalyticsOut)
+async def ai_usage_analytics(
+    _admin: Annotated[User, Depends(require_role("admin"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AiUsageAnalyticsOut:
+    now = datetime.now(UTC)
+
+    totals = await db.execute(
+        select(
+            func.coalesce(func.sum(TokenUsage.estimated_cost_usd), 0),
+            func.count(TokenUsage.id),
+            func.coalesce(func.sum(TokenUsage.input_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.output_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.cached_tokens), 0),
+            func.coalesce(func.avg(TokenUsage.duration_ms), 0),
+        ),
+    )
+    total_cost, total_calls, total_in, total_out, total_cached, avg_dur = totals.one()
+
+    feature_rows = await db.execute(
+        select(
+            TokenUsage.feature_type,
+            func.count(TokenUsage.id),
+            func.coalesce(func.sum(TokenUsage.input_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.output_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.cached_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.estimated_cost_usd), 0),
+            func.coalesce(func.avg(TokenUsage.duration_ms), 0),
+        )
+        .group_by(TokenUsage.feature_type)
+        .order_by(func.sum(TokenUsage.estimated_cost_usd).desc()),
+    )
+    by_feature = [
+        AiUsageByFeature(
+            feature_type=str(row[0] or "other"),
+            calls=int(row[1] or 0),
+            input_tokens=int(row[2] or 0),
+            output_tokens=int(row[3] or 0),
+            cached_tokens=int(row[4] or 0),
+            total_cost_usd=round(float(row[5] or 0), 4),
+            avg_duration_ms=round(float(row[6] or 0), 1),
+        )
+        for row in feature_rows.all()
+    ]
+
+    task_rows = await db.execute(
+        select(
+            TokenUsage.task,
+            TokenUsage.feature_type,
+            func.count(TokenUsage.id),
+            func.coalesce(func.sum(TokenUsage.input_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.output_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.cached_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.estimated_cost_usd), 0),
+            func.coalesce(func.avg(TokenUsage.duration_ms), 0),
+        )
+        .group_by(TokenUsage.task, TokenUsage.feature_type)
+        .order_by(func.sum(TokenUsage.estimated_cost_usd).desc())
+        .limit(30),
+    )
+    by_task = [
+        AiUsageByTask(
+            task=str(row[0] or ""),
+            feature_type=str(row[1]) if row[1] else None,
+            calls=int(row[2] or 0),
+            input_tokens=int(row[3] or 0),
+            output_tokens=int(row[4] or 0),
+            cached_tokens=int(row[5] or 0),
+            total_cost_usd=round(float(row[6] or 0), 4),
+            avg_duration_ms=round(float(row[7] or 0), 1),
+        )
+        for row in task_rows.all()
+    ]
+
+    user_rows = await db.execute(
+        select(
+            TokenUsage.user_id,
+            User.email,
+            func.coalesce(func.sum(TokenUsage.estimated_cost_usd), 0),
+            func.count(TokenUsage.id),
+            func.coalesce(func.sum(TokenUsage.input_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.output_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.cached_tokens), 0),
+            func.coalesce(func.avg(TokenUsage.duration_ms), 0),
+        )
+        .join(User, User.id == TokenUsage.user_id)
+        .group_by(TokenUsage.user_id, User.email)
+        .order_by(func.sum(TokenUsage.estimated_cost_usd).desc())
+        .limit(50),
+    )
+    by_user = [
+        AiUsageByUser(
+            user_id=str(row[0]),
+            email=str(row[1] or ""),
+            total_cost_usd=round(float(row[2] or 0), 4),
+            total_calls=int(row[3] or 0),
+            input_tokens=int(row[4] or 0),
+            output_tokens=int(row[5] or 0),
+            cached_tokens=int(row[6] or 0),
+            avg_duration_ms=round(float(row[7] or 0), 1),
+        )
+        for row in user_rows.all()
+    ]
+
+    book_rows = await db.execute(
+        select(
+            TokenUsage.book_id,
+            Book.title,
+            func.coalesce(func.sum(TokenUsage.estimated_cost_usd), 0),
+            func.count(TokenUsage.id),
+            func.coalesce(func.sum(TokenUsage.input_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.output_tokens), 0),
+        )
+        .join(Book, Book.id == TokenUsage.book_id)
+        .where(TokenUsage.book_id.isnot(None))
+        .group_by(TokenUsage.book_id, Book.title)
+        .order_by(func.sum(TokenUsage.estimated_cost_usd).desc())
+        .limit(20),
+    )
+    by_book = [
+        AiUsageByBook(
+            book_id=str(row[0]),
+            book_title=str(row[1] or ""),
+            total_cost_usd=round(float(row[2] or 0), 4),
+            total_calls=int(row[3] or 0),
+            input_tokens=int(row[4] or 0),
+            output_tokens=int(row[5] or 0),
+        )
+        for row in book_rows.all()
+    ]
+
+    total_in_int = int(total_in or 0)
+    cache_hit = round((int(total_cached or 0) / max(total_in_int, 1)) * 100, 1)
+
+    return AiUsageAnalyticsOut(
+        updated_at=now,
+        total_cost_usd=round(float(total_cost or 0), 4),
+        total_calls=int(total_calls or 0),
+        total_input_tokens=total_in_int,
+        total_output_tokens=int(total_out or 0),
+        total_cached_tokens=int(total_cached or 0),
+        avg_duration_ms=round(float(avg_dur or 0), 1),
+        cache_hit_rate_pct=cache_hit,
+        by_feature=by_feature,
+        by_task=by_task,
+        by_user=by_user,
+        by_book=by_book,
+        most_expensive_operations=by_feature[:10],
+    )
+
+
+@router.get("/ai-usage/logs", response_model=AiUsageLogsOut)
+async def ai_usage_logs(
+    _admin: Annotated[User, Depends(require_role("admin"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user_id: str | None = Query(None, description="Filter logs to one user"),
+    task: str | None = Query(None, description="Filter by AI task name"),
+    celery_task_id: str | None = Query(None, description="Filter by generation job ID"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> AiUsageLogsOut:
+    filters = []
+    if user_id:
+        filters.append(TokenUsage.user_id == UUID(user_id))
+    if task:
+        filters.append(TokenUsage.task == task)
+    if celery_task_id:
+        filters.append(TokenUsage.celery_task_id == celery_task_id)
+
+    count_q = select(func.count(TokenUsage.id))
+    if filters:
+        count_q = count_q.where(*filters)
+    total = int((await db.execute(count_q)).scalar_one() or 0)
+
+    log_q = (
+        select(TokenUsage, User.email, Book.title)
+        .join(User, User.id == TokenUsage.user_id)
+        .outerjoin(Book, Book.id == TokenUsage.book_id)
+        .order_by(TokenUsage.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    if filters:
+        log_q = log_q.where(*filters)
+
+    rows = (await db.execute(log_q)).all()
+    items = [
+        AiUsageLogEntry(
+            id=str(usage.id),
+            created_at=usage.created_at,
+            user_id=str(usage.user_id),
+            email=str(email or ""),
+            task=usage.task,
+            feature_type=usage.feature_type,
+            model=usage.model,
+            input_tokens=int(usage.input_tokens),
+            output_tokens=int(usage.output_tokens),
+            cached_tokens=int(usage.cached_tokens or 0),
+            duration_ms=usage.duration_ms,
+            estimated_cost_usd=round(float(usage.estimated_cost_usd), 6),
+            book_id=str(usage.book_id) if usage.book_id else None,
+            book_title=str(book_title) if book_title else None,
+            celery_task_id=usage.celery_task_id,
+            call_metadata=usage.call_metadata,
+        )
+        for usage, email, book_title in rows
+    ]
+
+    return AiUsageLogsOut(total=total, limit=limit, offset=offset, items=items)
+
+
+@router.get("/generation-jobs/{job_id}", response_model=GenerationJobDetailOut)
+async def generation_job_detail(
+    job_id: str,
+    _admin: Annotated[User, Depends(require_role("admin"))],
+) -> GenerationJobDetailOut:
+    cached = get_cached_job(job_id)
+    if not cached:
+        raise HTTPException(status_code=404, detail="Generation job not found or expired from cache")
+    return GenerationJobDetailOut(
+        job_id=job_id,
+        status=cached.get("status"),
+        phase=cached.get("phase"),
+        qa_status=cached.get("qa_status"),
+        qa_failure_reason=cached.get("qa_failure_reason"),
+        qa_failure_validator=cached.get("qa_failure_validator"),
+        qa_attempt=cached.get("qa_attempt"),
+        qa_failures=cached.get("qa_failures"),
+        generation_metrics=cached.get("generation_metrics"),
+        set_id=cached.get("set_id"),
+        card_count=cached.get("card_count"),
+        scenario_count=cached.get("scenario_count"),
+        percent_complete=cached.get("percent_complete"),
+        error=cached.get("error"),
     )
