@@ -1,14 +1,14 @@
 import React, { useState, useCallback } from "react";
 import axios from "axios";
 import client from "@/api/client";
-import { detectPdfMetadata } from "@/lib/bookUpload";
+import { titleFromFilename } from "@/lib/bookUpload";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, Loader2, Sparkles, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Upload, Loader2, Sparkles, AlertCircle } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import TagInput from "@/components/common/TagInput";
 import UpgradeSection from "@/components/billing/UpgradeSection";
@@ -21,7 +21,6 @@ const SUBJECTS = [
 ];
 
 const UPLOAD_PHASE_LABELS = {
-  detecting: "Detecting title and author…",
   uploading: "Uploading PDF…",
   saving: "Saving book…",
 };
@@ -30,8 +29,7 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
   const [form, setForm] = useState({ title: "", author: "", description: "", subject: "other", tags: [] });
   const [file, setFile] = useState(null);
   const [phase, setPhase] = useState(null);
-  const [detecting, setDetecting] = useState(false);
-  const [detection, setDetection] = useState(null);
+  const [titleHint, setTitleHint] = useState(null);
   const [upgradeRequired, setUpgradeRequired] = useState(false);
   const { toast } = useToast();
 
@@ -39,59 +37,25 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
     setForm({ title: "", author: "", description: "", subject: "other", tags: [] });
     setFile(null);
     setPhase(null);
-    setDetecting(false);
-    setDetection(null);
+    setTitleHint(null);
   };
 
-  const handleFileSelect = useCallback(async (selectedFile) => {
+  const handleFileSelect = useCallback((selectedFile) => {
     if (!selectedFile) return;
     setFile(selectedFile);
-    setDetection(null);
-    setForm(prev => ({ ...prev, title: "", author: "" }));
-
-    if (!selectedFile.name?.toLowerCase().endsWith(".pdf")) {
-      setDetection({ partial: true, message: "Enter the title and author manually for non-PDF files." });
-      return;
+    const title = titleFromFilename(selectedFile.name || "");
+    setForm(prev => ({ ...prev, title, author: "" }));
+    if (title) {
+      setTitleHint("Title filled from file name. Enter the author below.");
+    } else {
+      setTitleHint("Enter the title and author manually.");
     }
-
-    setDetecting(true);
-    try {
-      const meta = await detectPdfMetadata(selectedFile);
-      const title = (meta.title || "").trim();
-      const author = (meta.author || "").trim();
-      setForm(prev => ({ ...prev, title, author }));
-      setDetection({
-        titleDetected: meta.title_detected,
-        authorDetected: meta.author_detected,
-        bothDetected: meta.title_detected && meta.author_detected,
-        partial: !meta.title_detected || !meta.author_detected,
-      });
-      if (!title && !author) {
-        toast({
-          title: "Metadata not found in PDF",
-          description: "This file has no embedded title or author. Please enter them manually.",
-        });
-      }
-    } catch (err) {
-      setDetection({
-        partial: true,
-        message: getApiErrorMessage(err, "Could not read metadata from this PDF. Please enter title and author manually."),
-      });
-      toast({
-        title: "Auto-detection failed",
-        description: getApiErrorMessage(err, "Please enter title and author manually."),
-        variant: "destructive",
-      });
-    } finally {
-      setDetecting(false);
-    }
-  }, [toast]);
+  }, []);
 
   const canUpload =
     file &&
     form.title.trim().length > 0 &&
     form.author.trim().length > 0 &&
-    !detecting &&
     !phase;
 
   const handleUpload = async () => {
@@ -190,58 +154,37 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
             </div>
           ) : null}
 
-          {/* 1. Upload file — primary action at top */}
           <div className="space-y-2">
             <Label className="text-base font-semibold">Upload PDF</Label>
             <div
               className="border-2 border-dashed border-primary/30 rounded-xl p-6 text-center hover:border-primary/60 transition-colors cursor-pointer bg-primary/5"
-              onClick={() => !detecting && !phase && document.getElementById("book-upload").click()}
+              onClick={() => !phase && document.getElementById("book-upload").click()}
             >
-              {detecting ? (
-                <>
-                  <Loader2 className="w-8 h-8 mx-auto text-primary mb-2 animate-spin" />
-                  <p className="text-sm font-medium text-primary">Detecting title and author…</p>
-                </>
-              ) : (
-                <>
-                  <Upload className="w-8 h-8 mx-auto text-primary mb-2" />
-                  <p className="text-sm font-medium">
-                    {file ? file.name : "Click to select your PDF"}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Title and author are detected automatically when possible
-                  </p>
-                </>
-              )}
+              <Upload className="w-8 h-8 mx-auto text-primary mb-2" />
+              <p className="text-sm font-medium">
+                {file ? file.name : "Click to select your PDF"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Title is taken from the file name; enter the author manually
+              </p>
               <input
                 id="book-upload"
                 type="file"
                 className="hidden"
                 accept=".pdf,application/pdf"
                 onChange={e => handleFileSelect(e.target.files?.[0])}
-                disabled={!!phase || detecting}
+                disabled={!!phase}
               />
             </div>
           </div>
 
-          {/* Detection feedback */}
-          {detection?.bothDetected && (
-            <div className="flex items-start gap-2 rounded-lg border border-green-500/30 bg-green-500/5 p-3 text-sm">
-              <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
-              <span>Title and author detected from your PDF. Review below, then upload.</span>
-            </div>
-          )}
-          {detection?.partial && !detecting && (
+          {titleHint && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
               <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-              <span>
-                {detection.message ||
-                  "We couldn't detect all metadata. Please enter the missing title and author below."}
-              </span>
+              <span>{titleHint}</span>
             </div>
           )}
 
-          {/* 2. Required metadata */}
           <div className="space-y-2">
             <Label>Title *</Label>
             <Input
@@ -261,7 +204,6 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
             />
           </div>
 
-          {/* Optional fields */}
           <div className="space-y-2">
             <Label>Subject</Label>
             <Select value={form.subject} onValueChange={v => setForm({ ...form, subject: v })} disabled={!!phase}>
@@ -294,7 +236,6 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
             />
           </div>
 
-          {/* Upload status */}
           {phase && (
             <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">
               <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />

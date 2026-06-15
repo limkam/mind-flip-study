@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from io import BytesIO
+from pathlib import PurePosixPath
 from typing import Any
 
 from pypdf import PdfReader
@@ -202,10 +203,98 @@ def infer_metadata_from_text(sample_text: str) -> dict[str, Any]:
     }
 
 
+_PATH_LIKE_TITLE_RE = re.compile(
+    r"(?:^[A-Za-z]:\\)|"  # C:\...
+    r"(?:^/[^/]+/[^/]+)|"  # /Users/name or /home/name
+    r"(?:\\Users\\|\\Documents\\|\\Downloads\\|/Users/|/home/)",
+    re.I,
+)
+
+_UNRELIABLE_AUTHOR_NAMES = frozenset(
+    {
+        "admin",
+        "administrator",
+        "adobe",
+        "asus",
+        "dell",
+        "hp",
+        "lenovo",
+        "microsoft",
+        "owner",
+        "pc",
+        "unknown",
+        "user",
+        "windows",
+    }
+)
+
+
+def _looks_like_file_path(value: str) -> bool:
+    """PDF creators often store the source file path in the Title field."""
+    v = (value or "").strip()
+    if not v:
+        return False
+    if _PATH_LIKE_TITLE_RE.search(v):
+        return True
+    if ("/" in v or "\\" in v) and v.lower().endswith(".pdf"):
+        return True
+    if v.count("\\") >= 2 or (v.count("/") >= 2 and not v.startswith("http")):
+        return True
+    return False
+
+
+def _username_from_path(path: str) -> str | None:
+    for pattern in (r"[/\\]Users[/\\]([^/\\]+)", r"[/\\]home[/\\]([^/\\]+)"):
+        m = re.search(pattern, path, re.I)
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def _author_looks_unreliable(author: str, *, title: str = "") -> bool:
+    """Detect OS usernames / app defaults stored in PDF Author metadata."""
+    a = (author or "").strip()
+    if not a:
+        return True
+    lower = a.lower()
+    if lower in _UNRELIABLE_AUTHOR_NAMES:
+        return True
+    if len(a) <= 2:
+        return True
+    if len(a) <= 4 and a.isupper() and a.isalpha():
+        return True
+    path_user = _username_from_path(title)
+    if path_user and a.lower() == path_user.lower():
+        return True
+    return False
+
+
+def title_from_upload_filename(filename: str) -> str:
+    """Derive book title from the uploaded file name (no PDF parsing)."""
+    stem = PurePosixPath(str(filename).replace("\\", "/")).stem.strip()
+    if not stem or _looks_like_file_path(stem):
+        return ""
+    title = re.sub(r"[_-]+", " ", stem)
+    title = re.sub(r"\s+", " ", title).strip()
+    if not title:
+        return ""
+    return title[:512]
+
+
+def _title_from_filename(filename: str) -> str:
+    """Use a humanized basename when embedded PDF metadata is unusable."""
+    title = title_from_upload_filename(filename)
+    if len(title) < 3:
+        return ""
+    return title[:220]
+
+
 def _title_looks_unreliable(title: str) -> bool:
     """Detect blog-export / PDF-metadata titles that need AI correction."""
     t = (title or "").strip()
     if not t or len(t) < 3:
+        return True
+    if _looks_like_file_path(t):
         return True
     lower = t.lower()
     if lower in {"untitled", "document", "microsoft word", "unknown"}:
@@ -218,7 +307,25 @@ def _title_looks_unreliable(title: str) -> bool:
     return False
 
 
-def detect_metadata_from_pdf_bytes(pdf_bytes: bytes) -> dict[str, Any]:
+def _sanitize_embedded_metadata(title: str, author: str) -> tuple[str, str]:
+    """Drop PDF Info values that are really file paths or OS usernames."""
+    t = _clean(title)
+    a = _clean(author)
+    raw_title = t
+    if _looks_like_file_path(t):
+        t = ""
+    elif t.lower() in {"untitled", "document", "microsoft word", "unknown"}:
+        t = ""
+    if _author_looks_unreliable(a, title=raw_title):
+        a = ""
+    return t, a
+
+
+def detect_metadata_from_pdf_bytes(
+    pdf_bytes: bytes,
+    *,
+    filename: str = "",
+) -> dict[str, Any]:
     """
     Best-effort title/author detection:
     1. PDF Info + XMP
@@ -226,8 +333,10 @@ def detect_metadata_from_pdf_bytes(pdf_bytes: bytes) -> dict[str, Any]:
     3. Claude on first pages (always when title looks unreliable or fields missing)
     """
     pdf_meta = extract_pdf_document_metadata(pdf_bytes)
-    title = _clean(pdf_meta.get("title"))
-    author = _clean(pdf_meta.get("author"))
+    title, author = _sanitize_embedded_metadata(
+        _clean(pdf_meta.get("title")),
+        _clean(pdf_meta.get("author")),
+    )
     source = pdf_meta.get("source", "pdf_metadata")
 
     sample = extract_pdf_text(pdf_bytes, max_pages=8)
@@ -257,6 +366,12 @@ def detect_metadata_from_pdf_bytes(pdf_bytes: bytes) -> dict[str, Any]:
                 source = f"{source}+ai" if source else "ai_inference"
         except Exception as exc:
             log.warning("metadata_ai_inference_failed", extra={"error": str(exc)})
+
+    if not title and filename:
+        from_filename = _title_from_filename(filename)
+        if from_filename:
+            title = from_filename
+            source = f"{source}+filename" if source else "filename"
 
     return {
         "title": title,

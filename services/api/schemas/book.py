@@ -32,6 +32,10 @@ class ExtractTocResponse(BaseModel):
     method: str | None = None
 
 
+class DetectMetadataRequest(BaseModel):
+    filename: str = Field(..., min_length=1, max_length=512)
+
+
 class DetectMetadataResponse(BaseModel):
     title: str = ""
     author: str = ""

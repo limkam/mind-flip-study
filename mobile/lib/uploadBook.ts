@@ -6,13 +6,6 @@ export type TocChapter = {
   subtopics?: string[];
 };
 
-export type DetectMetadataResult = {
-  title: string;
-  author: string;
-  title_detected: boolean;
-  author_detected: boolean;
-};
-
 export type UploadBookOptions = {
   title: string;
   author: string;
@@ -23,22 +16,15 @@ export type UploadBookOptions = {
   description?: string;
   subject?: string;
   tags?: string[];
-  onProgress?: (phase: "detecting" | "uploading" | "creating") => void;
+  onProgress?: (phase: "uploading" | "creating") => void;
 };
 
-/** Detect title/author from a local PDF before upload. */
-export async function detectPdfMetadataFromUri(
-  uri: string,
-  name: string,
-): Promise<DetectMetadataResult> {
-  const form = new FormData();
-  form.append("file", {
-    uri,
-    name: name || "upload.pdf",
-    type: "application/pdf",
-  } as unknown as Blob);
-  const { data } = await api.post<DetectMetadataResult>("/books/detect-metadata", form);
-  return data;
+/** Derive book title from file name (no PDF parsing). */
+export function titleFromFilename(filename: string): string {
+  const base = filename.replace(/\\/g, "/").split("/").pop() || "";
+  const stem = base.replace(/\.pdf$/i, "").trim();
+  if (!stem) return "";
+  return stem.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /**

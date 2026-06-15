@@ -8,7 +8,7 @@ from pathlib import PurePosixPath
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,13 +33,14 @@ from schemas.book import (
     BookPatch,
     BookUploadUrlRequest,
     BookUploadUrlResponse,
+    DetectMetadataRequest,
     DetectMetadataResponse,
     ExtractTocRequest,
     ExtractTocResponse,
 )
 from schemas.job import JobEnqueueResponse
 from schemas.pagination import total_pages
-from pdf_metadata import detect_metadata_from_pdf_bytes
+from pdf_metadata import title_from_upload_filename
 from tasks.book_tasks import extract_book_toc_task
 from toc_extraction import extract_toc_from_pdf_bytes
 
@@ -133,38 +134,21 @@ async def extract_toc_from_upload(
 
 
 @router.post("/detect-metadata", response_model=DetectMetadataResponse)
-async def detect_metadata_from_pdf(
-    file: Annotated[UploadFile, File(...)],
+async def detect_metadata_from_filename(
+    body: DetectMetadataRequest,
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> DetectMetadataResponse:
-    """Detect title and author from PDF before upload (fast PDF metadata, then AI on first pages)."""
+    """Prefill upload title from the PDF file name. Author is entered manually."""
     _ = current_user
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        ctype = (file.content_type or "").lower()
-        if "pdf" not in ctype:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are supported")
-    raw = await file.read()
-    if len(raw) > 100 * 1024 * 1024:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File too large (max 100MB)")
-    if not raw:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
-    if not raw[:4].startswith(b"%PDF"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is not a valid PDF")
-
-    try:
-        result = detect_metadata_from_pdf_bytes(raw)
-    except Exception as exc:
-        logger.exception("detect_metadata_failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Metadata detection failed: {exc}" if settings.ENVIRONMENT == "development" else "Metadata detection failed",
-        ) from exc
-
+    filename = body.filename.strip()
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are supported")
+    title = title_from_upload_filename(filename)
     return DetectMetadataResponse(
-        title=result.get("title") or "",
-        author=result.get("author") or "",
-        title_detected=bool(result.get("title_detected")),
-        author_detected=bool(result.get("author_detected")),
+        title=title,
+        author="",
+        title_detected=bool(title),
+        author_detected=False,
     )
 
 

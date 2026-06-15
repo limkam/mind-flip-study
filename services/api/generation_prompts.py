@@ -5,9 +5,9 @@ from __future__ import annotations
 from difficulty_engine import difficulty_mix_instruction
 
 # Hard output token budget (enforced via prompt + max_tokens API cap)
-STUDY_OUTPUT_TOKEN_HARD_CAP = 2200
-STUDY_OUTPUT_TOKEN_TARGET = 1800
-GENERATION_PIPELINE_VERSION = "2026-06-13-compact-v3"
+STUDY_OUTPUT_TOKEN_HARD_CAP = 4096
+STUDY_OUTPUT_TOKEN_TARGET = 2800
+GENERATION_PIPELINE_VERSION = "2026-06-15-reliable-v1"
 
 TOKEN_BUDGET_BLOCK = """STRICT TOKEN BUDGETS (mandatory — responses exceeding limits will be rejected):
 - summary: 120–150 tokens max
@@ -15,9 +15,9 @@ TOKEN_BUDGET_BLOCK = """STRICT TOKEN BUDGETS (mandatory — responses exceeding 
 - core_concept: 20–30 tokens max (1–2 sentences)
 - key_points (7): one short sentence each, total ≤ 250 tokens
 - watch_out_for (3): one sentence each, total ≤ 120 tokens
-- scenarios (5): 40–80 tokens each, total ≤ 500 tokens
-- flashcards: question ≤ 15 words, answer ≤ 40 words (1–2 sentences), total ≤ 900 tokens
-- TOTAL RESPONSE: ≤ 2000 tokens (hard cap 2200)"""
+- scenarios (3–5): 40–60 tokens each, total ≤ 350 tokens
+- flashcards: question ≤ 12 words, answer ≤ 30 words, ~45 tokens each
+- TOTAL RESPONSE: prioritize completing every requested flashcard; shorten summary/scenarios if needed"""
 
 VARIATION_STYLES = [
     "Use situational 'which of the following…' framing.",
@@ -122,7 +122,7 @@ Required JSON:
   ]
 }}
 Rules:
-- scenarios: exactly 5, distinct, application-focused. Do NOT repeat chapter summary or key points.
+- scenarios: 3–5 distinct, application-focused. Do NOT repeat chapter summary or key points.
 - flashcards: exact count requested; direct questions; no repetition of scenario/summary text.
 - key_points: exactly 7. watch_out_for: exactly 3.
 - Stay grounded ONLY in the provided chapter text.

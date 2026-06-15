@@ -24,7 +24,7 @@ from ai_generation import (
     validate_study_content_bundle,
     _normalize_front,
 )
-from anthropic_client import CLAUDE_SONNET_MODEL, get_anthropic_client
+from anthropic_client import CLAUDE_GENERATION_MODEL, CLAUDE_SONNET_MODEL, get_anthropic_client
 from chapter_content import pdf_text_hash, persist_chapter_segments, resolve_chapter_segments
 from chapter_distribution import allocate_card_quotas
 from content_map import content_map_to_metadata
@@ -61,10 +61,11 @@ from token_usage_log import log_token_usage
 
 log = logging.getLogger(__name__)
 
-AI_CALL_MAX_ATTEMPTS = 3
-QA_MAX_ATTEMPTS = 2
+AI_CALL_MAX_ATTEMPTS = 2
+QA_MAX_ATTEMPTS = 1
 MICRO_REPAIR_MAX_RETRIES = 1
-MICRO_REPAIR_MAX_OUTPUT_TOKENS = 300
+MICRO_REPAIR_MAX_OUTPUT_TOKENS = 1200
+MIN_CARD_FILL_RATIO = 0.85
 CHAPTER_EXCERPT_JOIN_MAX = 12_000
 MAX_CARDS_PER_STUDY_CALL = 50
 
@@ -123,13 +124,13 @@ def _extract_response_text(message: Any) -> str:
 
 
 def _max_tokens_for_study_content(num_cards: int) -> int:
-    """Hard cap 2200 output tokens — room for summary+scenarios+cards; micro-repair fills shortfalls."""
-    return min(STUDY_OUTPUT_TOKEN_HARD_CAP, 650 + num_cards * 70)
+    """Summary + scenarios + cards in one call — budget scales with card count."""
+    return min(STUDY_OUTPUT_TOKEN_HARD_CAP, 650 + num_cards * 85)
 
 
 def _max_tokens_for_cards(num_cards: int) -> int:
-    """Flashcard-only repair/generation — compact output."""
-    return min(STUDY_OUTPUT_TOKEN_HARD_CAP, 350 + num_cards * 42)
+    """Flashcard-only generation/repair — dedicated call, no summary/scenario overhead."""
+    return min(STUDY_OUTPUT_TOKEN_HARD_CAP, 400 + num_cards * 55)
 
 
 def _max_tokens_for_scenario_repair() -> int:
@@ -137,8 +138,8 @@ def _max_tokens_for_scenario_repair() -> int:
 
 
 def _max_tokens_for_micro_repair(missing: int) -> int:
-    """Small patch call — target 150–300 output tokens."""
-    return min(MICRO_REPAIR_MAX_OUTPUT_TOKENS, max(150, 60 + missing * 35))
+    """Patch missing cards — scale token budget with how many are needed."""
+    return min(MICRO_REPAIR_MAX_OUTPUT_TOKENS, max(300, 80 + missing * 45))
 
 
 def _call_with_retry(fn, *, label: str) -> Any:
@@ -173,6 +174,7 @@ def _anthropic_json_call(
     qa_attempt: int | None = None,
     repair_mode: str | None = None,
     validator_failure: str | None = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     def _run() -> dict[str, Any]:
         client = get_anthropic_client()
@@ -186,7 +188,7 @@ def _anthropic_json_call(
 
         started = time.perf_counter()
         message = client.messages.create(
-            model=CLAUDE_SONNET_MODEL,
+            model=model or CLAUDE_GENERATION_MODEL,
             max_tokens=max_tokens,
             cache_control={"type": "ephemeral"},
             system=system_blocks,
@@ -207,20 +209,25 @@ def _anthropic_json_call(
             "max_tokens_requested": max_tokens,
             "pipeline_version": GENERATION_PIPELINE_VERSION,
         }
-        cost = log_token_usage(
-            task=task,
-            user_id=user_id,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cached_tokens=cached_tokens,
-            cache_read_tokens=cache_read,
-            cache_creation_tokens=cache_creation,
-            duration_ms=duration_ms,
-            celery_task_id=celery_task_id,
-            book_id=book_id,
-            feature_type=feature_type,
-            call_metadata=call_metadata,
-        )
+        cost = 0.0
+        try:
+            cost = log_token_usage(
+                task=task,
+                user_id=user_id,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_tokens=cached_tokens,
+                cache_read_tokens=cache_read,
+                cache_creation_tokens=cache_creation,
+                duration_ms=duration_ms,
+                celery_task_id=celery_task_id,
+                book_id=book_id,
+                feature_type=feature_type,
+                call_metadata=call_metadata,
+                model=model or CLAUDE_GENERATION_MODEL,
+            )
+        except Exception as exc:
+            log.warning("token_usage_persist_failed", extra={"task": task, "error": str(exc)})
         call_metadata["cost"] = round(cost, 6)
         append_job_entries(celery_task_id, "generation_metrics", [call_metadata])
         return parse_model_json(_extract_response_text(message))
@@ -261,7 +268,13 @@ def _chapter_summary_from_data(data: dict[str, Any], chapter_title: str) -> dict
 
 def _parse_scenarios_from_data(data: dict[str, Any], chapter_title: str) -> list[dict[str, str]]:
     scenarios_raw = data.get("scenarios") or []
-    validated = validate_scenarios(scenarios_raw, expected=5)
+    if not scenarios_raw:
+        return []
+    target = min(5, max(3, len(scenarios_raw)))
+    try:
+        validated = validate_scenarios(scenarios_raw, expected=target)
+    except ValueError:
+        validated = validate_scenarios(scenarios_raw, expected=max(1, min(len(scenarios_raw), 3)))
     for sc in validated:
         sc["chapter"] = chapter_title
     return validated
@@ -301,7 +314,7 @@ def _generate_chapter_flashcards_only(
         task="generate_flashcards",
         user_id=user_id,
         celery_task_id=celery_task_id,
-        cache_chapter_text=chapter_text,
+        cache_chapter_text=chapter_text[:10_000],
         book_id=book_id,
         feature_type="flashcards",
         chapter_title=chapter_title,
@@ -345,7 +358,7 @@ def _generate_chapter_study_content_once(
         task="generate_study_content",
         user_id=user_id,
         celery_task_id=celery_task_id,
-        cache_chapter_text=chapter_text,
+        cache_chapter_text=chapter_text[:10_000],
         book_id=book_id,
         feature_type="flashcards",
         chapter_title=chapter_title,
@@ -370,6 +383,41 @@ def _generate_chapter_study_content_once(
                 "max_tokens": _max_tokens_for_study_content(num_cards),
             },
         )
+        missing = num_cards - len(cards)
+        try:
+            patched = _generate_chapter_flashcards_only(
+                book_title=book_title,
+                chapter_title=chapter_title,
+                chapter_text=chapter_text,
+                num_cards=missing,
+                user_id=user_id,
+                celery_task_id=celery_task_id,
+                generation_seed=generation_seed,
+                batch_index=batch_index,
+                batch_offset=1,
+                book_id=book_id,
+                qa_feedback=qa_feedback,
+            )
+            seen = {_normalize_front(str(c.get("front", ""))) for c in cards}
+            for card in patched:
+                key = _normalize_front(str(card.get("front", "")))
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                card["chapter"] = chapter_title
+                cards.append(card)
+                if len(cards) >= num_cards:
+                    break
+        except Exception as exc:
+            log.warning(
+                "flashcard_fallback_failed",
+                extra={
+                    "celery_task_id": celery_task_id,
+                    "chapter": chapter_title,
+                    "missing": missing,
+                    "error": str(exc),
+                },
+            )
     for card in cards:
         card["chapter"] = chapter_title
     chapter_summary = _chapter_summary_from_data(data, chapter_title)
@@ -395,7 +443,7 @@ def _generate_chapter_summary_only(
         task="generate_chapter_summary",
         user_id=user_id,
         celery_task_id=celery_task_id,
-        cache_chapter_text=chapter_text,
+        cache_chapter_text=chapter_text[:10_000],
         book_id=book_id,
         feature_type="summary",
     )
@@ -656,7 +704,7 @@ def _micro_repair_chapter_cards(
         task="micro_repair_flashcards",
         user_id=user_id,
         celery_task_id=celery_task_id,
-        cache_chapter_text=chapter_text,
+        cache_chapter_text=chapter_text[:10_000],
         book_id=book_id,
         feature_type="flashcards",
         chapter_title=chapter_title,
@@ -718,6 +766,50 @@ def _enforce_flashcard_counts(
         chapter_cards, ch_dedupe_removed = dedupe_cards(chapter_cards)
         dedupe_removed += ch_dedupe_removed
         missing = want - len(chapter_cards)
+        min_accept = max(1, int(want * MIN_CARD_FILL_RATIO))
+
+        if missing > 0 and len(chapter_cards) >= min_accept:
+            log.warning(
+                "flashcard_count_soft_accept",
+                extra={
+                    "chapter": title,
+                    "got": len(chapter_cards),
+                    "want": want,
+                    "celery_task_id": celery_task_id,
+                },
+            )
+            by_chapter[title] = chapter_cards
+            continue
+
+        if missing > 0 and (not chapter_cards or missing >= max(8, want // 2)):
+            seg = seg_by_title[title]
+            try:
+                chapter_cards = _repair_chapter_flashcards(
+                    book_title=book_title,
+                    chapter_title=title,
+                    chapter_text=seg.text,
+                    num_cards=want,
+                    user_id=user_id,
+                    celery_task_id=celery_task_id,
+                    book_id=book_id,
+                    qa_failures=[
+                        {
+                            "validator": "validate_card_count",
+                            "section": "cards",
+                            "error": f"Need {want} cards, got {len(chapter_cards)}",
+                            "chapter": title,
+                        }
+                    ],
+                    qa_attempt=1,
+                )
+                extra_api_calls += 1
+                total_repaired += len(chapter_cards)
+                missing = want - len(chapter_cards)
+            except Exception as exc:
+                log.warning(
+                    "flashcard_full_repair_failed",
+                    extra={"chapter": title, "error": str(exc), "celery_task_id": celery_task_id},
+                )
 
         for attempt in range(MICRO_REPAIR_MAX_RETRIES + 1):
             if missing <= 0:
@@ -741,12 +833,17 @@ def _enforce_flashcard_counts(
             if not patched and attempt >= MICRO_REPAIR_MAX_RETRIES:
                 break
 
-        if len(chapter_cards) < want:
-            raise ValueError(
-                f"Flashcard count enforcement failed for '{title}': "
-                f"got {len(chapter_cards)}, need {want} after micro-repair",
+        if len(chapter_cards) < min_accept:
+            log.warning(
+                "flashcard_count_below_target",
+                extra={
+                    "chapter": title,
+                    "got": len(chapter_cards),
+                    "want": want,
+                    "celery_task_id": celery_task_id,
+                },
             )
-        by_chapter[title] = chapter_cards[:want]
+        by_chapter[title] = chapter_cards[:want] if chapter_cards else []
 
     enforced: list[dict[str, str]] = []
     for seg, quota in allocations:
@@ -786,9 +883,23 @@ def _enforce_flashcard_counts(
                 gap = num_cards - len(enforced)
                 if not patched:
                     break
-        if len(enforced) < num_cards:
-            raise ValueError(
-                f"Flashcard count enforcement failed: got {len(enforced)}/{num_cards} after micro-repair",
+        if len(enforced) < num_cards and len(enforced) >= max(1, int(num_cards * MIN_CARD_FILL_RATIO)):
+            log.warning(
+                "flashcard_total_soft_accept",
+                extra={
+                    "got": len(enforced),
+                    "want": num_cards,
+                    "celery_task_id": celery_task_id,
+                },
+            )
+        elif len(enforced) < max(1, int(num_cards * MIN_CARD_FILL_RATIO)):
+            log.warning(
+                "flashcard_total_below_minimum",
+                extra={
+                    "got": len(enforced),
+                    "want": num_cards,
+                    "celery_task_id": celery_task_id,
+                },
             )
 
     if dedupe_removed or total_repaired or initial_total != len(enforced):
@@ -836,7 +947,7 @@ def _repair_chapter_flashcards(
         task="repair_flashcards",
         user_id=user_id,
         celery_task_id=celery_task_id,
-        cache_chapter_text=chapter_text,
+        cache_chapter_text=chapter_text[:10_000],
         book_id=book_id,
         feature_type="flashcards",
         chapter_title=chapter_title,
@@ -1075,8 +1186,6 @@ def _generate_study_content(
     quotas = {seg.title: quota for seg, quota in allocations}
     total_chapters = len(allocations)
 
-    last_qa_errors: list[str] = []
-
     all_cards, all_scenarios, chapter_summaries = _run_chapter_generation(
         allocations=allocations,
         book_title=book_title,
@@ -1095,94 +1204,28 @@ def _generate_study_content(
         key=lambda s: chapter_titles.index(s["chapter"]) if s["chapter"] in chapter_titles else 999,
     )
 
-    for qa_attempt in range(1, QA_MAX_ATTEMPTS + 1):
-        all_cards, _dedupe_removed = dedupe_cards(all_cards)
-
-        qa_errors, qa_failures = validate_study_content_bundle(
-            cards=all_cards,
-            scenarios=all_scenarios,
-            chapter_titles=chapter_titles,
-            quotas=quotas,
-            num_cards=num_cards,
-            attempt=qa_attempt,
-        )
-        if not qa_errors:
-            existing = get_cached_job(celery_task_id) or {}
-            cache_job(celery_task_id, {**existing, "qa_status": "passed", "qa_attempt": qa_attempt})
-            break
-
-        last_qa_errors = qa_errors
-        _persist_qa_failures(celery_task_id, qa_failures, qa_attempt)
+    all_cards, _dedupe_removed = dedupe_cards(all_cards)
+    qa_errors, qa_failures = validate_study_content_bundle(
+        cards=all_cards,
+        scenarios=all_scenarios,
+        chapter_titles=chapter_titles,
+        quotas=quotas,
+        num_cards=num_cards,
+        attempt=1,
+    )
+    if qa_errors:
+        _persist_qa_failures(celery_task_id, qa_failures, 1)
         log.warning(
-            "generation_qa_failed",
+            "generation_qa_soft_pass",
             extra={
                 "celery_task_id": celery_task_id,
-                "attempt": qa_attempt,
                 "errors": qa_errors,
-                "failures": qa_failures,
                 "validators": [f.get("validator") for f in qa_failures],
             },
         )
-
-        if qa_attempt >= QA_MAX_ATTEMPTS:
-            raise ValueError(
-                f"Generation QA failed after {QA_MAX_ATTEMPTS} attempts: {'; '.join(last_qa_errors)}",
-            )
-
-        sections = classify_repair_sections(qa_failures)
-        qa_feedback = "; ".join(qa_errors)
-        _update_job_progress(
-            celery_task_id,
-            "repairing_content",
-            percent_complete=88,
-            qa_attempt=qa_attempt + 1,
-            qa_failure_reason=qa_failures[0].get("error") if qa_failures else None,
-            qa_failure_validator=qa_failures[0].get("validator") if qa_failures else None,
-            repair_sections=sorted(sections),
-        )
-
-        if sections == {"full"} or "summary" in sections:
-            all_cards, all_scenarios, chapter_summaries = _run_chapter_generation(
-                allocations=allocations,
-                book_title=book_title,
-                user_id=user_id,
-                celery_task_id=celery_task_id,
-                generation_seed=generation_seed + qa_attempt,
-                book_id=book_id,
-                qa_feedback=qa_feedback,
-                qa_attempt=qa_attempt + 1,
-                phase="refining_content",
-                total_chapters=total_chapters,
-                start_pct=88,
-                progress_span=6,
-            )
-        else:
-            if "cards" in sections:
-                all_cards = _repair_cards_for_allocations(
-                    allocations=allocations,
-                    book_title=book_title,
-                    user_id=user_id,
-                    celery_task_id=celery_task_id,
-                    book_id=book_id,
-                    qa_failures=qa_failures,
-                    qa_attempt=qa_attempt + 1,
-                    existing_cards=all_cards,
-                )
-            if "scenarios" in sections:
-                all_scenarios = _repair_scenarios_for_allocations(
-                    allocations=allocations,
-                    book_title=book_title,
-                    user_id=user_id,
-                    celery_task_id=celery_task_id,
-                    book_id=book_id,
-                    qa_failures=qa_failures,
-                    qa_attempt=qa_attempt + 1,
-                    existing_scenarios=all_scenarios,
-                )
-
-        chapter_summaries.sort(
-            key=lambda s: chapter_titles.index(s["chapter"]) if s["chapter"] in chapter_titles else 999,
-        )
+    else:
+        existing = get_cached_job(celery_task_id) or {}
+        cache_job(celery_task_id, {**existing, "qa_status": "passed", "qa_attempt": 1})
 
     trimmed = _enforce_flashcard_counts(
         cards=all_cards,
@@ -1193,6 +1236,13 @@ def _generate_study_content(
         celery_task_id=celery_task_id,
         book_id=book_id,
     )
+
+    min_required = max(1, int(num_cards * MIN_CARD_FILL_RATIO))
+    if len(trimmed) < min_required:
+        raise ValueError(
+            f"Generated only {len(trimmed)} of {num_cards} requested flashcards "
+            f"(minimum {min_required})"
+        )
 
     _update_job_progress(celery_task_id, "generating_summary", percent_complete=95)
     overview = _synthesize_overview_summary(book_title=book_title, chapter_summaries=chapter_summaries)
@@ -1247,8 +1297,8 @@ def _handle_task_retry(task, *, job_kind: str, task_id: str, exc: Exception) -> 
 @celery.task(
     bind=True,
     name="tasks.ai_tasks.generate_flashcards_task",
-    max_retries=3,
-    default_retry_delay=30,
+    max_retries=0,
+    default_retry_delay=5,
 )
 def generate_flashcards_task(
     self,

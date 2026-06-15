@@ -21,7 +21,7 @@ import { api } from "../../api/client";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
 import { flattenPages, normalizePage } from "../../lib/pagination";
-import { uploadBookFromPicker, detectPdfMetadataFromUri } from "../../lib/uploadBook";
+import { uploadBookFromPicker, titleFromFilename } from "../../lib/uploadBook";
 import type { BookOut, Paginated } from "../../types/api";
 
 const PAGE_SIZE = 20;
@@ -39,18 +39,14 @@ export default function LibraryTab() {
     mimeType?: string | null;
   } | null>(null);
   const [uploadPhase, setUploadPhase] = useState<string | null>(null);
-
-  const [detecting, setDetecting] = useState(false);
   const [detectHint, setDetectHint] = useState<string | null>(null);
 
   const uploadPhaseLabel =
-    uploadPhase === "detecting"
-      ? "Detecting title and author…"
-      : uploadPhase === "uploading"
-        ? "Uploading PDF…"
-        : uploadPhase === "creating"
-          ? "Saving book…"
-          : null;
+    uploadPhase === "uploading"
+      ? "Uploading PDF…"
+      : uploadPhase === "creating"
+        ? "Saving book…"
+        : null;
 
   const {
     data,
@@ -123,24 +119,13 @@ export default function LibraryTab() {
       size,
       mimeType: a.mimeType,
     });
-    setTitle("");
+    setTitle(titleFromFilename(a.name));
     setAuthor("");
-    setDetectHint(null);
-    setDetecting(true);
-    try {
-      const meta = await detectPdfMetadataFromUri(a.uri, a.name);
-      setTitle(meta.title || "");
-      setAuthor(meta.author || "");
-      if (meta.title_detected && meta.author_detected) {
-        setDetectHint("Title and author detected from your PDF.");
-      } else {
-        setDetectHint("Enter the missing title and author below.");
-      }
-    } catch {
-      setDetectHint("Could not detect metadata. Enter title and author manually.");
-    } finally {
-      setDetecting(false);
-    }
+    setDetectHint(
+      titleFromFilename(a.name)
+        ? "Title filled from file name. Enter the author below."
+        : "Enter the title and author manually.",
+    );
   }, []);
 
   const renderItem = useCallback(
@@ -216,10 +201,10 @@ export default function LibraryTab() {
             <Pressable
               style={[styles.secondaryBtn, { borderColor: colors.primary, marginTop: 0 }]}
               onPress={pickFile}
-              disabled={detecting || uploadMutation.isPending}
+              disabled={uploadMutation.isPending}
             >
               <Text style={{ color: colors.primary, fontWeight: "600" }}>
-                {detecting ? "Detecting title and author…" : picked ? picked.name : "Choose PDF (required first step)"}
+                {picked ? picked.name : "Choose PDF (required first step)"}
               </Text>
             </Pressable>
             {detectHint ? (
@@ -255,7 +240,7 @@ export default function LibraryTab() {
               </Pressable>
               <Pressable
                 style={[styles.primaryBtn, uploadMutation.isPending && { opacity: 0.6 }]}
-                disabled={uploadMutation.isPending || detecting || !picked || !title.trim() || !author.trim()}
+                disabled={uploadMutation.isPending || !picked || !title.trim() || !author.trim()}
                 onPress={() => uploadMutation.mutate()}
               >
                 <Text style={styles.primaryBtnText}>

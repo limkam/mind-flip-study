@@ -1,23 +1,21 @@
-import client from "@/api/client";
-
 /**
- * Detect title and author from a local PDF file before upload.
+ * Derive book title from uploaded file name (no PDF parsing).
  */
-export async function detectPdfMetadata(file) {
-  const form = new FormData();
-  form.append("file", file, file.name || "upload.pdf");
-  // Do NOT set Content-Type — browser must add multipart boundary automatically
-  const { data } = await client.post("/books/detect-metadata", form);
-  return data;
+export function titleFromFilename(filename) {
+  if (!filename || typeof filename !== 'string') return '';
+  const base = filename.replace(/\\/g, '/').split('/').pop() || '';
+  const stem = base.replace(/\.pdf$/i, '').trim();
+  if (!stem) return '';
+  return stem.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 export const TOC_PHASE_LABELS = {
-  extracting_contents: "Extracting contents…",
-  analyzing_structure: "Analyzing document structure…",
-  extracting_toc: "Analyzing document structure…",
-  queued: "Starting TOC extraction…",
+  extracting_contents: 'Extracting contents…',
+  analyzing_structure: 'Analyzing document structure…',
+  extracting_toc: 'Analyzing document structure…',
+  queued: 'Starting TOC extraction…',
 };
 
 export function tocPhaseLabel(phase) {
-  return TOC_PHASE_LABELS[phase] || "Processing…";
+  return TOC_PHASE_LABELS[phase] || 'Processing…';
 }

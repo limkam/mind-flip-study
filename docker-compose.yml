@@ -54,7 +54,7 @@ services:
     build:
       context: ./services/api
       dockerfile: Dockerfile
-    command: ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info"]
+    command: ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
     env_file: .env
     environment:
       DATABASE_URL: postgresql://mindflip:mindflip@postgres:5432/mindflip

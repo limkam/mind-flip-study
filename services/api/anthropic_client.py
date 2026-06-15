@@ -12,6 +12,9 @@ from config import settings
 log = logging.getLogger(__name__)
 
 CLAUDE_SONNET_MODEL = "claude-sonnet-4-6"
+# Faster model for flashcard / study-content generation (target ~50–60s end-to-end).
+CLAUDE_HAIKU_MODEL = "claude-haiku-4-5"
+CLAUDE_GENERATION_MODEL = CLAUDE_HAIKU_MODEL
 
 _api_key_cache: str | None = None
 _client_cache: Anthropic | None = None
