@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "@/api/client";
 import { motion } from "framer-motion";
-import { GraduationCap, BookOpen, Gamepad2, Tag, Trash2 } from "lucide-react";
+import { GraduationCap, BookOpen, Gamepad2, Tag, Trash2, Filter } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import TagInput from "@/components/common/TagInput";
@@ -25,6 +25,7 @@ export default function FlashcardSets() {
   const { toast } = useToast();
   const [editingTagsId, setEditingTagsId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [chapterFilter, setChapterFilter] = useState("");
 
   const { data: sets = [], isLoading } = useQuery({
     queryKey: ["flashcard-sets"],
@@ -33,6 +34,11 @@ export default function FlashcardSets() {
       return data;
     },
   });
+
+  const allChapters = [...new Set(sets.flatMap((s) => s.selected_chapters || []).filter(Boolean))];
+  const filteredSets = chapterFilter
+    ? sets.filter((s) => (s.selected_chapters || []).includes(chapterFilter))
+    : sets;
 
   const handleTagsChange = async (setId, tags) => {
     await client.put(`/flashcard-sets/${setId}`, { tags });
@@ -61,13 +67,25 @@ export default function FlashcardSets() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="font-heading text-3xl font-bold">My Flashcard Sets</h1>
-          <p className="text-muted-foreground mt-1">{sets.length} sets created</p>
+          <p className="text-muted-foreground mt-1">{filteredSets.length} sets{chapterFilter ? ` in ${chapterFilter}` : ""}</p>
         </div>
-        <Link to="/library">
-          <Button variant="outline" className="gap-2">
-            <BookOpen className="w-4 h-4" /> Browse Library
-          </Button>
-        </Link>
+        <div className="flex gap-2">
+          {allChapters.length > 0 && (
+            <select
+              value={chapterFilter}
+              onChange={(e) => setChapterFilter(e.target.value)}
+              className="text-sm border border-border rounded-lg px-3 py-2 bg-card"
+            >
+              <option value="">All chapters</option>
+              {allChapters.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
+            </select>
+          )}
+          <Link to="/library">
+            <Button variant="outline" className="gap-2">
+              <BookOpen className="w-4 h-4" /> Browse Library
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {isLoading ? (
@@ -79,7 +97,7 @@ export default function FlashcardSets() {
             </div>
           ))}
         </div>
-      ) : sets.length === 0 ? (
+      ) : filteredSets.length === 0 ? (
         <div className="text-center py-20">
           <GraduationCap className="w-16 h-16 mx-auto text-muted-foreground/20 mb-4" />
           <h3 className="font-heading text-xl font-semibold text-muted-foreground mb-2">No flashcard sets yet</h3>
@@ -90,7 +108,7 @@ export default function FlashcardSets() {
         </div>
       ) : (
         <div className="space-y-3">
-          {sets.map((set, i) => (
+          {filteredSets.map((set, i) => (
             <motion.div
               key={set.id}
               initial={{ opacity: 0, y: 10 }}
@@ -104,6 +122,13 @@ export default function FlashcardSets() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-heading font-semibold group-hover:text-primary transition-colors truncate">{set.title}</h3>
+                    {set.selected_chapters?.length > 0 && (
+                      <p className="text-xs text-primary/80 mt-0.5 truncate">
+                        {set.selected_chapters.length === 1
+                          ? `Chapter: ${set.selected_chapters[0]}`
+                          : `Chapters: ${set.selected_chapters.join(", ")}`}
+                      </p>
+                    )}
                     <div className="flex items-center gap-3 mt-1 flex-wrap">
                       <Badge variant="secondary" className="text-xs">{set.card_count} cards</Badge>
                       {set.book_title && (

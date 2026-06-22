@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -114,4 +115,23 @@ async def create_quiz_result(
         celery_app.send_task("tasks.leaderboard_tasks.refresh_leaderboard_task")
     except Exception as exc:
         log.warning("leaderboard refresh enqueue failed: %s", exc)
+    return enriched[0]
+
+
+@router.get("/{result_id}", response_model=QuizResultOut)
+async def get_quiz_result(
+    result_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> QuizResultOut:
+    r = await db.execute(
+        select(QuizResult).where(
+            QuizResult.id == result_id,
+            QuizResult.user_id == current_user.id,
+        ),
+    )
+    row = r.scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Quiz result not found")
+    enriched = await _enrich_extras_for_results(db, [row])
     return enriched[0]

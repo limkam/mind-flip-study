@@ -1,9 +1,18 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { RotateCcw, HelpCircle, CheckCircle2 } from "lucide-react";
+import { getStudyTheme } from "@/lib/studyTheme";
 
-export default function FlashCard({ front, back, difficulty, chapter, index = 0 }) {
+export default function FlashCard({
+  front,
+  back,
+  difficulty,
+  chapter,
+  index = 0,
+  themeId = "indigo",
+}) {
   const [flipped, setFlipped] = useState(false);
+  const theme = getStudyTheme(themeId);
 
   const difficultyStyles = {
     easy: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30",
@@ -27,13 +36,11 @@ export default function FlashCard({ front, back, difficulty, chapter, index = 0 
           transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
         }}
       >
-        {/* ── FRONT (Question) ── */}
         <div
-          className="absolute inset-0 flex flex-col rounded-2xl overflow-hidden shadow-md border border-indigo-200 dark:border-indigo-900"
+          className={`absolute inset-0 flex flex-col rounded-2xl overflow-hidden shadow-md border ${theme.questionBorder}`}
           style={{ backfaceVisibility: "hidden" }}
         >
-          {/* Colored header strip */}
-          <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-3 flex items-center justify-between">
+          <div className={`bg-gradient-to-r ${theme.question} px-5 py-3 flex items-center justify-between`}>
             <div className="flex items-center gap-2">
               <HelpCircle className="w-4 h-4 text-white/80" />
               <span className="text-xs font-semibold text-white/90 uppercase tracking-widest">Question</span>
@@ -52,7 +59,6 @@ export default function FlashCard({ front, back, difficulty, chapter, index = 0 
             </div>
           </div>
 
-          {/* Body */}
           <div className="flex-1 flex items-center justify-center p-7 bg-card">
             <p className="text-lg font-medium text-center text-foreground leading-relaxed">{front}</p>
           </div>
@@ -63,13 +69,11 @@ export default function FlashCard({ front, back, difficulty, chapter, index = 0 
           </div>
         </div>
 
-        {/* ── BACK (Answer) ── */}
         <div
-          className="absolute inset-0 flex flex-col rounded-2xl overflow-hidden shadow-md border border-emerald-200 dark:border-emerald-900"
+          className={`absolute inset-0 flex flex-col rounded-2xl overflow-hidden shadow-md border ${theme.answerBorder}`}
           style={{ backfaceVisibility: "hidden", transform: "rotateY(180deg)" }}
         >
-          {/* Colored header strip */}
-          <div className="bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-3 flex items-center justify-between">
+          <div className={`bg-gradient-to-r ${theme.answer} px-5 py-3 flex items-center justify-between`}>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-white/80" />
               <span className="text-xs font-semibold text-white/90 uppercase tracking-widest">Answer</span>
@@ -81,12 +85,11 @@ export default function FlashCard({ front, back, difficulty, chapter, index = 0 
             )}
           </div>
 
-          {/* Body */}
-          <div className="flex-1 flex items-center justify-center p-7 bg-emerald-50 dark:bg-emerald-950/20">
+          <div className={`flex-1 flex items-center justify-center p-7 ${theme.answerBody}`}>
             <p className="text-base text-center text-foreground leading-relaxed font-medium">{back}</p>
           </div>
 
-          <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground pb-4 bg-emerald-50 dark:bg-emerald-950/20">
+          <div className={`flex items-center justify-center gap-1.5 text-xs text-muted-foreground pb-4 ${theme.answerBody}`}>
             <RotateCcw className="w-3 h-3" />
             <span>Tap to flip back</span>
           </div>

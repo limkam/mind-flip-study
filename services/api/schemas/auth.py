@@ -28,6 +28,7 @@ class LoginRequest(BaseModel):
 
     email: AppEmail
     password: str
+    remember_me: bool = True
 
 
 class LoginResponse(BaseModel):
@@ -63,6 +64,7 @@ class GoogleLoginRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     id_token: str = Field(..., min_length=10, max_length=12000)
+    remember_me: bool = True
 
 
 class OnboardingRequest(BaseModel):
@@ -86,6 +88,7 @@ class AppleLoginRequest(BaseModel):
 
     identity_token: str = Field(..., min_length=10, max_length=12000)
     full_name: str | None = Field(None, max_length=255)
+    remember_me: bool = True
     #: Raw nonce from the native Apple sign-in request (server checks SHA256 in the JWT).
     nonce: str | None = Field(None, max_length=512)
 

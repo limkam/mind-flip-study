@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Plus, Search, BookOpen, Filter } from "lucide-react";
@@ -15,6 +16,7 @@ const SUBJECTS = [
 ];
 
 export default function Library() {
+  const navigate = useNavigate();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("all");
@@ -24,6 +26,10 @@ export default function Library() {
   const { data: books = [], isLoading } = useQuery({
     queryKey: ["books"],
     queryFn: () => fetchAllBooksPages(),
+    refetchInterval: (query) => {
+      const list = query.state.data;
+      return Array.isArray(list) && list.some((b) => b.is_analyzing) ? 3000 : false;
+    },
   });
 
   const allTags = [...new Set(books.flatMap(b => b.tags || []))].sort();
@@ -133,7 +139,12 @@ export default function Library() {
       <UploadBookDialog
         open={uploadOpen}
         onOpenChange={setUploadOpen}
-        onBookCreated={() => queryClient.invalidateQueries({ queryKey: ["books"] })}
+        onBookCreated={(book) => {
+          queryClient.invalidateQueries({ queryKey: ["books"] });
+          if (book?.id) {
+            navigate(`/book/${book.id}`);
+          }
+        }}
       />
     </div>
   );

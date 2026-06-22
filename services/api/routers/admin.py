@@ -19,7 +19,7 @@ from models.flashcard import Flashcard, FlashcardSet, Workbook
 from models.quiz import StudyEvent
 from models.token_usage import TokenUsage
 from models.user import User
-from s3_cleanup import delete_book_s3_assets
+from services.book_deletion import cascade_delete_book
 from age_utils import AGE_GROUP_LABELS, dob_range_for_age_group
 from schemas.admin import (
     AdminBookListPage,
@@ -259,17 +259,7 @@ async def delete_book_admin(
     if book is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
 
-    delete_book_s3_assets(s3_key=book.s3_key, extras=book.extras)
-    # Workbooks are JSONB in DB (no S3); remove sets, cards, workbooks, then book.
-    set_ids = (
-        await db.scalars(select(FlashcardSet.id).where(FlashcardSet.book_id == book.id))
-    ).all()
-    if set_ids:
-        await db.execute(delete(Flashcard).where(Flashcard.set_id.in_(set_ids)))
-        await db.execute(delete(FlashcardSet).where(FlashcardSet.book_id == book.id))
-    await db.execute(delete(Workbook).where(Workbook.book_id == book.id))
-    await db.execute(delete(Book).where(Book.id == book.id))
-    await db.commit()
+    await cascade_delete_book(db, book)
 
 
 @router.get("/metrics", response_model=AdminMetricsOut)

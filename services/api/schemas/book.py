@@ -20,6 +20,15 @@ class BookUploadUrlResponse(BaseModel):
     expires_in: int = 3600
 
 
+class ValidatePdfRequest(BaseModel):
+    s3_key: str = Field(..., min_length=1, max_length=1024)
+
+
+class ValidatePdfResponse(BaseModel):
+    ok: bool
+    message: str = ""
+
+
 class ExtractTocRequest(BaseModel):
     s3_key: str = Field(..., min_length=1, max_length=1024)
     title: str = Field(..., min_length=1, max_length=512)
@@ -49,6 +58,33 @@ class BookCreate(BaseModel):
     s3_key: str = Field(..., min_length=1, max_length=1024)
     file_size_bytes: int = Field(..., gt=0)
     extras: dict[str, Any] | None = None
+    replace_book_id: UUID | None = Field(
+        None,
+        description="When set, delete this existing book and replace with the new upload.",
+    )
+
+
+class DuplicateBookMatch(BaseModel):
+    id: UUID
+    title: str
+    author: str
+    created_at: datetime
+    file_size_bytes: int
+
+
+class CheckDuplicateResponse(BaseModel):
+    is_duplicate: bool
+    matches: list[DuplicateBookMatch] = Field(default_factory=list)
+
+
+class TocChapter(BaseModel):
+    chapter_number: int = Field(..., ge=1)
+    title: str = Field(..., min_length=1, max_length=512)
+    subtopics: list[str] = Field(default_factory=list)
+
+
+class TocUpdateRequest(BaseModel):
+    chapters: list[TocChapter] = Field(..., min_length=1)
 
 
 class BookPatch(BaseModel):
@@ -94,6 +130,8 @@ class BookOut(BaseModel):
     processing_phase: str = ""
     is_analyzing: bool = False
     toc_extraction_method: str = ""
+    toc_job_id: str = ""
+    toc_error: str = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -127,6 +165,8 @@ class BookOut(BaseModel):
                 "processing_phase": phase,
                 "is_analyzing": analyzing,
                 "toc_extraction_method": ex.get("toc_extraction_method") or "",
+                "toc_job_id": str(proc.get("job_id") or ""),
+                "toc_error": str(proc.get("error") or "") if phase == "error" else "",
             }
         return data
 

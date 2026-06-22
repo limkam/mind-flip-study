@@ -30,6 +30,64 @@ def extract_pdf_text(data: bytes, *, max_pages: int | None = None) -> str:
     return "\n".join(parts)
 
 
+# Minimum average extractable characters per page for a text-based PDF.
+_MIN_CHARS_PER_PAGE = 40
+# Absolute floor — very short docs may be valid.
+_MIN_TOTAL_TEXT_CHARS = 80
+
+# Pages to scan for image-only detection (full book is not needed).
+_MAX_IMAGE_CHECK_PAGES = 12
+
+IMAGE_ONLY_PDF_MESSAGE = (
+    "This PDF looks like a scanned photo or image-only document. "
+    "MindFlip cannot process image PDFs yet — please upload a text-based PDF "
+    "(for example, exported from Word, Google Docs, or a digital textbook)."
+)
+
+
+def pdf_is_likely_image_only(data: bytes, *, max_pages: int = _MAX_IMAGE_CHECK_PAGES) -> bool:
+    """
+    Heuristic: PDFs that are photos/scans have little or no extractable text.
+    Only samples the first few pages — sufficient for upload validation.
+    """
+    try:
+        reader = PdfReader(BytesIO(data))
+    except Exception:
+        return True
+
+    pages = reader.pages
+    if not pages:
+        return True
+
+    sample = pages[: max(1, min(max_pages, len(pages)))]
+    total_chars = 0
+    sparse_pages = 0
+    for i, page in enumerate(sample):
+        try:
+            text = (page.extract_text() or "").strip()
+        except Exception:
+            text = ""
+        char_count = len(text)
+        total_chars += char_count
+        if char_count < _MIN_CHARS_PER_PAGE:
+            sparse_pages += 1
+        # Clearly text-based after a couple of pages — skip scanning the rest.
+        if i >= 1 and total_chars >= 400:
+            return False
+
+    if total_chars < _MIN_TOTAL_TEXT_CHARS:
+        return True
+
+    avg_chars = total_chars / len(sample)
+    if avg_chars < _MIN_CHARS_PER_PAGE:
+        return True
+
+    if sparse_pages >= max(1, int(len(sample) * 0.85)):
+        return True
+
+    return False
+
+
 def _collect_heading_lines(full_text: str, *, limit: int = 300) -> list[str]:
     """Scan the full document for section-heading lines to give AI document-wide structure."""
     found: list[str] = []

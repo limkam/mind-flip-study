@@ -118,6 +118,44 @@ export default function SettingsScreen() {
         </Section>
 
         <Section title="Learning" colors={colors}>
+          <Text style={[styles.goalLabel, { color: colors.text }]}>Learning pace</Text>
+          <View style={styles.goalRow}>
+            {(
+              [
+                { id: "relaxed", label: "Relaxed" },
+                { id: "medium", label: "Balanced" },
+                { id: "intensive", label: "Intensive" },
+              ] as const
+            ).map((pace) => (
+              <Pressable
+                key={pace.id}
+                style={[
+                  styles.goalChip,
+                  {
+                    borderColor: colors.border,
+                    backgroundColor: prefs.learning_pace === pace.id ? colors.primary : colors.surface,
+                  },
+                ]}
+                onPress={() => set("learning_pace", pace.id)}
+              >
+                <Text style={{ color: prefs.learning_pace === pace.id ? "#fff" : colors.text, fontWeight: "600" }}>
+                  {pace.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={[styles.paceHint, { color: colors.muted }]}>
+            {prefs.learning_pace === "relaxed" && "Fewer reviews and a lighter workload."}
+            {prefs.learning_pace === "medium" && "Moderate review schedule for steady progress."}
+            {prefs.learning_pace === "intensive" && "More frequent reviews and higher daily goals."}
+          </Text>
+          <ToggleRow
+            label="Auto-advance cards"
+            description="Move to next card after rating"
+            value={prefs.auto_advance_cards}
+            onValueChange={(v) => set("auto_advance_cards", v)}
+            colors={colors}
+          />
           <ToggleRow
             label="Spaced repetition"
             description="Smart card scheduling based on recall"
@@ -289,6 +327,7 @@ const styles = StyleSheet.create({
   toggleLabel: { fontSize: 14, fontWeight: "600" },
   toggleDesc: { fontSize: 12, marginTop: 2 },
   goalLabel: { fontSize: 14, fontWeight: "600", marginBottom: 8 },
+  paceHint: { fontSize: 13, marginBottom: 12, lineHeight: 18 },
   goalRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   goalChip: {
     borderWidth: 1,

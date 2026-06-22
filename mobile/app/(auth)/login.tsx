@@ -66,6 +66,7 @@ function GoogleSignInButton({ colors }: { colors: ThemeColors }) {
       try {
         const { data } = await api.post<{ access_token: string; user: User }>("/auth/google", {
           id_token: idToken,
+          remember_me: useAuthStore.getState().keepSignedIn,
         });
         setAuth(data.user, data.access_token);
         router.replace(postLoginRoute(data.user));
@@ -102,6 +103,8 @@ export default function LoginScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const keepSignedIn = useAuthStore((s) => s.keepSignedIn);
+  const setKeepSignedIn = useAuthStore((s) => s.setKeepSignedIn);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -116,6 +119,7 @@ export default function LoginScreen() {
       const { data } = await api.post<{ access_token: string; user: User }>("/auth/login", {
         email: email.trim().toLowerCase(),
         password,
+        remember_me: keepSignedIn,
       });
       setAuth(data.user, data.access_token);
       router.replace(postLoginRoute(data.user));
@@ -146,6 +150,7 @@ export default function LoginScreen() {
           ? [credential.fullName.givenName, credential.fullName.familyName].filter(Boolean).join(" ")
           : undefined,
         nonce: credential.nonce,
+        remember_me: keepSignedIn,
       });
       setAuth(data.user, data.access_token);
       router.replace(postLoginRoute(data.user));
@@ -184,6 +189,17 @@ export default function LoginScreen() {
             <Text style={[styles.forgot, { color: colors.primary }]}>Forgot password?</Text>
           </Pressable>
         </Link>
+        <Pressable
+          style={styles.keepRow}
+          onPress={() => setKeepSignedIn(!keepSignedIn)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: keepSignedIn }}
+        >
+          <View style={[styles.checkbox, { borderColor: colors.border, backgroundColor: keepSignedIn ? colors.primary : colors.background }]}>
+            {keepSignedIn ? <Text style={styles.checkMark}>✓</Text> : null}
+          </View>
+          <Text style={[styles.keepLabel, { color: colors.muted }]}>Keep me signed in</Text>
+        </Pressable>
         <Pressable
           style={[styles.button, { backgroundColor: colors.primary }, busy && styles.buttonDisabled]}
           onPress={() => {
@@ -259,6 +275,17 @@ const styles = StyleSheet.create({
   },
   forgotWrap: { alignSelf: "flex-end", minHeight: 32, justifyContent: "center" },
   forgot: { fontSize: 13, fontWeight: "600" },
+  keepRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkMark: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  keepLabel: { fontSize: 14 },
   button: {
     borderRadius: 10,
     paddingVertical: 14,

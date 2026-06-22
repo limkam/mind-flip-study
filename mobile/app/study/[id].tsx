@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -19,8 +19,8 @@ import Animated, {
 import { FlashCard } from "../../components/FlashCard";
 import { GameSelector } from "../../components/games";
 import { Screen } from "../../components/Screen";
-import { SummaryView as SessionSummaryView } from "../../components/SummaryView";
 import { ChapterSummaryView } from "../../components/study/ChapterSummaryView";
+import { StudySessionSummary } from "../../components/study/StudySessionSummary";
 import { StudySetHeader } from "../../components/study/StudySetHeader";
 import { ScenarioView } from "../../components/study/ScenarioView";
 import { EmptyState } from "../../components/EmptyState";
@@ -36,6 +36,7 @@ import {
 } from "../../lib/offlineStudy";
 import { maybeRegisterPushAfterStudy } from "../../hooks/usePushNotifications";
 import { hapticImpact, hapticSuccess } from "../../lib/haptics";
+import { useAuthStore } from "../../store/authStore";
 import type { DueFlashcardOut, FlashcardSetOut, ScenarioOut } from "../../types/api";
 import { parseStudySetDisplay } from "../../lib/studySetDisplay";
 import type { GameSlug } from "../../components/games/types";
@@ -54,14 +55,19 @@ export default function StudyByIdScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useTheme();
+  const user = useAuthStore((s) => s.user);
+  const autoAdvance = user?.preferences?.settings?.auto_advance_cards ?? true;
+  const autoAdvanceDelay = user?.preferences?.settings?.auto_advance_delay_ms ?? 2000;
 
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [sessionComplete, setSessionComplete] = useState(false);
   const [mode, setMode] = useState<StudyMode>("study");
   const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [hardReviewMode, setHardReviewMode] = useState(false);
   const [offlineNote, setOfflineNote] = useState(false);
   const [localScenarios, setLocalScenarios] = useState<ScenarioOut[] | null>(null);
+  const sessionStart = useRef(Date.now());
 
   const progress = useSharedValue(0);
 
@@ -140,8 +146,13 @@ export default function StudyByIdScreen() {
 
   const cards = data?.cards ?? [];
   const allCards = data?.allCards ?? [];
-  const card = cards[idx];
-  const total = cards.length;
+  const hardCards = useMemo(
+    () => cards.filter((c) => (ratings[c.id] ?? 0) <= 2),
+    [cards, ratings],
+  );
+  const activeCards = hardReviewMode ? hardCards : cards;
+  const card = activeCards[idx];
+  const total = activeCards.length;
 
   useEffect(() => {
     setIdx(0);
@@ -149,8 +160,10 @@ export default function StudyByIdScreen() {
     setSessionComplete(false);
     setMode("study");
     setRatings({});
+    setHardReviewMode(false);
     setOfflineNote(false);
     setLocalScenarios(null);
+    sessionStart.current = Date.now();
     progress.value = 0;
   }, [id, progress]);
 
@@ -164,11 +177,26 @@ export default function StudyByIdScreen() {
     width: `${Math.min(100, Math.max(0, progress.value * 100))}%`,
   }));
 
-  const avgQuality = useMemo(() => {
-    const values = Object.values(ratings);
-    if (!values.length) return 0;
-    return values.reduce((a, b) => a + b, 0) / values.length;
-  }, [ratings]);
+  const sessionSummaryStats = useMemo(() => {
+    const entries = Object.entries(ratings);
+    const hard = entries.filter(([, q]) => q <= 2).length;
+    const medium = entries.filter(([, q]) => q === 3 || q === 4).length;
+    const easy = entries.filter(([, q]) => q >= 5).length;
+    const totalRated = entries.length;
+    const confidence =
+      totalRated > 0
+        ? Math.round(((easy * 100 + medium * 60 + hard * 20) / totalRated))
+        : 0;
+    return {
+      total: totalRated,
+      hard,
+      medium,
+      easy,
+      durationMs: Date.now() - sessionStart.current,
+      completionRate: Math.round((totalRated / Math.max(cards.length, 1)) * 100),
+      confidenceScore: confidence,
+    };
+  }, [ratings, cards.length]);
 
   const submitProgress = useCallback(
     async (cardId: string, quality: number) => {
@@ -191,32 +219,38 @@ export default function StudyByIdScreen() {
     async (quality: number) => {
       if (sessionComplete || !card) return;
       setRatings((prev) => ({ ...prev, [card.id]: quality }));
-      await submitProgress(card.id, quality);
+      void submitProgress(card.id, quality).catch(() => {
+        setRatings((prev) => {
+          const next = { ...prev };
+          delete next[card.id];
+          return next;
+        });
+      });
 
       if (quality <= 2) void hapticImpact("heavy");
       else if (quality >= 4) void hapticSuccess();
       else void hapticImpact("medium");
 
-      const isLast = idx >= cards.length - 1;
-      if (isLast) {
-        setSessionComplete(true);
-        void hapticSuccess();
-        void maybeRegisterPushAfterStudy();
-        return;
+      const isLast = idx >= activeCards.length - 1;
+      const advance = () => {
+        if (isLast) {
+          setSessionComplete(true);
+          void hapticSuccess();
+          void maybeRegisterPushAfterStudy();
+          return;
+        }
+        setIdx((i) => i + 1);
+        setFlipped(false);
+      };
+      if (autoAdvance) {
+        setTimeout(advance, autoAdvanceDelay);
+      } else if (isLast) {
+        advance();
       }
-      setIdx((i) => i + 1);
-      setFlipped(false);
     },
-    [card, cards.length, idx, sessionComplete, submitProgress],
+    [card, activeCards.length, idx, sessionComplete, submitProgress, autoAdvance, autoAdvanceDelay],
   );
 
-  const restartSession = useCallback(() => {
-    setIdx(0);
-    setFlipped(false);
-    setSessionComplete(false);
-    setRatings({});
-    void refetch();
-  }, [refetch]);
 
   const displayTitle = parseStudySetDisplay({
     title: data?.title,
@@ -320,7 +354,11 @@ export default function StudyByIdScreen() {
               <Text style={[styles.summaryBody, { color: colors.muted }]}>{ch.summary}</Text>
             </View>
           ))}
-          <ChapterSummaryView cards={allCards} bookTitle={data?.bookTitle} />
+          <ChapterSummaryView
+            cards={allCards}
+            bookTitle={data?.bookTitle}
+            selectedChapters={data?.selectedChapters}
+          />
         </ScrollView>
       ) : mode === "scenarios" ? (
         <ScrollView contentContainerStyle={styles.tabScroll} showsVerticalScrollIndicator>
@@ -356,11 +394,27 @@ export default function StudyByIdScreen() {
         />
       ) : sessionComplete ? (
         <Animated.View entering={FadeIn}>
-          <SessionSummaryView
-            totalCards={Object.keys(ratings).length || total}
-            avgQuality={avgQuality}
-            onRetry={restartSession}
-            onDone={() => router.back()}
+          <StudySessionSummary
+            stats={sessionSummaryStats}
+            mode="study"
+            onReviewHard={
+              sessionSummaryStats.hard > 0
+                ? () => {
+                    setHardReviewMode(true);
+                    setSessionComplete(false);
+                    setIdx(0);
+                    setFlipped(false);
+                    sessionStart.current = Date.now();
+                  }
+                : null
+            }
+            onContinue={() => {
+              setSessionComplete(false);
+              setHardReviewMode(false);
+              setIdx(0);
+              setFlipped(false);
+              sessionStart.current = Date.now();
+            }}
           />
         </Animated.View>
       ) : (

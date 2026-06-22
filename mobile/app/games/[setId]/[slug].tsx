@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { Alert } from "react-native";
 
 import { EmptyState } from "../../../components/EmptyState";
 import { GAME_COMPONENTS, GAMES } from "../../../components/games";
@@ -88,11 +87,20 @@ export default function GamePlayScreen() {
           cards={cards}
           generationSeed={data?.generation_seed ?? 0}
           onComplete={(result) => {
-            Alert.alert(
-              "Round complete",
-              `Score: ${result.playerScore} (you) vs ${result.computerScore}`,
-              [{ text: "Done", onPress: () => router.replace(`/games/${setId}`) }],
-            );
+            const resolvedSetId = Array.isArray(setId) ? setId[0] : setId;
+            void api.post("/study/events", {
+              event_type: "game_continue",
+              set_id: resolvedSetId,
+              metadata: { game: gameSlug, score: result.playerScore },
+            }).catch(() => undefined);
+            void api.post("/quiz-results/", {
+              set_id: resolvedSetId,
+              score: result.playerScore,
+              total_questions: result.totalRounds,
+              time_taken_seconds: 0,
+              extras: { percentage: Math.round((result.playerScore / result.totalRounds) * 100) },
+            }).catch(() => undefined);
+            router.replace(`/games/${resolvedSetId}`);
           }}
         />
       )}

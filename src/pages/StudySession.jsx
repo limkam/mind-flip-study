@@ -32,8 +32,11 @@ import LightningRoundGame from "@/components/games/LightningRoundGame";
 import BattleRPGGame from "@/components/games/BattleRPGGame";
 import WordScrambleGame from "@/components/games/WordScrambleGame";
 import SpacedRepetitionBar from "@/components/study/SpacedRepetitionBar";
+import SessionSummary from "@/components/study/SessionSummary";
 import RetryDeck from "@/components/study/RetryDeck";
 import { useToast } from "@/components/ui/use-toast";
+import { studyThemeFromUser } from "@/lib/studyTheme";
+import { trackClientEvent } from "@/lib/analytics";
 
 export default function StudySession() {
   const { id } = useParams();
@@ -41,6 +44,7 @@ export default function StudySession() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user } = useAuth();
+  const studyThemeId = studyThemeFromUser(user).id;
   const [mode, setMode] = useState("flashcards");
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [slideDirection, setSlideDirection] = useState(1); // 1 = forward, -1 = backward
@@ -49,6 +53,13 @@ export default function StudySession() {
   const [retryCards, setRetryCards] = useState(null); // null = hidden, array = show retry
   const [offlineHint, setOfflineHint] = useState(false);
   const [localScenarios, setLocalScenarios] = useState(null);
+  const [sessionDone, setSessionDone] = useState(false);
+  const [hardReviewMode, setHardReviewMode] = useState(false);
+  const [sessionStart] = useState(() => Date.now());
+  const [cardRevealed, setCardRevealed] = useState(false);
+
+  const autoAdvance = user?.preferences?.settings?.auto_advance_cards ?? false;
+  const autoAdvanceDelay = user?.preferences?.settings?.auto_advance_delay_ms ?? 2000;
 
   const { data: flashcardSet, isLoading } = useQuery({
     queryKey: ["flashcard-set", id],
@@ -98,6 +109,9 @@ export default function StudySession() {
   const scenarios = localScenarios ?? flashcardSet?.scenarios ?? [];
 
   const cards = flashcardSet?.cards || [];
+  const activeCards = hardReviewMode
+    ? cards.filter((_, i) => cardProgressMap[i]?.rating === "hard")
+    : cards;
   const gameSeed = flashcardSet?.generation_seed || 0;
   const hardCount = Object.values(cardProgressMap).filter(p => p.rating === "hard").length;
   const easyCount = Object.values(cardProgressMap).filter(p => p.rating === "easy").length;
@@ -109,30 +123,49 @@ export default function StudySession() {
 
   const handleCardRate = async (index, rating) => {
     if (!user || !flashcardSet) return;
-    const cardsList = flashcardSet.cards || [];
+    const cardsList = activeCards;
     const card = cardsList[index];
     if (!card) return;
     const qualityMap = { hard: 2, medium: 3, easy: 5 };
     const quality = qualityMap[rating];
     if (quality == null) return;
-    if (navigator.onLine) {
-      const { data: record } = await client.post("/study/progress", {
-        card_id: card.id,
-        quality,
+    const realIndex = cards.findIndex((c) => c.id === card.id);
+    setCardProgressMap((prev) => ({
+      ...prev,
+      [realIndex]: { ...(prev[realIndex] || {}), card_id: card.id, quality, rating },
+    }));
+    try {
+      if (navigator.onLine) {
+        const { data: record } = await client.post("/study/progress", {
+          card_id: card.id,
+          quality,
+        });
+        setCardProgressMap((prev) => ({ ...prev, [realIndex]: { ...record, rating } }));
+        setOfflineHint(false);
+      } else {
+        await queueProgressSync({
+          card_id: card.id,
+          quality,
+          timestamp: Date.now(),
+        });
+        setOfflineHint(true);
+      }
+      if (autoAdvance && index < cardsList.length - 1) {
+        setTimeout(() => {
+          setSlideDirection(1);
+          setCurrentCardIndex((prev) => Math.min(cardsList.length - 1, prev + 1));
+          setCardRevealed(false);
+        }, autoAdvanceDelay);
+      } else if (index >= cardsList.length - 1) {
+        setSessionDone(true);
+      }
+    } catch {
+      setCardProgressMap((prev) => {
+        const next = { ...prev };
+        delete next[realIndex];
+        return next;
       });
-      setCardProgressMap((prev) => ({ ...prev, [index]: { ...record, rating } }));
-      setOfflineHint(false);
-    } else {
-      await queueProgressSync({
-        card_id: card.id,
-        quality,
-        timestamp: Date.now(),
-      });
-      setCardProgressMap((prev) => ({
-        ...prev,
-        [index]: { card_id: card.id, quality, rating },
-      }));
-      setOfflineHint(true);
+      toast({ title: "Could not save rating", variant: "destructive" });
     }
   };
 
@@ -163,22 +196,32 @@ export default function StudySession() {
   };
 
   const handleGameComplete = async (result) => {
+    trackClientEvent("game_continue", { game: selectedGame, set_id: id });
     const pct = Math.round((result.playerScore / result.totalRounds) * 100);
-    await client.post("/quiz-results/", {
-      set_id: id,
-      score: result.playerScore,
-      total_questions: result.totalRounds,
-      time_taken_seconds: 0,
-      extras: {
-        set_title: `[${selectedGame?.toUpperCase()}] ${flashcardSet?.title}`,
-        book_title: flashcardSet?.book_title,
-        percentage: pct,
-      },
-    });
-    queryClient.invalidateQueries({ queryKey: ['quiz-results'] });
-    queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
-    toast({ title: `Game over! ${result.playerScore} / ${result.totalRounds} rounds won` });
-    setSelectedGame(null);
+    try {
+      await client.post("/quiz-results/", {
+        set_id: id,
+        score: result.playerScore,
+        total_questions: result.totalRounds,
+        time_taken_seconds: 0,
+        extras: {
+          set_title: `[${selectedGame?.toUpperCase()}] ${flashcardSet?.title}`,
+          book_title: flashcardSet?.book_title,
+          percentage: pct,
+        },
+      });
+      queryClient.invalidateQueries({ queryKey: ['quiz-results'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
+      toast({ title: `Game over! ${result.playerScore} / ${result.totalRounds} rounds won` });
+    } catch {
+      toast({
+        title: "Score could not be saved",
+        description: "Returning to game menu.",
+        variant: "destructive",
+      });
+    } finally {
+      setSelectedGame(null);
+    }
   };
 
   if (isLoading) {
@@ -196,6 +239,34 @@ export default function StudySession() {
       </div>
     );
   }
+
+  if (sessionDone && mode === "flashcards") {
+    const sessionRatings = Object.values(cardProgressMap).filter((p) => p.rating);
+    const hard = sessionRatings.filter((p) => p.rating === "hard").length;
+    const medium = sessionRatings.filter((p) => p.rating === "medium").length;
+    const easy = sessionRatings.filter((p) => p.rating === "easy").length;
+    const confidence = sessionRatings.length > 0
+      ? Math.round(((easy * 100 + medium * 60 + hard * 20) / sessionRatings.length))
+      : 0;
+    return (
+      <SessionSummary
+        stats={{
+          total: sessionRatings.length,
+          hard, medium, easy,
+          durationMs: Date.now() - sessionStart,
+          completionRate: Math.round((sessionRatings.length / Math.max(cards.length, 1)) * 100),
+          confidenceScore: confidence,
+        }}
+        mode="study"
+        onReviewHard={hard > 0 ? () => { setHardReviewMode(true); setSessionDone(false); setCurrentCardIndex(0); } : null}
+        onContinue={() => { setSessionDone(false); setHardReviewMode(false); setCurrentCardIndex(0); }}
+        onGenerateQuiz={() => { setSessionDone(false); setMode("quiz"); }}
+      />
+    );
+  }
+
+  const displayCards = hardReviewMode ? activeCards : cards;
+  const total = displayCards.length;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -232,7 +303,11 @@ export default function StudySession() {
 
         {/* ── FLASHCARD TAB ── */}
         <TabsContent value="flashcards" className="mt-10">
-          {cards.length === 0 ? (
+          <div className="mb-6 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-center">
+            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Study Mode</p>
+            <p className="text-xs text-muted-foreground">Learning & retention — self-rating powers spaced repetition</p>
+          </div>
+          {displayCards.length === 0 ? (
             <p className="text-center text-muted-foreground py-12">No cards in this set</p>
           ) : (
             <div className="flex flex-col items-center gap-8">
@@ -241,12 +316,12 @@ export default function StudySession() {
               <div className="w-full max-w-lg">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Progress</span>
-                  <span className="text-xs font-bold text-primary">{currentCardIndex + 1} / {cards.length}</span>
+                  <span className="text-xs font-bold text-primary">{currentCardIndex + 1} / {displayCards.length}</span>
                 </div>
                 <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                   <motion.div
                     className="h-full bg-gradient-to-r from-primary to-violet-500 rounded-full"
-                    animate={{ width: `${((currentCardIndex + 1) / cards.length) * 100}%` }}
+                    animate={{ width: `${((currentCardIndex + 1) / displayCards.length) * 100}%` }}
                     transition={{ type: "spring", stiffness: 200, damping: 25 }}
                   />
                 </div>
@@ -269,10 +344,11 @@ export default function StudySession() {
                     transition={{ type: "spring", stiffness: 320, damping: 32 }}
                   >
                     <FlashCard
-                      front={cards[currentCardIndex].front}
-                      back={cards[currentCardIndex].back}
-                      difficulty={cards[currentCardIndex].difficulty}
-                      chapter={cards[currentCardIndex].chapter}
+                      front={displayCards[currentCardIndex].front}
+                      back={displayCards[currentCardIndex].back}
+                      difficulty={displayCards[currentCardIndex].difficulty}
+                      chapter={displayCards[currentCardIndex].chapter}
+                      themeId={studyThemeId}
                     />
                   </motion.div>
                 </AnimatePresence>
@@ -281,10 +357,10 @@ export default function StudySession() {
               {/* Navigation */}
               <FlashcardNavigation
                 currentIndex={currentCardIndex}
-                total={cards.length}
+                total={displayCards.length}
                 cardProgressMap={cardProgressMap}
                 onPrev={() => { setSlideDirection(-1); setCurrentCardIndex(prev => Math.max(0, prev - 1)); }}
-                onNext={() => { setSlideDirection(1); setCurrentCardIndex(prev => Math.min(cards.length - 1, prev + 1)); }}
+                onNext={() => { setSlideDirection(1); setCurrentCardIndex(prev => Math.min(displayCards.length - 1, prev + 1)); }}
                 onSelect={(i) => { setSlideDirection(i > currentCardIndex ? 1 : -1); setCurrentCardIndex(i); }}
               />
 
@@ -292,7 +368,12 @@ export default function StudySession() {
               <div className="w-full max-w-xl">
                 <SpacedRepetitionBar
                   onRate={(rating) => handleCardRate(currentCardIndex, rating)}
-                  cardProgress={cardProgressMap[currentCardIndex]}
+                  cardProgress={cardProgressMap[cards.findIndex((c) => c.id === displayCards[currentCardIndex]?.id)]}
+                  required={false}
+                  onSkip={() => {
+                    setSlideDirection(1);
+                    setCurrentCardIndex((prev) => Math.min(displayCards.length - 1, prev + 1));
+                  }}
                 />
               </div>
 
@@ -328,6 +409,10 @@ export default function StudySession() {
 
         {/* ── GAMES TAB ── */}
         <TabsContent value="quiz" className="mt-8">
+          <div className="mb-6 rounded-xl border border-amber-500/20 bg-gradient-to-r from-amber-500/10 to-orange-500/10 px-4 py-3 text-center">
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Games Mode</p>
+            <p className="text-xs text-muted-foreground">Engagement & speed — timers, streaks, points, and competitive scoring</p>
+          </div>
           {cards.length < 4 ? (
             <p className="text-center text-muted-foreground py-12">
               Need at least 4 cards for games. This set has {cards.length}.

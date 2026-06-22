@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "@/api/client";
@@ -30,7 +30,9 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import TagInput from "@/components/common/TagInput";
-import { tocPhaseLabel } from "@/lib/bookUpload";
+import TocEditor from "@/components/library/TocEditor";
+import { SUMMARY_DETAIL_OPTIONS } from "@/lib/summaryScope";
+import { tocPhaseLabel, getTocJobIdFromBook, getTocErrorFromBook, isTocExtractionInProgress } from "@/lib/bookUpload";
 import { FLASHCARD_COUNT_OPTIONS, DEFAULT_FLASHCARD_COUNT } from "@/lib/flashcardOptions";
 import { useJobPoll } from "@/hooks/useJobPoll";
 
@@ -47,8 +49,11 @@ export default function BookDetail() {
   const [editingTags, setEditingTags] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [forceRegenerate, setForceRegenerate] = useState(false);
+  const [summaryDetailLevel, setSummaryDetailLevel] = useState("standard");
+  const [editingToc, setEditingToc] = useState(false);
   const [tocJobId, setTocJobId] = useState(null);
   const [tocPhase, setTocPhase] = useState(null);
+  const [tocError, setTocError] = useState(null);
   const { startJob } = useGenerationJobs();
   const activeBookJob = useBookGenerationJob(id);
   const activeJobId = activeBookJob?.jobId || null;
@@ -62,26 +67,72 @@ export default function BookDetail() {
     },
     refetchInterval: (query) => {
       const b = query.state.data;
-      return b?.is_analyzing || tocJobId ? 2000 : false;
+      return isTocExtractionInProgress(b) || tocJobId ? 2000 : false;
     },
   });
 
+  useEffect(() => {
+    setTocJobId(null);
+    setTocPhase(null);
+    setTocError(null);
+  }, [id]);
+
+  useEffect(() => {
+    if (!book) return;
+    const err = getTocErrorFromBook(book);
+    if (err && !isTocExtractionInProgress(book)) {
+      setTocError(err);
+    }
+    const jobId = getTocJobIdFromBook(book);
+    if (isTocExtractionInProgress(book) && jobId) {
+      setTocJobId((current) => current || jobId);
+      setTocPhase(book.processing_phase || "extracting_contents");
+      setTocError(null);
+    }
+  }, [book]);
+
   useJobPoll(tocJobId, {
-    enabled: !!tocJobId,
     intervalMs: 1500,
     onProgress: (data) => {
       setTocPhase(data?.phase || null);
     },
     onTerminal: async (data) => {
-      setTocJobId(null);
-      setTocPhase(null);
       if (data.status === "complete") {
-        await queryClient.invalidateQueries({ queryKey: ["book", id] });
-        toast({ title: "Table of contents ready", description: "Chapters are listed below." });
+        try {
+          const { data: fresh } = await client.get(`/books/${id}`);
+          queryClient.setQueryData(["book", id], fresh);
+          const chapters = fresh?.table_of_contents || [];
+          setTocJobId(null);
+          setTocPhase(null);
+          if (chapters.length > 0) {
+            setTocError(null);
+            toast({
+              title: "Table of contents ready",
+              description: `${chapters.length} chapter${chapters.length === 1 ? "" : "s"} listed below.`,
+            });
+          } else {
+            const message = "No chapters could be extracted from this PDF. Try again or add chapters manually.";
+            setTocError(message);
+            toast({
+              title: "TOC extraction finished",
+              description: message,
+              variant: "destructive",
+            });
+          }
+        } catch {
+          setTocJobId(null);
+          setTocPhase(null);
+          await queryClient.invalidateQueries({ queryKey: ["book", id] });
+        }
       } else {
+        const message = data?.result?.error || data?.error || "Please try again.";
+        setTocJobId(null);
+        setTocPhase(null);
+        setTocError(message);
+        await queryClient.invalidateQueries({ queryKey: ["book", id] });
         toast({
           title: "TOC extraction failed",
-          description: data?.result?.error || "Please try again.",
+          description: message,
           variant: "destructive",
         });
       }
@@ -90,15 +141,18 @@ export default function BookDetail() {
 
   const extractToc = async () => {
     try {
+      setTocError(null);
       setTocPhase("extracting_contents");
       const { data: job } = await client.post(`/books/${id}/extract-toc`);
       setTocJobId(job.job_id);
     } catch (e) {
       setTocPhase(null);
       const msg = e.response?.data?.detail;
+      const description = typeof msg === "string" ? msg : e.message;
+      setTocError(description);
       toast({
         title: "Could not start TOC extraction",
-        description: typeof msg === "string" ? msg : e.message,
+        description,
         variant: "destructive",
       });
     }
@@ -127,6 +181,7 @@ export default function BookDetail() {
         num_cards: cardCount,
         selected_chapters: selectedChapters,
         force_regenerate: forceRegenerate,
+        summary_detail_level: summaryDetailLevel,
       });
 
       if (job.reused && job.set_id) {
@@ -163,6 +218,8 @@ export default function BookDetail() {
     setIsDeleting(true);
     try {
       await client.delete(`/books/${id}`);
+      await queryClient.invalidateQueries({ queryKey: ["books"] });
+      await queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
       toast({ title: "Book deleted", dedupeKey: "book-deleted" });
       navigate("/library");
     } catch (e) {
@@ -304,13 +361,23 @@ export default function BookDetail() {
             <h2 className="font-heading text-xl font-semibold">Table of Contents</h2>
             <p className="text-sm text-muted-foreground mt-1">
               {toc.length > 0
-                ? "Select one chapter to generate flashcards from"
+                ? editingToc
+                  ? "Edit chapters — rename, merge, split, reorder, add, or delete"
+                  : "Select one chapter to generate flashcards from"
                 : "Extract the table of contents to select a chapter"}
             </p>
+            {book.toc_extraction_method && ["bookmarks", "toc_text"].includes(book.toc_extraction_method) && (
+              <p className="text-xs text-emerald-600 mt-1">Using PDF native table of contents</p>
+            )}
           </div>
+          {toc.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => setEditingToc((v) => !v)}>
+              {editingToc ? "Done Editing" : "Edit TOC"}
+            </Button>
+          )}
         </div>
 
-        {book.toc_extraction_method && book.toc_extraction_method !== "ai" && toc.length > 0 && (
+        {book.toc_extraction_method && book.toc_extraction_method !== "ai" && book.toc_extraction_method !== "bookmarks" && book.toc_extraction_method !== "toc_text" && toc.length > 0 && (
           <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 mb-4">
             Chapter list may be incomplete — AI did not run on the server (method: {book.toc_extraction_method}).
             Ensure <code className="text-xs">ANTHROPIC_API_KEY</code> is set on both API and worker in production, then extract TOC again.
@@ -320,29 +387,44 @@ export default function BookDetail() {
         {toc.length === 0 ? (
           <div className="text-center py-10">
             <FileText className="w-12 h-12 mx-auto text-muted-foreground/20 mb-3" />
-            {tocJobId || book.is_analyzing || tocPhase ? (
+            {isTocExtractionInProgress(book) || tocJobId || tocPhase ? (
               <>
                 <Loader2 className="w-6 h-6 mx-auto animate-spin text-primary mb-3" />
                 <p className="text-muted-foreground font-medium">
                   {tocPhaseLabel(tocPhase || book.processing_phase || "extracting_contents")}
                 </p>
                 <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
-                  Reading your PDF and building a structured chapter list. This may take a minute.
+                  Extracting the table of contents from your PDF. This may take a minute.
                 </p>
+              </>
+            ) : tocError ? (
+              <>
+                <p className="text-destructive font-medium mb-1">TOC extraction failed</p>
+                <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">{tocError}</p>
+                <Button onClick={extractToc} className="gap-2">
+                  <FileText className="w-4 h-4" />
+                  Retry TOC Extraction
+                </Button>
               </>
             ) : (
               <>
                 <p className="text-muted-foreground mb-1">No table of contents yet</p>
                 <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
-                  Extract the TOC to browse chapters and generate targeted flashcards.
+                  Start extraction to browse chapters and generate targeted flashcards.
                 </p>
                 <Button onClick={extractToc} className="gap-2">
                   <FileText className="w-4 h-4" />
-                  Extract Table of Contents (TOC)
+                  Extract Table of Contents
                 </Button>
               </>
             )}
           </div>
+        ) : editingToc ? (
+          <TocEditor
+            bookId={book.id}
+            chapters={toc}
+            onSaved={() => queryClient.invalidateQueries({ queryKey: ["book", id] })}
+          />
         ) : (
           <RadioGroup value={selectedChapter} onValueChange={setSelectedChapter} className="space-y-2">
             {toc.map((chapter, idx) => {
@@ -400,6 +482,29 @@ export default function BookDetail() {
             Select one chapter above to generate flashcards
           </p>
         )}
+
+        <div className="mb-6">
+          <Label className="text-sm font-medium mb-3 block">Summary Detail Level</Label>
+          <RadioGroup value={summaryDetailLevel} onValueChange={setSummaryDetailLevel} className="space-y-2">
+            {SUMMARY_DETAIL_OPTIONS.map((opt) => (
+              <Label
+                key={opt.value}
+                htmlFor={`detail-${opt.value}`}
+                className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all
+                  ${summaryDetailLevel === opt.value ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"}`}
+              >
+                <RadioGroupItem value={opt.value} id={`detail-${opt.value}`} className="mt-0.5" />
+                <div>
+                  <span className="font-medium text-sm">{opt.label}</span>
+                  <p className="text-xs text-muted-foreground">{opt.description}</p>
+                </div>
+              </Label>
+            ))}
+          </RadioGroup>
+          <p className="text-xs text-muted-foreground mt-2">
+            Applied when you generate flashcards. Regenerate the set to update existing summaries.
+          </p>
+        </div>
 
         <div className="mb-6">
           <Label className="text-sm font-medium mb-3 block">Number of Flashcards</Label>

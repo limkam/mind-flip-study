@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import client from '@/api/client';
 import { motion } from 'framer-motion';
 import { Trophy, Clock, CheckCircle2 } from 'lucide-react';
@@ -64,12 +65,12 @@ export default function QuizHistory() {
         <>
           <div className="space-y-3">
             {results.map((r, i) => (
+              <Link key={r.id} to={`/quiz-results/${r.id}`}>
               <motion.div
-                key={r.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.03 }}
-                className="bg-card rounded-2xl border border-border p-5 hover:shadow-sm transition-shadow"
+                className="bg-card rounded-2xl border border-border p-5 hover:shadow-md hover:border-primary/30 transition-all cursor-pointer block"
               >
                 <div className="flex items-center gap-4">
                   <div
@@ -98,6 +99,7 @@ export default function QuizHistory() {
                   </Badge>
                 </div>
               </motion.div>
+              </Link>
             ))}
           </div>
           <Pagination

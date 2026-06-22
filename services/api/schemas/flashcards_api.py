@@ -82,6 +82,11 @@ class GenerateFlashcardsRequest(BaseModel):
     num_cards: int = Field(..., ge=1, le=200)
     selected_chapters: list[str] | None = None
     force_regenerate: bool = False
+    summary_detail_level: str = Field(
+        "standard",
+        description="Summary detail: brief, standard, or in_depth",
+        pattern=r"^(brief|standard|in_depth)$",
+    )
 
 
 class GenerateWorkbookRequest(BaseModel):

@@ -1,10 +1,29 @@
 import axios from 'axios';
 
 const STORAGE_KEY = 'mindflip_access_token';
+const REMEMBER_KEY = 'mindflip_remember_me';
+
+function readRememberMe() {
+  try {
+    const v = localStorage.getItem(REMEMBER_KEY);
+    if (v === 'false') return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+let rememberMe = typeof window !== 'undefined' ? readRememberMe() : true;
+
+function storageForToken() {
+  if (typeof window === 'undefined') return null;
+  return rememberMe ? localStorage : sessionStorage;
+}
 
 function readStoredToken() {
   try {
-    return sessionStorage.getItem(STORAGE_KEY);
+    const store = storageForToken();
+    return store?.getItem(STORAGE_KEY) ?? null;
   } catch {
     return null;
   }
@@ -12,11 +31,41 @@ function readStoredToken() {
 
 let accessToken = typeof window !== 'undefined' ? readStoredToken() : null;
 
+export const getRememberMe = () => rememberMe;
+
+export const setRememberMe = (value) => {
+  rememberMe = !!value;
+  try {
+    if (rememberMe) {
+      localStorage.setItem(REMEMBER_KEY, 'true');
+      const sessionToken = sessionStorage.getItem(STORAGE_KEY);
+      if (sessionToken) {
+        localStorage.setItem(STORAGE_KEY, sessionToken);
+        sessionStorage.removeItem(STORAGE_KEY);
+      }
+    } else {
+      localStorage.setItem(REMEMBER_KEY, 'false');
+      const localToken = localStorage.getItem(STORAGE_KEY);
+      if (localToken) {
+        sessionStorage.setItem(STORAGE_KEY, localToken);
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+  } catch {
+    /* private mode */
+  }
+};
+
 export const setAccessToken = (token) => {
   accessToken = token;
   try {
-    if (token) sessionStorage.setItem(STORAGE_KEY, token);
-    else sessionStorage.removeItem(STORAGE_KEY);
+    const store = storageForToken();
+    if (!store) return;
+    if (token) store.setItem(STORAGE_KEY, token);
+    else {
+      localStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(STORAGE_KEY);
+    }
   } catch {
     /* private mode / blocked storage */
   }

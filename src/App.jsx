@@ -29,6 +29,8 @@ import ChallengeLeaderboard from './pages/ChallengeLeaderboard';
 import StudyGroups from './pages/StudyGroups';
 import StudyGroupDetail from './pages/StudyGroupDetail';
 import DailyReview from './pages/DailyReview';
+import Achievements from './pages/Achievements';
+import QuizResultDetail from './pages/QuizResultDetail';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
@@ -100,6 +102,8 @@ function AppRoutes() {
           <Route path="/study/:id" element={<StudySession />} />
           <Route path="/flashcard-sets" element={<FlashcardSets />} />
           <Route path="/quiz-history" element={<QuizHistory />} />
+          <Route path="/quiz-results/:id" element={<QuizResultDetail />} />
+          <Route path="/achievements" element={<Achievements />} />
           <Route path="/users" element={<UserManagement />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/challenges" element={<QuizChallenges />} />

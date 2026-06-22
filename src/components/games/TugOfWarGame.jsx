@@ -84,7 +84,6 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
       const w = ropePos > 50 ? "player" : "computer";
       setWinner(w);
       setGameOver(true);
-      onRoundComplete?.({ playerScore: totalCorrect, computerScore: questions.length - totalCorrect, totalRounds: questions.length });
     } else {
       setCurrentIdx(prev => prev + 1);
       setSelected(null);

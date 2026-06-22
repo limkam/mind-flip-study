@@ -47,6 +47,10 @@ class DueFlashcardOut(BaseModel):
     back: str
     created_at: datetime
     set_title: str
+    chapter: str | None = None
+    difficulty: str | None = None
+    book_id: UUID | None = None
+    book_title: str | None = None
     ease_factor: float | None = None
     interval_days: int | None = None
     next_review_date: date | None = None

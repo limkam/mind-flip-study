@@ -2,6 +2,7 @@ import React, { useState, useCallback } from "react";
 import axios from "axios";
 import client from "@/api/client";
 import { titleFromFilename } from "@/lib/bookUpload";
+import { formatFileSize, estimatePageCount } from "@/lib/formatFileSize";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +11,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Upload, Loader2, Sparkles, AlertCircle } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import TagInput from "@/components/common/TagInput";
 import UpgradeSection from "@/components/billing/UpgradeSection";
 import { getApiErrorMessage } from "@/lib/apiError";
@@ -31,6 +36,8 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
   const [phase, setPhase] = useState(null);
   const [titleHint, setTitleHint] = useState(null);
   const [upgradeRequired, setUpgradeRequired] = useState(false);
+  const [duplicateMatches, setDuplicateMatches] = useState(null);
+  const [pendingCreate, setPendingCreate] = useState(null);
   const { toast } = useToast();
 
   const resetForm = () => {
@@ -38,6 +45,8 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
     setFile(null);
     setPhase(null);
     setTitleHint(null);
+    setDuplicateMatches(null);
+    setPendingCreate(null);
   };
 
   const handleFileSelect = useCallback((selectedFile) => {
@@ -58,6 +67,35 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
     form.author.trim().length > 0 &&
     !phase;
 
+  const createBook = async (payload, replaceBookId = null) => {
+    if (!payload) return;
+    setPhase("saving");
+    try {
+      const { data: book } = await client.post("/books/", {
+        ...payload,
+        replace_book_id: replaceBookId,
+      });
+      resetForm();
+      onOpenChange(false);
+      onBookCreated?.(book);
+      toast({
+        title: replaceBookId ? "Book replaced!" : "Book uploaded!",
+        description: "Extracting the table of contents in the background…",
+      });
+    } catch (e) {
+      if (isUpgradeRequiredError(e)) {
+        setUpgradeRequired(true);
+        toast({ title: "Upgrade required", description: getUpgradeRequiredMessage(e), variant: "destructive" });
+      } else {
+        toast({ title: "Upload failed", description: getApiErrorMessage(e, e.message), variant: "destructive" });
+      }
+    } finally {
+      setPhase(null);
+      setPendingCreate(null);
+      setDuplicateMatches(null);
+    }
+  };
+
   const handleUpload = async () => {
     if (!file) {
       toast({ title: "Please choose a PDF file", variant: "destructive" });
@@ -73,9 +111,13 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
     }
 
     setUpgradeRequired(false);
-    setPhase("uploading");
 
     try {
+      const { data: dupCheck } = await client.get("/books/check-duplicate", {
+        params: { title: form.title.trim() },
+      });
+
+      setPhase("uploading");
       const contentType = file.type || "application/pdf";
       const { data: presign } = await client.post("/books/upload-url", {
         filename: file.name,
@@ -100,7 +142,8 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
       }
 
       setPhase("saving");
-      const { data: book } = await client.post("/books/", {
+
+      const createPayload = {
         title: form.title.trim(),
         author: form.author.trim(),
         s3_key: presign.s3_key,
@@ -111,15 +154,16 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
           description: form.description,
           subject: form.subject,
         },
-      });
+      };
 
-      resetForm();
-      onOpenChange(false);
-      onBookCreated?.(book);
-      toast({
-        title: "Book uploaded!",
-        description: "Open the book to extract its table of contents when you're ready.",
-      });
+      if (dupCheck.is_duplicate) {
+        setPendingCreate(createPayload);
+        setDuplicateMatches(dupCheck.matches);
+        setPhase(null);
+        return;
+      }
+
+      await createBook(createPayload);
     } catch (e) {
       if (isUpgradeRequiredError(e)) {
         setUpgradeRequired(true);
@@ -164,6 +208,12 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
               <p className="text-sm font-medium">
                 {file ? file.name : "Click to select your PDF"}
               </p>
+              {file && (
+                <p className="text-xs text-muted-foreground mt-1 font-medium">
+                  {formatFileSize(file.size)}
+                  {estimatePageCount(file.size) && ` • ~${estimatePageCount(file.size)} pages`}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground mt-1">
                 Title is taken from the file name; enter the author manually
               </p>
@@ -262,6 +312,32 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
           </Button>
         </div>
       </DialogContent>
+
+      <AlertDialog open={!!duplicateMatches?.length} onOpenChange={(v) => { if (!v) { setDuplicateMatches(null); setPendingCreate(null); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Book already exists</AlertDialogTitle>
+            <AlertDialogDescription>
+              A book with this title already exists in your library. What would you like to do?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="text-sm text-muted-foreground space-y-1 my-2">
+            {duplicateMatches?.map((m) => (
+              <li key={m.id}>• {m.title} by {m.author}</li>
+            ))}
+          </ul>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel>Cancel Upload</AlertDialogCancel>
+            <AlertDialogAction onClick={() => createBook(pendingCreate)}>Keep Both</AlertDialogAction>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => createBook(pendingCreate, duplicateMatches?.[0]?.id)}
+            >
+              Replace Existing
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

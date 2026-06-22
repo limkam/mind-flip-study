@@ -12,50 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/components/ui/use-toast";
 
-const STUDY_THEMES = [
-  {
-    id: "indigo",
-    label: "Indigo Classic",
-    description: "The default rich indigo & violet palette",
-    question: "from-indigo-600 to-violet-600",
-    answer: "from-emerald-500 to-teal-500",
-  },
-  {
-    id: "ocean",
-    label: "Ocean Blue",
-    description: "Cool blues and cyans for calm focus",
-    question: "from-blue-600 to-cyan-600",
-    answer: "from-teal-500 to-emerald-400",
-  },
-  {
-    id: "sunset",
-    label: "Sunset",
-    description: "Warm oranges and pinks for energy",
-    question: "from-orange-500 to-rose-500",
-    answer: "from-amber-400 to-yellow-400",
-  },
-  {
-    id: "forest",
-    label: "Forest",
-    description: "Earthy greens and browns for grounding",
-    question: "from-green-700 to-emerald-600",
-    answer: "from-lime-500 to-green-400",
-  },
-  {
-    id: "midnight",
-    label: "Midnight",
-    description: "Deep purples and blues for night study",
-    question: "from-purple-800 to-indigo-800",
-    answer: "from-violet-500 to-purple-500",
-  },
-  {
-    id: "rose",
-    label: "Rose",
-    description: "Soft pinks for a gentle learning mood",
-    question: "from-rose-500 to-pink-500",
-    answer: "from-fuchsia-400 to-pink-400",
-  },
-];
+import { STUDY_THEMES } from "@/lib/studyTheme";
 
 const DAILY_GOAL_OPTIONS = [10, 20, 30, 50, 100];
 

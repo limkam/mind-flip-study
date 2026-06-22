@@ -19,3 +19,30 @@ export const TOC_PHASE_LABELS = {
 export function tocPhaseLabel(phase) {
   return TOC_PHASE_LABELS[phase] || 'Processing…';
 }
+
+export function getTocJobIdFromBook(book) {
+  if (!book) return null;
+  return book.toc_job_id || book.extras?.processing?.job_id || null;
+}
+
+export function getTocErrorFromBook(book) {
+  if (!book) return null;
+  if (book.toc_error) return book.toc_error;
+  if (book.processing_phase === 'error') {
+    return book.extras?.processing?.error || 'TOC extraction failed';
+  }
+  return null;
+}
+
+const IN_PROGRESS_TOC_PHASES = new Set([
+  'extracting_contents',
+  'analyzing_structure',
+  'extracting_toc',
+]);
+
+/** True while the server is still extracting the table of contents. */
+export function isTocExtractionInProgress(book) {
+  if (!book) return false;
+  const phase = book.processing_phase || book.extras?.processing?.phase || '';
+  return IN_PROGRESS_TOC_PHASES.has(phase);
+}

@@ -54,6 +54,11 @@ export default function BookCard({ book, index = 0 }) {
                 {book.table_of_contents.length} chapters
               </Badge>
             )}
+            {book?.is_analyzing && (
+              <Badge variant="secondary" className="text-xs bg-primary/10 text-primary">
+                Extracting TOC…
+              </Badge>
+            )}
             {book?.table_of_contents?.length === 0 && !book?.is_analyzing && (
               <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">
                 TOC not extracted

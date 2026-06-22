@@ -49,6 +49,19 @@ export type QuizResultOut = {
   set_title: string | null;
   book_title: string | null;
   completed_at: string;
+  extras?: {
+    set_title?: string;
+    book_title?: string;
+    answers?: Array<{
+      question?: string;
+      user_answer?: string;
+      correct_answer?: string;
+      is_correct?: boolean;
+      explanation?: string;
+      chapter?: string;
+    }>;
+    [key: string]: unknown;
+  };
 };
 
 export type LeaderboardItemOut = {
@@ -104,6 +117,12 @@ export type BookOut = {
   tags?: unknown[];
   description?: string;
   table_of_contents?: { title?: string; chapter_number?: number; subtopics?: string[] }[];
+  is_analyzing?: boolean;
+  processing_phase?: string;
+  toc_job_id?: string;
+  toc_error?: string;
+  toc_extraction_method?: string;
+  extras?: { processing?: { job_id?: string; phase?: string; error?: string } };
 };
 
 export type FlashcardOut = {
@@ -119,6 +138,8 @@ export type FlashcardOut = {
 
 export type DueFlashcardOut = FlashcardOut & {
   set_title: string;
+  book_id?: string | null;
+  book_title?: string | null;
   ease_factor: number | null;
   interval_days: number | null;
   next_review_date: string | null;

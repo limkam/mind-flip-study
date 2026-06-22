@@ -51,6 +51,7 @@ const DEFAULTS = {
   notify_streak_reminder: true,
   notify_challenges: true,
   auto_advance_cards: false,
+  auto_advance_delay_ms: 2000,
   show_difficulty_badges: true,
   dark_mode: false,
   language: "en",
@@ -122,45 +123,37 @@ export default function Settings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="relaxed">🐢 Relaxed — take it easy, no pressure</SelectItem>
-                <SelectItem value="medium">🚶 Balanced — steady daily progress</SelectItem>
-                <SelectItem value="intensive">🚀 Intensive — push hard, learn fast</SelectItem>
+                <SelectItem value="relaxed">🐢 Relaxed</SelectItem>
+                <SelectItem value="medium">🚶 Balanced</SelectItem>
+                <SelectItem value="intensive">🚀 Intensive</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              {prefs.learning_pace === "relaxed" && "Short sessions, gentle reminders, flexible schedule."}
-              {prefs.learning_pace === "medium" && "Consistent daily sessions with manageable goals."}
-              {prefs.learning_pace === "intensive" && "Longer sessions, harder challenges, more reviews."}
+            <p className="text-xs text-muted-foreground mt-2">
+              {prefs.learning_pace === "relaxed" && "Fewer reviews and a lighter workload."}
+              {prefs.learning_pace === "medium" && "Moderate review schedule for steady progress."}
+              {prefs.learning_pace === "intensive" && "More frequent reviews and higher daily goals."}
             </p>
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer hover:text-foreground mt-1">What changes when I select this?</summary>
+              <ul className="mt-2 space-y-1 list-disc pl-4">
+                <li>How many due cards appear in daily review</li>
+                <li>Intervals between card reviews (shorter or longer)</li>
+                <li>Suggested daily review target</li>
+              </ul>
+            </details>
           </div>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">Daily Study Goal</Label>
-              <span className="text-sm font-semibold text-primary">{prefs.daily_goal_minutes} min</span>
-            </div>
-            <Slider
-              min={5} max={120} step={5}
-              value={[prefs.daily_goal_minutes]}
-              onValueChange={([v]) => set("daily_goal_minutes", v)}
-              className="w-full"
-            />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>5 min</span><span>2 hours</span>
-            </div>
-          </div>
-
+          <ToggleRow
+            label="Auto-Advance Cards"
+            description={`Automatically move to the next card after ${(prefs.auto_advance_delay_ms || 2000) / 1000}s`}
+            checked={prefs.auto_advance_cards}
+            onChange={v => set("auto_advance_cards", v)}
+          />
           <ToggleRow
             label="Spaced Repetition"
             description="Smart card scheduling based on your recall performance"
             checked={prefs.spaced_repetition_enabled}
             onChange={v => set("spaced_repetition_enabled", v)}
-          />
-          <ToggleRow
-            label="Auto-Advance Cards"
-            description="Automatically move to the next card after a short delay"
-            checked={prefs.auto_advance_cards}
-            onChange={v => set("auto_advance_cards", v)}
           />
           <ToggleRow
             label="Quiz Time Limits"

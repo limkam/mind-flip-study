@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/components/ui/use-toast";
 import { fetchAllBooksPages } from "@/lib/fetchAllBooksPages";
 
@@ -24,7 +24,7 @@ export default function StudyGroups() {
     description: "",
     privacy: "public",
     weekly_card_goal: 20,
-    book_id: "",
+    book_ids: [],
   });
 
   const { data: myGroups = [], isLoading: loadingMine } = useQuery({
@@ -74,7 +74,7 @@ export default function StudyGroups() {
       const payload = {
         ...body,
         weekly_card_goal: Number(body.weekly_card_goal) || 20,
-        book_id: body.book_id || null,
+        book_ids: body.book_ids || [],
       };
       const { data } = await client.post("/study-groups/", payload);
       return data;
@@ -82,7 +82,7 @@ export default function StudyGroups() {
     onSuccess: (data) => {
       toast({ title: "Group created", description: `Invite code: ${data.code}` });
       setShowCreate(false);
-      setForm({ name: "", description: "", privacy: "public", weekly_card_goal: 20, book_id: "" });
+      setForm({ name: "", description: "", privacy: "public", weekly_card_goal: 20, book_ids: [] });
       queryClient.invalidateQueries({ queryKey: ["study-groups"] });
       navigate(`/study-groups/${data.id}`);
     },
@@ -167,17 +167,48 @@ export default function StudyGroups() {
               <p className="text-xs text-muted-foreground mt-1">How many cards each member should review per week</p>
             </div>
             <div>
-              <Label>Study book</Label>
-              <Select value={form.book_id} onValueChange={(v) => setForm((f) => ({ ...f, book_id: v }))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a book from your library" />
-                </SelectTrigger>
-                <SelectContent>
-                  {books.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>{b.title} — {b.author}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Study books (optional)</Label>
+                <span className="text-xs text-muted-foreground">{form.book_ids.length} selected</span>
+              </div>
+              <div className="max-h-40 overflow-y-auto space-y-1.5 border border-border rounded-xl p-2">
+                {books.map((b) => (
+                  <label key={b.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/40 cursor-pointer">
+                    <Checkbox
+                      checked={form.book_ids.includes(b.id)}
+                      onCheckedChange={(checked) => {
+                        setForm((f) => ({
+                          ...f,
+                          book_ids: checked
+                            ? [...f.book_ids, b.id]
+                            : f.book_ids.filter((id) => id !== b.id),
+                        }));
+                      }}
+                    />
+                    <span className="text-sm truncate">{b.title} — {b.author}</span>
+                  </label>
+                ))}
+              </div>
+              {books.length > 1 ? (
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setForm((f) => ({ ...f, book_ids: books.map((b) => b.id) }))}
+                  >
+                    Select all
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setForm((f) => ({ ...f, book_ids: [] }))}
+                  >
+                    Deselect all
+                  </Button>
+                </div>
+              ) : null}
               {books.length === 0 && (
                 <p className="text-xs text-muted-foreground mt-1">
                   No books yet — <Link to="/library" className="text-primary underline">upload one</Link> first.

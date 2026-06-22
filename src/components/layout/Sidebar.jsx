@@ -15,6 +15,7 @@ const navItems = [
   { path: "/", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/library", icon: Library, label: "Library" },
   { path: "/flashcard-sets", icon: GraduationCap, label: "My Flashcards" },
+  { path: "/achievements", icon: Trophy, label: "Achievements" },
   { path: "/quiz-history", icon: Trophy, label: "Quiz Results" },
   { path: "/challenges", icon: Swords, label: "Challenges" },
   { path: "/challenge-leaderboard", icon: Medal, label: "Challenge Board" },
@@ -100,7 +101,9 @@ function UserSection({ user, collapsed }) {
         </Avatar>
         {!collapsed && (
           <div className="flex-1 overflow-hidden">
-            <p className="text-sm font-medium text-sidebar-foreground truncate">{user?.full_name || "User"}</p>
+            <Link to="/profile" className="text-sm font-medium text-sidebar-foreground truncate hover:text-sidebar-primary transition-colors block">
+              {user?.full_name || "User"}
+            </Link>
             <p className="text-xs text-sidebar-foreground/50 capitalize">{user?.role || "student"}</p>
           </div>
         )}

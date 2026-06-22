@@ -24,6 +24,8 @@ export type User = {
 type AuthState = {
   user: User | null;
   accessToken: string | null;
+  keepSignedIn: boolean;
+  setKeepSignedIn: (value: boolean) => void;
   setAuth: (user: User, token: string) => void;
   setAccessToken: (token: string) => void;
   logout: () => void;
@@ -47,6 +49,8 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       accessToken: null,
+      keepSignedIn: true,
+      setKeepSignedIn: (value) => set({ keepSignedIn: value }),
       setAuth: (user, token) => set({ user, accessToken: token }),
       setAccessToken: (token) => set({ accessToken: token }),
       logout: () => set({ user: null, accessToken: null }),
@@ -54,7 +58,10 @@ export const useAuthStore = create<AuthState>()(
     {
       name: "mindflip-auth",
       storage: createJSONStorage(() => authStorage),
-      partialize: (s) => ({ user: s.user, accessToken: s.accessToken }),
+      partialize: (s) =>
+        s.keepSignedIn
+          ? { user: s.user, accessToken: s.accessToken, keepSignedIn: s.keepSignedIn }
+          : { keepSignedIn: false },
     },
   ),
 );

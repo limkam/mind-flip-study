@@ -11,15 +11,18 @@ import {
 } from "react-native";
 
 import { GenerateProgressBar } from "../../components/GenerateProgressBar";
+import { TocEditor } from "../../components/library/TocEditor";
 import { Screen } from "../../components/Screen";
 import { SelectedChaptersList } from "../../components/study/SelectedChaptersList";
 import { api } from "../../api/client";
 import { useJobPoll } from "../../hooks/useJobPoll";
 import { generationPhaseLabel } from "../../lib/generationPhases";
+import { getTocErrorFromBook, getTocJobIdFromBook, isTocExtractionInProgress } from "../../lib/bookToc";
 import { chapterSelectionSubtitle } from "../../lib/studySetDisplay";
 import { useGenerationJobStore } from "../../store/generationJobStore";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
+import { SUMMARY_DETAIL_OPTIONS, type SummaryDetailLevel } from "../../lib/summaryScope";
 import type { BookOut, JobStatusResponse } from "../../types/api";
 
 const TOC_PHASE_LABELS: Record<string, string> = {
@@ -49,6 +52,8 @@ export default function BookByIdScreen() {
   const [tocJobId, setTocJobId] = useState<string | null>(null);
   const [tocPhase, setTocPhase] = useState<string | null>(null);
   const [tocError, setTocError] = useState<string | null>(null);
+  const [editingToc, setEditingToc] = useState(false);
+  const [summaryDetailLevel, setSummaryDetailLevel] = useState<SummaryDetailLevel>("standard");
 
   const { data: book, isLoading, isError, refetch } = useQuery({
     queryKey: ["book", id],
@@ -57,8 +62,31 @@ export default function BookByIdScreen() {
       const { data } = await api.get<BookOut>(`/books/${id}`);
       return data;
     },
-    refetchInterval: tocJobId ? 2000 : false,
+    refetchInterval: (query) => {
+      const b = query.state.data;
+      return isTocExtractionInProgress(b) || tocJobId ? 2000 : false;
+    },
   });
+
+  useEffect(() => {
+    setTocJobId(null);
+    setTocPhase(null);
+    setTocError(null);
+  }, [id]);
+
+  useEffect(() => {
+    if (!book) return;
+    const err = getTocErrorFromBook(book);
+    if (err && !isTocExtractionInProgress(book)) {
+      setTocError(err);
+    }
+    const jobId = getTocJobIdFromBook(book);
+    if (isTocExtractionInProgress(book) && jobId) {
+      setTocJobId((current) => current || jobId);
+      setTocPhase(book.processing_phase ?? "extracting_contents");
+      setTocError(null);
+    }
+  }, [book]);
 
   const fetchTocJobStatus = useCallback(async () => {
     if (!tocJobId) throw new Error("no job");
@@ -70,12 +98,22 @@ export default function BookByIdScreen() {
   useJobPoll(tocJobId, fetchTocJobStatus, {
     intervalMs: 1500,
     onTerminal: async (data) => {
-      setTocJobId(null);
-      setTocPhase(null);
       if (data.status === "complete") {
-        await refetch();
+        const result = await refetch();
+        const fresh = result.data;
+        const chapters = fresh?.table_of_contents ?? [];
+        setTocJobId(null);
+        setTocPhase(null);
+        if (chapters.length > 0) {
+          setTocError(null);
+        } else {
+          setTocError("No chapters could be extracted from this PDF. Try again or add chapters manually.");
+        }
       } else {
+        setTocJobId(null);
+        setTocPhase(null);
         setTocError(String((data.result as { error?: string })?.error ?? "TOC extraction failed"));
+        await refetch();
       }
     },
   });
@@ -127,6 +165,7 @@ export default function BookByIdScreen() {
         title: book.title,
         num_cards: cardCount,
         selected_chapters: selectedChapter ? [selectedChapter] : [],
+        summary_detail_level: summaryDetailLevel,
       });
       startJob({ jobId: job.job_id, bookId: id, bookTitle: book.title });
       void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
@@ -163,7 +202,11 @@ export default function BookByIdScreen() {
           <Text style={[styles.meta, { color: colors.muted }]}>
             {chapters.length > 0
               ? `${chapters.length} chapter${chapters.length !== 1 ? "s" : ""} extracted`
-              : "TOC not extracted yet"}
+              : isTocExtractionInProgress(book) || tocJobId || tocPhase
+                ? "Extracting table of contents…"
+                : tocError
+                  ? "TOC extraction failed"
+                  : "TOC not extracted yet"}
           </Text>
           {book.description ? (
             <Text style={[styles.body, { color: colors.text }]}>{book.description}</Text>
@@ -174,28 +217,46 @@ export default function BookByIdScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>Table of contents</Text>
                 <Text style={[styles.sectionSub, { color: colors.muted }]}>
-                  Select one chapter to generate flashcards from
+                  {editingToc
+                    ? "Edit chapters — rename, merge, split, reorder, add, or delete"
+                    : "Select one chapter to generate flashcards from"}
                 </Text>
+                {book.toc_extraction_method && ["bookmarks", "toc_text"].includes(book.toc_extraction_method) ? (
+                  <Text style={[styles.nativeToc, { color: colors.success }]}>Using PDF native table of contents</Text>
+                ) : null}
               </View>
+              {chapters.length > 0 ? (
+                <Pressable
+                  style={[styles.linkBtn, { borderColor: colors.border }]}
+                  onPress={() => {
+                    void hapticImpact("light");
+                    setEditingToc((v) => !v);
+                  }}
+                >
+                  <Text style={[styles.linkBtnText, { color: colors.primary }]}>
+                    {editingToc ? "Done" : "Edit TOC"}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
 
             {chapters.length === 0 ? (
-              tocJobId || tocPhase ? (
+              isTocExtractionInProgress(book) || tocJobId || tocPhase ? (
                 <View style={styles.tocEmpty}>
                   <ActivityIndicator color={colors.primary} style={{ marginBottom: 12 }} />
                   <Text style={[styles.emptyToc, { color: colors.text, fontWeight: "600" }]}>
-                    {tocPhaseLabel(tocPhase)}
+                    {tocPhaseLabel(tocPhase || book.processing_phase)}
                   </Text>
                   <Text style={[styles.emptyToc, { color: colors.muted, marginTop: 8 }]}>
-                    Reading your PDF and building a structured chapter list.
+                    Extracting the table of contents from your PDF.
                   </Text>
                 </View>
-              ) : (
+              ) : tocError ? (
                 <View style={styles.tocEmpty}>
-                  <Text style={[styles.emptyToc, { color: colors.muted }]}>
-                    Extract the table of contents to select chapters for flashcards.
+                  <Text style={[styles.emptyToc, { color: colors.danger, fontWeight: "600" }]}>
+                    TOC extraction failed
                   </Text>
-                  {tocError ? <Text style={[styles.error, { color: colors.danger }]}>{tocError}</Text> : null}
+                  <Text style={[styles.error, { color: colors.muted, marginTop: 8 }]}>{tocError}</Text>
                   <Pressable
                     style={[styles.primaryBtn, { backgroundColor: colors.primary, marginTop: 12 }]}
                     onPress={() => {
@@ -203,10 +264,38 @@ export default function BookByIdScreen() {
                       void extractToc();
                     }}
                   >
-                    <Text style={styles.primaryBtnText}>Extract Table of Contents (TOC)</Text>
+                    <Text style={styles.primaryBtnText}>Retry TOC Extraction</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={styles.tocEmpty}>
+                  <Text style={[styles.emptyToc, { color: colors.muted }]}>
+                    No chapters yet. Start extraction to generate flashcards by chapter.
+                  </Text>
+                  <Pressable
+                    style={[styles.primaryBtn, { backgroundColor: colors.primary, marginTop: 12 }]}
+                    onPress={() => {
+                      void hapticImpact("light");
+                      void extractToc();
+                    }}
+                  >
+                    <Text style={styles.primaryBtnText}>Extract Table of Contents</Text>
                   </Pressable>
                 </View>
               )
+            ) : editingToc ? (
+              <TocEditor
+                bookId={book.id}
+                chapters={chapters.map((ch, i) => ({
+                  chapter_number: ch.chapter_number ?? i + 1,
+                  title: ch.title ?? `Chapter ${i + 1}`,
+                  subtopics: ch.subtopics ?? [],
+                }))}
+                onSaved={() => {
+                  void refetch();
+                  setEditingToc(false);
+                }}
+              />
             ) : (
               chapters.map((chapter, idx) => {
                 const t = chapter.title ?? `Chapter ${idx + 1}`;
@@ -272,6 +361,42 @@ export default function BookByIdScreen() {
                 Select one chapter above to generate flashcards
               </Text>
             )}
+
+            <Text style={[styles.label, { color: colors.text, marginTop: 12 }]}>Summary detail level</Text>
+            <View style={styles.detailRow}>
+              {SUMMARY_DETAIL_OPTIONS.map((opt) => (
+                <Pressable
+                  key={opt.value}
+                  onPress={() => {
+                    void hapticImpact("light");
+                    setSummaryDetailLevel(opt.value);
+                  }}
+                  style={[
+                    styles.detailChip,
+                    {
+                      borderColor: summaryDetailLevel === opt.value ? colors.primary : colors.border,
+                      backgroundColor: summaryDetailLevel === opt.value ? `${colors.primary}14` : colors.background,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: summaryDetailLevel === opt.value ? colors.primary : colors.text,
+                      fontWeight: "700",
+                      fontSize: 13,
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2, textAlign: "center" }}>
+                    {opt.description.split(",")[0]}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
+              Applied when you generate flashcards. Regenerate to update existing summaries.
+            </Text>
 
             <Text style={[styles.label, { color: colors.text, marginTop: 12 }]}>Number of flashcards</Text>
             <View style={styles.countRow}>
@@ -350,6 +475,16 @@ const styles = StyleSheet.create({
   sectionSub: { fontSize: 13, marginTop: 4 },
   linkBtn: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
   linkBtnText: { fontSize: 12, fontWeight: "700" },
+  nativeToc: { fontSize: 11, marginTop: 4, fontWeight: "600" },
+  detailRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
+  detailChip: {
+    flex: 1,
+    minWidth: "30%",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    alignItems: "center",
+  },
   emptyToc: { fontSize: 14, lineHeight: 20, textAlign: "center", paddingVertical: 8 },
   tocEmpty: { alignItems: "center", paddingVertical: 12 },
   chapterCard: { borderRadius: 12, borderWidth: 1, marginBottom: 8, overflow: "hidden" },

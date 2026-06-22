@@ -8,6 +8,7 @@ from pathlib import PurePosixPath
 from typing import Annotated
 from uuid import UUID
 
+from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,11 +22,13 @@ from models.user import User
 from s3_service import (
     S3ConfigurationError,
     build_s3_https_url,
-    delete_object_key,
     generate_presigned_put_url,
     get_object_bytes,
     head_object_content_length,
 )
+from services.book_deletion import cascade_delete_book
+from services.book_duplicate import find_duplicate_books
+from services.toc_editor import normalize_toc_chapters, validate_toc_chapters
 from schemas.book import (
     BookCreate,
     BookListPage,
@@ -33,19 +36,67 @@ from schemas.book import (
     BookPatch,
     BookUploadUrlRequest,
     BookUploadUrlResponse,
+    CheckDuplicateResponse,
     DetectMetadataRequest,
     DetectMetadataResponse,
+    DuplicateBookMatch,
     ExtractTocRequest,
     ExtractTocResponse,
+    TocUpdateRequest,
+    ValidatePdfRequest,
+    ValidatePdfResponse,
 )
 from schemas.job import JobEnqueueResponse
 from schemas.pagination import total_pages
 from pdf_metadata import title_from_upload_filename
+from pdf_text import IMAGE_ONLY_PDF_MESSAGE, pdf_is_likely_image_only
 from tasks.book_tasks import extract_book_toc_task
 from toc_extraction import extract_toc_from_pdf_bytes
 
 router = APIRouter(tags=["books"])
 logger = logging.getLogger(__name__)
+
+_IN_PROGRESS_TOC_PHASES = frozenset({
+    "extracting_contents",
+    "analyzing_structure",
+    "extracting_toc",
+})
+
+
+def _book_processing(book: Book) -> dict:
+    return dict((book.extras or {}).get("processing") or {})
+
+
+def _enqueue_toc_extraction_for_book(book: Book, *, allow_retry: bool = False) -> str:
+    """
+    Start async TOC extraction via the existing Celery task.
+    Idempotent while a job is already in progress (returns the same job_id).
+    """
+    extras = dict(book.extras or {})
+    proc = dict(extras.get("processing") or {})
+    phase = str(proc.get("phase") or "")
+    existing_job = proc.get("job_id")
+
+    if phase in _IN_PROGRESS_TOC_PHASES and existing_job:
+        return str(existing_job)
+
+    toc = extras.get("table_of_contents") or []
+    if not allow_retry and toc and phase == "complete":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Table of contents already extracted",
+        )
+
+    task = extract_book_toc_task.delay(str(book.id))
+    proc = {
+        "phase": "extracting_contents",
+        "kind": "toc_extraction",
+        "job_id": task.id,
+    }
+    extras["processing"] = proc
+    book.extras = extras
+    logger.info("toc_extraction_enqueued", extra={"book_id": str(book.id), "job_id": task.id})
+    return task.id
 
 
 def _user_book_prefix(user_id: UUID) -> str:
@@ -104,6 +155,44 @@ async def create_upload_url(
         ) from exc
 
 
+def _fetch_uploaded_pdf(*, s3_key: str, expected_size: int) -> bytes:
+    """Single S3 download for upload validation (avoids redundant head + get)."""
+    try:
+        pdf_bytes = get_object_bytes(s3_key)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code in ("404", "403", "NoSuchKey", "NotFound"):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="S3 object not found") from exc
+        raise
+    if not pdf_bytes:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="S3 object not found")
+    if len(pdf_bytes) != expected_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="file_size_bytes does not match object size in S3",
+        )
+    return pdf_bytes
+
+
+@router.post("/validate-pdf", response_model=ValidatePdfResponse)
+async def validate_pdf_upload(
+    body: ValidatePdfRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> ValidatePdfResponse:
+    """Check whether an uploaded PDF has extractable text (reject scanned photos)."""
+    _assert_key_owned_by_user(s3_key=body.s3_key, user_id=current_user.id)
+    try:
+        pdf_bytes = get_object_bytes(body.s3_key)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code in ("404", "403", "NoSuchKey", "NotFound"):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="S3 object not found") from exc
+        raise
+    if pdf_is_likely_image_only(pdf_bytes):
+        return ValidatePdfResponse(ok=False, message=IMAGE_ONLY_PDF_MESSAGE)
+    return ValidatePdfResponse(ok=True)
+
+
 @router.post("/extract-toc", response_model=ExtractTocResponse)
 async def extract_toc_from_upload(
     body: ExtractTocRequest,
@@ -152,6 +241,29 @@ async def detect_metadata_from_filename(
     )
 
 
+@router.get("/check-duplicate", response_model=CheckDuplicateResponse)
+async def check_duplicate_book(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    title: str = Query(..., min_length=1, max_length=512),
+) -> CheckDuplicateResponse:
+    """Check if a book with the same title already exists in the user's library."""
+    matches = await find_duplicate_books(db, user_id=current_user.id, title=title)
+    return CheckDuplicateResponse(
+        is_duplicate=len(matches) > 0,
+        matches=[
+            DuplicateBookMatch(
+                id=b.id,
+                title=b.title,
+                author=b.author,
+                created_at=b.created_at,
+                file_size_bytes=b.file_size_bytes,
+            )
+            for b in matches
+        ],
+    )
+
+
 @router.post("/", response_model=BookOut, status_code=status.HTTP_201_CREATED)
 async def create_book(
     body: BookCreate,
@@ -162,16 +274,20 @@ async def create_book(
     # Never trust client-supplied s3_key: must match this user's prefix (same as presign path).
     _assert_key_owned_by_user(s3_key=body.s3_key, user_id=current_user.id)
 
-    content_len = head_object_content_length(body.s3_key)
-    if content_len is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="S3 object not found",
+    if body.replace_book_id is not None:
+        result = await db.execute(
+            select(Book).where(Book.id == body.replace_book_id, Book.user_id == current_user.id),
         )
-    if content_len != body.file_size_bytes:
+        existing = result.scalar_one_or_none()
+        if existing is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book to replace not found")
+        await cascade_delete_book(db, existing)
+
+    pdf_bytes = _fetch_uploaded_pdf(s3_key=body.s3_key, expected_size=body.file_size_bytes)
+    if pdf_is_likely_image_only(pdf_bytes):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="file_size_bytes does not match object size in S3",
+            detail=IMAGE_ONLY_PDF_MESSAGE,
         )
 
     book = Book(
@@ -187,9 +303,10 @@ async def create_book(
     if book.extras is not None:
         merged = dict(book.extras)
         merged.setdefault("table_of_contents", [])
-        merged.setdefault("processing", {"phase": "awaiting_toc", "kind": "none"})
         book.extras = merged
     db.add(book)
+    await db.flush()
+    _enqueue_toc_extraction_for_book(book)
     await db.commit()
     await db.refresh(book)
     return BookOut.model_validate(book)
@@ -258,16 +375,41 @@ async def extract_toc_for_book(
     if book is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
 
-    proc = (book.extras or {}).get("processing") or {}
-    if proc.get("phase") in ("extracting_contents", "analyzing_structure", "extracting_toc"):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="TOC extraction already in progress")
+    job_id = _enqueue_toc_extraction_for_book(book, allow_retry=True)
+    await db.commit()
+    return JobEnqueueResponse(job_id=job_id, message="TOC extraction started")
 
-    task = extract_book_toc_task.delay(str(book.id))
+
+@router.patch("/{book_id}/toc", response_model=BookOut)
+async def update_book_toc(
+    book_id: UUID,
+    body: TocUpdateRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> BookOut:
+    """Persist user-edited table of contents."""
+    result = await db.execute(
+        select(Book).where(Book.id == book_id, Book.user_id == current_user.id),
+    )
+    book = result.scalar_one_or_none()
+    if book is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+    raw = [ch.model_dump() for ch in body.chapters]
+    chapters = normalize_toc_chapters(raw)
+    try:
+        validate_toc_chapters(chapters)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     extras = dict(book.extras or {})
-    extras["processing"] = {"phase": "extracting_contents", "kind": "toc_extraction", "job_id": task.id}
+    extras["table_of_contents"] = chapters
+    extras["toc_edited"] = True
+    extras["toc_extraction_method"] = extras.get("toc_extraction_method") or "user_edited"
     book.extras = extras
     await db.commit()
-    return JobEnqueueResponse(job_id=task.id, message="TOC extraction started")
+    await db.refresh(book)
+    return BookOut.model_validate(book)
 
 
 @router.patch("/{book_id}", response_model=BookOut)
@@ -305,6 +447,4 @@ async def delete_book(
     if book is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
 
-    delete_object_key(book.s3_key)
-    await db.execute(delete(Book).where(Book.id == book.id))
-    await db.commit()
+    await cascade_delete_book(db, book)

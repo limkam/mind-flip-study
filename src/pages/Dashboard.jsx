@@ -7,7 +7,6 @@ import { motion } from "framer-motion";
 import { BookOpen, GraduationCap, Trophy, ArrowRight, Flame, Swords } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import StatCard from "@/components/dashboard/StatCard";
-import AchievementsPanel from "@/components/dashboard/AchievementsPanel";
 import QuickActions from "@/components/dashboard/QuickActions";
 import ScoreRing from "@/components/dashboard/ScoreRing";
 
@@ -45,7 +44,7 @@ export default function Dashboard() {
   const { data: quizPage } = useQuery({
     queryKey: ['quiz-results', 'dashboard-recent'],
     queryFn: async () => {
-      const { data } = await client.get('/quiz-results/', { params: { page: 1, size: 5 } });
+      const { data } = await client.get('/quiz-results/', { params: { page: 1, size: 2 } });
       return data;
     },
   });
@@ -61,7 +60,7 @@ export default function Dashboard() {
     },
   });
 
-  const recentSets = flashcardSets.slice(0, 4);
+  const recentSets = flashcardSets.slice(0, 2);
   const recentResults = quizResults;
   const avgScore = Math.round(summary?.avg_score ?? 0);
 
@@ -99,7 +98,9 @@ export default function Dashboard() {
         className="mb-6"
       >
         <h1 className="font-heading text-3xl lg:text-4xl font-bold text-foreground">
-          {greeting}, {firstName} 👋
+          <Link to="/profile" className="hover:text-primary transition-colors">
+            {greeting}, {firstName}
+          </Link> 👋
         </h1>
         <p className="text-muted-foreground mt-1 text-base">
           {user?.role === "admin" ? "Manage your learning platform" :
@@ -228,7 +229,7 @@ export default function Dashboard() {
         {/* Recent Flashcard Sets */}
         <div className="lg:col-span-2 bg-card rounded-2xl border border-border p-6">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="font-heading text-xl font-semibold">Recent Flashcard Sets</h2>
+            <h2 className="font-heading text-xl font-semibold">Continue Studying</h2>
             <Link to="/flashcard-sets">
               <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground">
                 View all <ArrowRight className="w-4 h-4" />
@@ -270,7 +271,16 @@ export default function Dashboard() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate group-hover:text-primary transition-colors">{set.title}</p>
-                      <p className="text-xs text-muted-foreground">{set.card_count} cards • {set.book_title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {set.card_count} cards • {set.book_title}
+                        {set.selected_chapters?.length > 0 && (
+                          <span className="block text-primary/80">
+                            {set.selected_chapters.length === 1
+                              ? `Chapter: ${set.selected_chapters[0]}`
+                              : `Chapters: ${set.selected_chapters.join(", ")}`}
+                          </span>
+                        )}
+                      </p>
                     </div>
                     <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
                   </Link>
@@ -298,12 +308,12 @@ export default function Dashboard() {
           ) : (
             <div className="space-y-2">
               {recentResults.map((r, i) => (
+                <Link key={r.id} to={`/quiz-results/${r.id}`}>
                 <motion.div
-                  key={r.id}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.05 }}
-                  className="p-3 rounded-lg hover:bg-muted/50 transition-colors"
+                  className="p-3 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-2 mb-1.5">
                     <p className="text-sm font-medium truncate flex-1">{r.set_title}</p>
@@ -322,23 +332,11 @@ export default function Dashboard() {
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-1">{r.score}/{r.total_questions} correct</p>
                 </motion.div>
+                </Link>
               ))}
             </div>
           )}
         </div>
-      </div>
-
-      {/* Achievements */}
-      <div className="mt-6">
-        <AchievementsPanel
-          user={user}
-          quizResults={quizResults}
-          quizCount={quizTotal}
-          hasPerfectQuiz={summary?.has_perfect_quiz}
-          flashcardSets={flashcardSets}
-          streak={streak}
-          challenges={challenges}
-        />
       </div>
 
       {/* Quick Start — only shown when no activity yet */}

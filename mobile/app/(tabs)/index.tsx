@@ -1,9 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "expo-router";
-import { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { AchievementsPanel } from "../../components/AchievementsPanel";
 import { Screen } from "../../components/Screen";
 import { WeakTopicsChips } from "../../components/WeakTopicsChips";
 import { DashboardSkeleton } from "../../components/skeletons/DashboardSkeleton";
@@ -13,13 +11,6 @@ import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
 import { useAuthStore } from "../../store/authStore";
 import type { AnalyticsSummaryOut } from "../../types/api";
-import type { AchievementStats } from "../../lib/achievements";
-
-type ChallengeRow = {
-  challenger_email?: string;
-  status?: string;
-  opponent_email?: string;
-};
 
 export default function DashboardTab() {
   const { colors } = useTheme();
@@ -39,26 +30,6 @@ export default function DashboardTab() {
     staleTime: 0,
   });
 
-  const { data: challenges = [] } = useQuery({
-    queryKey: ["quiz-challenges"],
-    queryFn: async () => {
-      const { data } = await api.get<ChallengeRow[]>("/quiz-challenges/");
-      return data;
-    },
-  });
-
-  const stats: AchievementStats = useMemo(() => {
-    const totalCards = flashcardSets.reduce((sum, s) => sum + (s.card_count ?? 0), 0);
-    const challengesSent = challenges.filter((c) => c.challenger_email === user?.email).length;
-    return {
-      quizCount: summary?.quiz_count ?? 0,
-      hasPerfect: !!summary?.has_perfect_quiz,
-      streak: summary?.streak_days ?? 0,
-      totalCards,
-      challengesSent,
-    };
-  }, [summary, flashcardSets, challenges, user?.email]);
-
   const weakTopics = summary?.weak_topics ?? [];
 
   if (summaryLoading || setsLoading) {
@@ -72,10 +43,34 @@ export default function DashboardTab() {
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.greeting, { color: colors.text }]}>
-          Hi, {user?.full_name?.split(" ")[0] ?? "Learner"}
-        </Text>
+        <Link href="/profile" asChild>
+          <Pressable>
+            <Text style={[styles.greeting, { color: colors.text }]}>
+              Hi, {user?.full_name?.split(" ")[0] ?? "Learner"}
+            </Text>
+          </Pressable>
+        </Link>
         <Text style={[styles.sub, { color: colors.muted }]}>Your progress at a glance</Text>
+
+        {flashcardSets.slice(0, 2).map((set) => (
+          <Link key={set.id} href={`/study/${set.id}`} asChild>
+            <Pressable style={[styles.recentCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.recentTitle, { color: colors.text }]} numberOfLines={1}>{set.title}</Text>
+              {set.selected_chapters?.[0] && (
+                <Text style={[styles.recentChapter, { color: colors.primary }]} numberOfLines={1}>
+                  Chapter: {set.selected_chapters[0]}
+                </Text>
+              )}
+              <Text style={[styles.recentMeta, { color: colors.muted }]}>{set.card_count} cards</Text>
+            </Pressable>
+          </Link>
+        ))}
+
+        <Link href="/achievements" asChild>
+          <Pressable onPress={() => void hapticImpact("light")}>
+            <Text style={[styles.link, { color: colors.primary }]}>View achievements</Text>
+          </Pressable>
+        </Link>
 
         <View style={styles.statsRow}>
           {[
@@ -120,7 +115,6 @@ export default function DashboardTab() {
           </Pressable>
         </Link>
 
-        <AchievementsPanel userEmail={user?.email} stats={stats} />
       </ScrollView>
     </Screen>
   );
@@ -141,6 +135,10 @@ const styles = StyleSheet.create({
   },
   statValue: { fontSize: 20, fontWeight: "800" },
   statLabel: { fontSize: 11, marginTop: 4, fontWeight: "600" },
+  recentCard: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 },
+  recentTitle: { fontSize: 15, fontWeight: "600" },
+  recentChapter: { fontSize: 12, marginTop: 2 },
+  recentMeta: { fontSize: 11, marginTop: 4 },
   quickLinks: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginVertical: 12 },
   quickChip: {
     borderWidth: 1,

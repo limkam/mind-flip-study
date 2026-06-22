@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    #: Session-only refresh cookie lifetime when "Keep me signed in" is unchecked (hours).
+    SESSION_REFRESH_EXPIRE_HOURS: int = 12
 
     #: Use ``True`` in production behind HTTPS so browsers accept the cookie.
     REFRESH_TOKEN_COOKIE_SECURE: bool = False

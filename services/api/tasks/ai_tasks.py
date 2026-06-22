@@ -36,7 +36,6 @@ from generation_prompts import (
     FLASHCARD_MICRO_REPAIR_SYSTEM,
     FLASHCARD_SYSTEM,
     SCENARIO_SYSTEM,
-    STUDY_CONTENT_SYSTEM,
     STUDY_OUTPUT_TOKEN_HARD_CAP,
     GENERATION_PIPELINE_VERSION,
     chapter_breakdown_user_prompt,
@@ -47,6 +46,7 @@ from generation_prompts import (
     scenario_repair_user_prompt,
     scenarios_user_prompt,
     study_content_user_prompt,
+    study_content_system,
 )
 from job_cache import append_job_entries, cache_job, get_cached_job
 from qa_types import QAFailure, classify_repair_sections
@@ -123,9 +123,14 @@ def _extract_response_text(message: Any) -> str:
     return raw
 
 
-def _max_tokens_for_study_content(num_cards: int) -> int:
-    """Summary + scenarios + cards in one call — budget scales with card count."""
-    return min(STUDY_OUTPUT_TOKEN_HARD_CAP, 650 + num_cards * 85)
+def _max_tokens_for_study_content(num_cards: int, summary_detail_level: str = "standard") -> int:
+    """Summary + scenarios + cards in one call — budget scales with card count and detail level."""
+    base = min(STUDY_OUTPUT_TOKEN_HARD_CAP, 650 + num_cards * 85)
+    if summary_detail_level == "brief":
+        return min(STUDY_OUTPUT_TOKEN_HARD_CAP, int(base * 0.8))
+    if summary_detail_level == "in_depth":
+        return min(STUDY_OUTPUT_TOKEN_HARD_CAP, int(base * 1.35) + 500)
+    return base
 
 
 def _max_tokens_for_cards(num_cards: int) -> int:
@@ -338,6 +343,7 @@ def _generate_chapter_study_content_once(
     batch_index: int,
     book_id: UUID | None = None,
     qa_feedback: str = "",
+    summary_detail_level: str = "standard",
 ) -> tuple[list[dict[str, str]], dict[str, Any], list[dict[str, str]]]:
     """Single Claude call: summary + scenarios + flashcards for one chapter."""
     quota = difficulty_quota(num_cards)
@@ -350,11 +356,12 @@ def _generate_chapter_study_content_once(
         difficulty_quota=quota,
         style_index=style,
         batch_note=note,
+        summary_detail_level=summary_detail_level,
     )
     data = _anthropic_json_call(
-        system=STUDY_CONTENT_SYSTEM,
+        system=study_content_system(summary_detail_level),
         user_content=instruction,
-        max_tokens=_max_tokens_for_study_content(num_cards),
+        max_tokens=_max_tokens_for_study_content(num_cards, summary_detail_level),
         task="generate_study_content",
         user_id=user_id,
         celery_task_id=celery_task_id,
@@ -380,7 +387,7 @@ def _generate_chapter_study_content_once(
                 "chapter": chapter_title,
                 "got": len(cards),
                 "expected": num_cards,
-                "max_tokens": _max_tokens_for_study_content(num_cards),
+                "max_tokens": _max_tokens_for_study_content(num_cards, summary_detail_level),
             },
         )
         missing = num_cards - len(cards)
@@ -462,6 +469,7 @@ def _generate_chapter_study_content(
     batch_index: int,
     book_id: UUID | None = None,
     qa_feedback: str = "",
+    summary_detail_level: str = "standard",
 ) -> tuple[list[dict[str, str]], dict[str, Any], list[dict[str, str]]]:
     """One study-content API call for ≤50 cards; batch fallback only above that."""
     if num_cards <= MAX_CARDS_PER_STUDY_CALL:
@@ -476,6 +484,7 @@ def _generate_chapter_study_content(
             batch_index=batch_index,
             book_id=book_id,
             qa_feedback=qa_feedback,
+            summary_detail_level=summary_detail_level,
         )
 
     # Exceptional fallback: >50 cards — first call includes summary + scenarios + 50 cards.
@@ -490,6 +499,7 @@ def _generate_chapter_study_content(
         batch_index=batch_index,
         book_id=book_id,
         qa_feedback=qa_feedback,
+        summary_detail_level=summary_detail_level,
     )
     remaining = num_cards - MAX_CARDS_PER_STUDY_CALL
     batch_offset = 1
@@ -1015,6 +1025,7 @@ def _run_chapter_generation(
     total_chapters: int,
     start_pct: int,
     progress_span: int,
+    summary_detail_level: str = "standard",
 ) -> tuple[list[dict[str, str]], list[dict[str, str]], list[dict[str, Any]]]:
     all_cards: list[dict[str, str]] = []
     all_scenarios: list[dict[str, str]] = []
@@ -1044,6 +1055,7 @@ def _run_chapter_generation(
                 batch_index=i,
                 book_id=book_id,
                 qa_feedback=qa_feedback,
+                summary_detail_level=summary_detail_level,
             ): seg.title
             for i, (seg, quota) in enumerate(allocations)
             if quota > 0
@@ -1171,6 +1183,7 @@ def _generate_study_content(
     generation_seed: int,
     book_extras: dict[str, Any] | None = None,
     book_id: UUID | None = None,
+    summary_detail_level: str = "standard",
 ) -> tuple[str, list[dict[str, str]], list[dict[str, str]], list[dict[str, Any]], list[Any]]:
     segments = resolve_chapter_segments(
         full_text=full_text,
@@ -1199,6 +1212,7 @@ def _generate_study_content(
         total_chapters=total_chapters,
         start_pct=5,
         progress_span=82,
+        summary_detail_level=summary_detail_level,
     )
     chapter_summaries.sort(
         key=lambda s: chapter_titles.index(s["chapter"]) if s["chapter"] in chapter_titles else 999,
@@ -1307,6 +1321,7 @@ def generate_flashcards_task(
     set_title: str,
     num_cards: int,
     selected_chapters: list[str] | None = None,
+    summary_detail_level: str = "standard",
 ) -> dict[str, str]:
     tid = self.request.id
     uid = UUID(user_id)
@@ -1390,6 +1405,7 @@ def generate_flashcards_task(
             generation_seed=generation_seed,
             book_extras=book_extras,
             book_id=bid,
+            summary_detail_level=summary_detail_level,
         )
 
         _update_job_progress(tid, "saving_content", book_id=book_id, percent_complete=95)

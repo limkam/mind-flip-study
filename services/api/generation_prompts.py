@@ -9,15 +9,92 @@ STUDY_OUTPUT_TOKEN_HARD_CAP = 4096
 STUDY_OUTPUT_TOKEN_TARGET = 2800
 GENERATION_PIPELINE_VERSION = "2026-06-15-reliable-v1"
 
-TOKEN_BUDGET_BLOCK = """STRICT TOKEN BUDGETS (mandatory — responses exceeding limits will be rejected):
-- summary: 120–150 tokens max
-- overview: 150–220 tokens max
-- core_concept: 20–30 tokens max (1–2 sentences)
-- key_points (7): one short sentence each, total ≤ 250 tokens
-- watch_out_for (3): one sentence each, total ≤ 120 tokens
-- scenarios (3–5): 40–60 tokens each, total ≤ 350 tokens
-- flashcards: question ≤ 12 words, answer ≤ 30 words, ~45 tokens each
-- TOTAL RESPONSE: prioritize completing every requested flashcard; shorten summary/scenarios if needed"""
+SUMMARY_DETAIL_LEVELS = ("brief", "standard", "in_depth")
+
+SUMMARY_DETAIL_BUDGETS = {
+    "brief": {
+        "summary": "40–60 tokens max — high-level overview, key concepts only",
+        "overview": "60–90 tokens max — fast review mode",
+        "key_points": "exactly 4 one-sentence bullets",
+        "watch_out_for": "exactly 2 one-sentence pitfalls",
+        "key_points_count": 4,
+        "watch_out_count": 2,
+        "instruction": "BRIEF summary mode: concise, high-level, key concepts only. Fast review.",
+        "tone": "Prioritize clarity and brevity. Keep every summary field short.",
+        "output_target": 1200,
+    },
+    "standard": {
+        "summary": "120–150 tokens max",
+        "overview": "150–220 tokens max",
+        "key_points": "exactly 7 one-sentence bullets",
+        "watch_out_for": "exactly 3 one-sentence pitfalls",
+        "key_points_count": 7,
+        "watch_out_count": 3,
+        "instruction": "STANDARD summary mode: balanced depth for regular study.",
+        "tone": "Balanced depth — clear explanations without excessive length.",
+        "output_target": 2800,
+    },
+    "in_depth": {
+        "summary": "200–280 tokens max — detailed explanations with concrete examples",
+        "overview": "250–350 tokens max — expanded concepts, connections, exam preparation focus",
+        "key_points": "exactly 8 detailed bullet points (2 sentences each) with examples",
+        "watch_out_for": "exactly 4 pitfalls with brief explanations of why students miss them",
+        "key_points_count": 8,
+        "watch_out_count": 4,
+        "instruction": (
+            "IN-DEPTH summary mode: write noticeably longer summary and overview than standard mode. "
+            "Include concrete examples, cause-effect links, and exam-relevant framing."
+        ),
+        "tone": (
+            "Prioritize depth and teaching value for summary/overview/key_points/watch_out_for. "
+            "Use examples and connect ideas across the chapter. Flashcards stay concise."
+        ),
+        "output_target": 3800,
+    },
+}
+
+
+def summary_detail_block(level: str = "standard") -> str:
+    cfg = SUMMARY_DETAIL_BUDGETS.get(level, SUMMARY_DETAIL_BUDGETS["standard"])
+    return (
+        f"Summary detail level: {level.upper()}. {cfg['instruction']}\n"
+        f"- summary ({cfg['summary']})\n"
+        f"- overview ({cfg['overview']})\n"
+        f"- {cfg['key_points']}\n"
+        f"- {cfg['watch_out_for']}"
+    )
+
+
+def token_budget_block(level: str = "standard") -> str:
+    cfg = SUMMARY_DETAIL_BUDGETS.get(level, SUMMARY_DETAIL_BUDGETS["standard"])
+    return (
+        "STRICT TOKEN BUDGETS (mandatory — responses exceeding limits will be rejected):\n"
+        f"- summary: {cfg['summary']}\n"
+        f"- overview: {cfg['overview']}\n"
+        "- core_concept: 20–30 tokens max (1–2 sentences)\n"
+        f"- {cfg['key_points']}, one short sentence each unless in-depth mode says otherwise\n"
+        f"- {cfg['watch_out_for']}\n"
+        "- scenarios (3–5): 40–60 tokens each, total ≤ 350 tokens\n"
+        "- flashcards: question ≤ 12 words, answer ≤ 30 words, ~45 tokens each\n"
+        "- TOTAL RESPONSE: honor the summary detail level above; shorten scenarios if needed to fit flashcards"
+    )
+
+
+def study_content_required_sections(level: str = "standard") -> str:
+    cfg = SUMMARY_DETAIL_BUDGETS.get(level, SUMMARY_DETAIL_BUDGETS["standard"])
+    return (
+        "Required sections:\n"
+        f"- summary ({cfg['summary']}) — distinct from overview\n"
+        f"- overview ({cfg['overview']}) — do not repeat summary\n"
+        "- core_concept (20–30 tokens)\n"
+        "- difficulty (beginner|intermediate|advanced)\n"
+        f"- key_points: {cfg['key_points']}\n"
+        f"- watch_out_for: {cfg['watch_out_for']}\n"
+        "- scenarios: exactly 5 compact scenarios (≤500 tokens total)"
+    )
+
+
+TOKEN_BUDGET_BLOCK = token_budget_block("standard")
 
 VARIATION_STYLES = [
     "Use situational 'which of the following…' framing.",
@@ -77,31 +154,51 @@ Required JSON:
 }
 Stay grounded ONLY in the provided chapter text."""
 
-STUDY_CONTENT_SYSTEM = f"""You are a high-efficiency educational generator and study assistant.
-Prioritize clarity and brevity over explanation depth.
+def study_output_token_target(level: str = "standard") -> int:
+    cfg = SUMMARY_DETAIL_BUDGETS.get(level, SUMMARY_DETAIL_BUDGETS["standard"])
+    return int(cfg.get("output_target", STUDY_OUTPUT_TOKEN_TARGET))
+
+
+def study_content_system(level: str = "standard") -> str:
+    cfg = SUMMARY_DETAIL_BUDGETS.get(level, SUMMARY_DETAIL_BUDGETS["standard"])
+    kp = cfg["key_points_count"]
+    wo = cfg["watch_out_count"]
+    overview_style = (
+        "Expanded teaching overview with examples and connections"
+        if level == "in_depth"
+        else "Context and implication — distinct from summary"
+    )
+    summary_style = (
+        "Detailed structured explanation with examples"
+        if level == "in_depth"
+        else "Compact structured explanation"
+    )
+    return f"""You are an educational generator and study assistant.
+{cfg["tone"]}
 Generate complete chapter study content in ONE JSON response.
 Always respond with valid JSON only. No markdown fences, no preamble.
 
-You must strictly follow token budgets per section. Overly verbose responses will be rejected.
-Do not exceed output limits under any circumstance.
-Prefer concise bullet-based educational content.
+Summary detail level for this request: {level.upper()}.
+{cfg["instruction"]}
+
+You must follow the token budgets for summary fields exactly as specified in the user message.
+Flashcards and scenarios must stay concise regardless of detail level.
 
 Style rules:
 - Do NOT repeat ideas across sections (summary ≠ overview ≠ key_points ≠ scenarios ≠ flashcards).
-- Avoid long paragraphs; prefer bullet points.
-- Remove filler words. No academic verbosity. No storytelling unless required.
 - Each section must add NEW information — no verbatim repetition.
+- Honor the requested summary detail level — in_depth must be visibly longer and richer than standard.
 
-{TOKEN_BUDGET_BLOCK}
+{token_budget_block(level)}
 
 Required JSON:
 {{
   "difficulty": "beginner|intermediate|advanced",
-  "summary": "Compact structured explanation",
+  "summary": "{summary_style}",
   "core_concept": "Key idea in 1–2 sentences",
-  "overview": "Context and implication — distinct from summary",
-  "key_points": ["exactly 7 short sentences — do not repeat overview"],
-  "watch_out_for": ["exactly 3 one-sentence pitfalls"],
+  "overview": "{overview_style}",
+  "key_points": ["exactly {kp} items per level budget"],
+  "watch_out_for": ["exactly {wo} items per level budget"],
   "scenarios": [
     {{
       "type": "real_life|decision|professional",
@@ -124,10 +221,12 @@ Required JSON:
 Rules:
 - scenarios: 3–5 distinct, application-focused. Do NOT repeat chapter summary or key points.
 - flashcards: exact count requested; direct questions; no repetition of scenario/summary text.
-- key_points: exactly 7. watch_out_for: exactly 3.
+- key_points: exactly {kp}. watch_out_for: exactly {wo}.
 - Stay grounded ONLY in the provided chapter text.
-- Keep JSON compact — minimal keys, short strings, no markdown.
-- If over budget: shorten flashcards and scenarios first, then compress summary fields."""
+- If over budget: shorten flashcards and scenarios first, never compress in_depth summaries below their minimum budgets."""
+
+
+STUDY_CONTENT_SYSTEM = study_content_system("standard")
 
 SCENARIO_SYSTEM = """You are a high-efficiency educational generator creating compact study scenarios.
 Prioritize clarity and brevity. Respond with JSON only.
@@ -207,23 +306,19 @@ def study_content_user_prompt(
     difficulty_quota: dict[str, int],
     style_index: int,
     batch_note: str = "",
+    summary_detail_level: str = "standard",
 ) -> str:
     mix = difficulty_mix_instruction(difficulty_quota)
+    detail = summary_detail_block(summary_detail_level)
     scenario_specs = "\n".join(
         f"  {i + 1}. type={t} — {desc}" for i, (t, desc) in enumerate(SCENARIO_TYPE_SPECS)
     )
     return (
         f'Generate complete study content for chapter "{chapter_title}" from "{book_title}".\n'
         f"Return ONE compact JSON object. STRICT token budgets apply — total ≤ 2000 tokens.\n\n"
-        f"{TOKEN_BUDGET_BLOCK}\n\n"
-        f"Required sections:\n"
-        f"- summary (120–150 tokens) — distinct from overview\n"
-        f"- overview (150–220 tokens) — do not repeat summary\n"
-        f"- core_concept (20–30 tokens)\n"
-        f"- difficulty (beginner|intermediate|advanced)\n"
-        f"- key_points: exactly 7 one-sentence bullets (≤250 tokens total)\n"
-        f"- watch_out_for: exactly 3 one-sentence pitfalls (≤120 tokens total)\n"
-        f"- scenarios: exactly 5 compact scenarios (≤500 tokens total):\n"
+        f"{detail}\n\n"
+        f"{token_budget_block(summary_detail_level)}\n\n"
+        f"{study_content_required_sections(summary_detail_level)}\n"
         f"{scenario_specs}\n"
         f"  Each: title ≤6 words, description 2–3 sentences, no summary repetition\n"
         f"- flashcards: exactly {num_cards} cards (≤900 tokens total)\n"
@@ -232,7 +327,7 @@ def study_content_user_prompt(
         f"Variation style: {variation_instruction(style_index)}.\n"
         f"Do not repeat content across sections. Prefer bullets over paragraphs.\n"
         f"{batch_note}\n"
-        f"Respond with ONLY valid compact JSON. Target {STUDY_OUTPUT_TOKEN_TARGET} output tokens."
+        f"Respond with ONLY valid compact JSON. Target {study_output_token_target(summary_detail_level)} output tokens."
     )
 
 

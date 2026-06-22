@@ -16,6 +16,7 @@ export type UploadBookOptions = {
   description?: string;
   subject?: string;
   tags?: string[];
+  replaceBookId?: string;
   onProgress?: (phase: "uploading" | "creating") => void;
 };
 
@@ -29,9 +30,9 @@ export function titleFromFilename(filename: string): string {
 
 /**
  * Presigned PUT to object storage, then create book row.
- * TOC extraction is user-triggered from book detail.
+ * TOC extraction starts automatically on the server after the book is saved.
  */
-export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<void> {
+export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<{ id: string }> {
   const {
     title,
     author,
@@ -42,6 +43,7 @@ export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<voi
     description = "",
     subject = "other",
     tags = [],
+    replaceBookId,
     onProgress,
   } = opts;
   const contentType = mimeType || "application/pdf";
@@ -63,11 +65,13 @@ export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<voi
   }
 
   onProgress?.("creating");
-  await api.post("/books/", {
+
+  const { data: book } = await api.post<{ id: string }>("/books/", {
     title: title.trim(),
     author: author.trim(),
     s3_key: presign.s3_key,
     file_size_bytes: size,
+    replace_book_id: replaceBookId ?? undefined,
     extras: {
       table_of_contents: [],
       tags,
@@ -75,4 +79,5 @@ export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<voi
       description,
     },
   });
+  return book;
 }

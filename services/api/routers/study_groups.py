@@ -29,6 +29,7 @@ class StudyGroupCreate(BaseModel):
     privacy: str = Field("public", pattern="^(public|private)$")
     weekly_card_goal: int = Field(20, ge=1, le=500)
     book_id: UUID | None = None
+    book_ids: list[UUID] = Field(default_factory=list)
 
 
 class StudyGroupJoin(BaseModel):
@@ -291,12 +292,15 @@ async def create_group(
     await db.flush()
     db.add(StudyGroupMember(group_id=group.id, user_id=current_user.id, role="owner"))
 
-    if body.book_id:
-        await _verify_owned_book(db, body.book_id, current_user.id)
+    material_ids: list[UUID] = list(body.book_ids)
+    if body.book_id and body.book_id not in material_ids:
+        material_ids.append(body.book_id)
+    for book_id in material_ids:
+        await _verify_owned_book(db, book_id, current_user.id)
         db.add(
             StudyGroupMaterial(
                 group_id=group.id,
-                book_id=body.book_id,
+                book_id=book_id,
                 added_by=current_user.id,
             ),
         )

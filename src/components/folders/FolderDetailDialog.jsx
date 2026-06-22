@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { BookOpen, GraduationCap, Link } from "lucide-react";
+import { BookOpen, GraduationCap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 export default function FolderDetailDialog({ open, onOpenChange, folder, books, flashcardSets, onUpdate }) {
@@ -26,6 +26,24 @@ export default function FolderDetailDialog({ open, onOpenChange, folder, books, 
     const next = setIds.includes(id) ? setIds.filter(x => x !== id) : [...setIds, id];
     setSaving(true);
     await onUpdate(folder.id, { flashcard_set_ids: next });
+    setSaving(false);
+  };
+
+  const selectedCount = bookIds.length + setIds.length;
+  const totalItems = books.length + flashcardSets.length;
+
+  const selectAll = async () => {
+    setSaving(true);
+    await onUpdate(folder.id, {
+      book_ids: books.map((b) => b.id),
+      flashcard_set_ids: flashcardSets.map((s) => s.id),
+    });
+    setSaving(false);
+  };
+
+  const deselectAll = async () => {
+    setSaving(true);
+    await onUpdate(folder.id, { book_ids: [], flashcard_set_ids: [] });
     setSaving(false);
   };
 
@@ -79,6 +97,19 @@ export default function FolderDetailDialog({ open, onOpenChange, folder, books, 
 
           {/* MANAGE */}
           <TabsContent value="manage" className="flex-1 overflow-y-auto mt-3 space-y-4 pr-1">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <p className="text-xs text-muted-foreground">
+                {selectedCount} of {totalItems} selected
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={saving || totalItems === 0} onClick={selectAll}>
+                  Select all
+                </Button>
+                <Button variant="ghost" size="sm" disabled={saving || selectedCount === 0} onClick={deselectAll}>
+                  Deselect all
+                </Button>
+              </div>
+            </div>
             {books.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Books</p>

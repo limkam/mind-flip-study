@@ -520,6 +520,32 @@ def _heuristic_toc(
     return _structural_toc_candidates(pdf_bytes, text)
 
 
+# Native PDF TOC methods — prefer these over AI when they yield a valid structure.
+_NATIVE_TOC_METHODS = frozenset({"bookmarks", "toc_text"})
+
+
+def _is_native_toc(method: str, chapters: list[dict[str, Any]]) -> bool:
+    return method in _NATIVE_TOC_METHODS and len(chapters) >= 2
+
+
+def _best_native_toc(
+    pdf_bytes: bytes,
+    text: str,
+) -> tuple[list[dict[str, Any]], str]:
+    """Return the best native (non-AI) TOC: PDF bookmarks or parsed TOC page."""
+    candidates: list[tuple[list[dict[str, Any]], str]] = []
+    bookmarks = extract_toc_from_bookmarks(pdf_bytes)
+    toc_text = extract_toc_from_text(text)
+    if bookmarks:
+        candidates.append((bookmarks, "bookmarks"))
+    if toc_text:
+        candidates.append((toc_text, "toc_text"))
+    if not candidates:
+        return [], "none"
+    candidates.sort(key=lambda item: (len(item[0]), _score_chapter_list(item[0])), reverse=True)
+    return candidates[0]
+
+
 def extract_toc_from_pdf_bytes(
     pdf_bytes: bytes,
     *,
@@ -529,7 +555,7 @@ def extract_toc_from_pdf_bytes(
     full_text: str | None = None,
 ) -> tuple[list[dict[str, Any]], str, str | None]:
     """
-    Extract TOC — AI first (reads full PDF text via rich sample), heuristics as fallback.
+    Extract TOC — prefer PDF native outline/TOC page; AI only when none found.
     Returns (chapters, method_used, ai_error).
     """
     text = full_text if full_text is not None else extract_pdf_text(pdf_bytes)
@@ -552,6 +578,16 @@ def extract_toc_from_pdf_bytes(
     except Exception as exc:
         log.warning("presentation_pdf_detect_failed", extra={"error": str(exc), "title": title})
 
+    # Prefer native PDF TOC (bookmarks / TOC page) — preserve hierarchy and ordering.
+    native, native_method = _best_native_toc(pdf_bytes, text)
+    if _is_native_toc(native_method, native):
+        aligned = _align_chapter_titles(native, text)
+        log.info(
+            "toc_using_native_pdf",
+            extra={"title": title, "method": native_method, "chapters": len(aligned)},
+        )
+        return aligned, native_method, None
+
     structural, structural_method = _structural_toc_candidates(pdf_bytes, text)
     structural_titles = [str(c.get("title", "")).strip() for c in structural if c.get("title")]
 
@@ -559,30 +595,38 @@ def extract_toc_from_pdf_bytes(
     method = "ai"
     ai_error: str | None = None
 
-    try:
-        chapters = extract_toc_with_ai(
-            text,
-            title=title,
-            author=author,
-            description=description,
-            candidate_titles=structural_titles or None,
-        )
-    except Exception as exc:
-        ai_error = str(exc)
-        log.warning("ai_toc_failed", extra={"error": ai_error, "title": title})
-        method = "fallback"
-
-    # AI often returns only 1-2 sections for blog-style books — prefer full-document scan when it finds more.
-    if len(structural) >= 3 and len(structural) > len(chapters):
+    # Use structural heuristics when they find a solid chapter list without AI.
+    if len(structural) >= 3:
+        chapters = structural
+        method = structural_method
         log.info(
-            "toc_using_structural_over_ai",
-            extra={"structural": len(structural), "ai": len(chapters), "method": structural_method},
+            "toc_using_structural_heuristics",
+            extra={"title": title, "method": structural_method, "chapters": len(chapters)},
         )
-        chapters = structural
-        method = structural_method
-    elif not chapters and structural:
-        chapters = structural
-        method = structural_method
+    else:
+        try:
+            chapters = extract_toc_with_ai(
+                text,
+                title=title,
+                author=author,
+                description=description,
+                candidate_titles=structural_titles or None,
+            )
+        except Exception as exc:
+            ai_error = str(exc)
+            log.warning("ai_toc_failed", extra={"error": ai_error, "title": title})
+            method = "fallback"
+
+        if len(structural) >= 2 and len(structural) > len(chapters):
+            log.info(
+                "toc_using_structural_over_ai",
+                extra={"structural": len(structural), "ai": len(chapters), "method": structural_method},
+            )
+            chapters = structural
+            method = structural_method
+        elif not chapters and structural:
+            chapters = structural
+            method = structural_method
 
     if not chapters:
         chapters, method = _heuristic_toc(pdf_bytes, text)

@@ -196,6 +196,7 @@ async def enqueue_generate_flashcards(
         body.title,
         int(body.num_cards),
         selected_chapters=chapters or None,
+        summary_detail_level=body.summary_detail_level,
     )
     return JobEnqueueResponse(job_id=task.id)
 

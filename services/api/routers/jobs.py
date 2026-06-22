@@ -81,7 +81,14 @@ async def get_job_status(
     st = ar.state or "PENDING"
     cached = get_cached_job(job_id)
 
-    # Redis cache is authoritative when Celery reports failure but content was saved.
+  # Redis cache is authoritative when Celery reports failure but content was saved.
+    if cached and cached.get("status") == "error":
+        return JobStatusResponse(
+            status="failed",
+            phase=str(cached.get("phase") or "failed"),
+            result=cached,
+        )
+
     if cached and cached.get("status") == "complete" and cached.get("set_id"):
         return JobStatusResponse(
             status="complete",

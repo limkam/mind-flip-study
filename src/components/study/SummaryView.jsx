@@ -1,23 +1,32 @@
 import React, { useState } from "react";
 import client from "@/api/client";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, Sparkles, BookOpen, RefreshCw } from "lucide-react";
+import { Sparkles, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import SummaryCard from "./SummaryCard";
+import { formatSummaryScope, buildEnhancedSummaryPrompt } from "@/lib/summaryScope";
 
 export default function SummaryView({ cards, bookTitle, selectedChapters, prefillSummary, chapterSummaries = [] }) {
   const [summaries, setSummaries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [generated, setGenerated] = useState(false);
   const hasPrefill = Boolean(prefillSummary?.trim());
+  const scopeLabel = formatSummaryScope(selectedChapters, bookTitle);
+
+  const scopedCards = (selectedChapters?.length > 0)
+    ? cards.filter((c) => selectedChapters.includes(c.chapter))
+    : cards;
+
+  const scopedChapterSummaries = (selectedChapters?.length > 0)
+    ? chapterSummaries.filter((ch) => selectedChapters.includes(ch.chapter))
+    : chapterSummaries;
 
   const generateSummaries = async () => {
     setLoading(true);
     setGenerated(false);
 
-    // Group cards by chapter
     const byChapter = {};
-    cards.forEach(card => {
+    scopedCards.forEach(card => {
       const ch = card.chapter || "General";
       if (!byChapter[ch]) byChapter[ch] = [];
       byChapter[ch].push(card);
@@ -31,18 +40,7 @@ export default function SummaryView({ cards, bookTitle, selectedChapters, prefil
     }));
 
     const { data: result } = await client.post("/ai/invoke", {
-      prompt: `You are an expert educational content creator. Based on the flashcard Q&A pairs below from the book "${bookTitle}", generate rich, high-quality chapter summaries.
-
-${chapterList.map(c => `=== CHAPTER: ${c.chapter} (${c.cardCount} cards) ===\n${c.qa}`).join("\n\n---\n\n")}
-
-For EACH chapter, produce:
-1. **overview**: A clear 3-5 sentence overview that explains what the chapter covers, why it matters, and how concepts connect. Write it as if explaining to a motivated student.
-2. **key_points**: 5-8 concise, memorable bullet points. Each should be a complete, standalone insight — not just a word or phrase.
-3. **core_concept**: A single sentence that captures the most essential idea of the chapter in plain language (the "if you remember one thing" takeaway).
-4. **common_mistakes**: 2-3 short notes on common misconceptions or tricky areas students should watch out for.
-5. **difficulty**: Rate the chapter as "beginner", "intermediate", or "advanced" based on the complexity of the material.
-
-Return structured JSON covering every chapter listed.`,
+      prompt: buildEnhancedSummaryPrompt({ bookTitle, chapterList, detailLevel: "standard" }),
       response_json_schema: {
         type: "object",
         properties: {
@@ -71,10 +69,15 @@ Return structured JSON covering every chapter listed.`,
 
   return (
     <div className="space-y-4">
-      {chapterSummaries.length > 0 && (
+      <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+        <p className="text-xs font-semibold text-muted-foreground uppercase mb-0.5">Summary Scope</p>
+        <p className="text-sm font-medium">{scopeLabel}</p>
+      </div>
+
+      {scopedChapterSummaries.length > 0 && (
         <div className="space-y-3">
           <h3 className="font-heading text-lg font-semibold">Chapter Breakdown</h3>
-          {chapterSummaries.map((ch, i) => (
+          {scopedChapterSummaries.map((ch, i) => (
             <SummaryCard
               key={ch.chapter || i}
               index={i}
@@ -101,7 +104,7 @@ Return structured JSON covering every chapter listed.`,
         </motion.div>
       )}
 
-      {!generated && !loading && chapterSummaries.length === 0 && (
+      {!generated && !loading && scopedChapterSummaries.length === 0 && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}

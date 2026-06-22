@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { Loader2 } from 'lucide-react';
@@ -20,6 +21,7 @@ export default function Login() {
   const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [keepSignedIn, setKeepSignedIn] = useState(true);
   const [busy, setBusy] = useState(false);
 
   React.useEffect(() => {
@@ -32,7 +34,7 @@ export default function Login() {
     e.preventDefault();
     setBusy(true);
     try {
-      await login(email, password);
+      await login(email, password, keepSignedIn);
       navigate(location.state?.from?.pathname || '/', { replace: true });
     } catch (err) {
       toast({
@@ -80,6 +82,14 @@ export default function Login() {
               required
             />
           </div>
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <Checkbox
+              id="keep-signed-in"
+              checked={keepSignedIn}
+              onCheckedChange={(v) => setKeepSignedIn(v === true)}
+            />
+            <span className="text-sm text-muted-foreground">Keep me signed in</span>
+          </label>
           <Button type="submit" className="w-full" disabled={busy}>
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sign in'}
           </Button>
@@ -109,7 +119,7 @@ export default function Login() {
                   }
                   setBusy(true);
                   try {
-                    await loginWithGoogle(token);
+                    await loginWithGoogle(token, keepSignedIn);
                     navigate(location.state?.from?.pathname || '/', { replace: true });
                   } catch (err) {
                     toast({

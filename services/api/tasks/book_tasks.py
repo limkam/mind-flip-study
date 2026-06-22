@@ -39,7 +39,7 @@ def _set_toc_phase(book: Book, phase: str, **extra: Any) -> None:
     default_retry_delay=20,
 )
 def extract_book_toc_task(self, book_id: str) -> dict[str, str]:
-    """Extract TOC and cache chapter text when the user requests it on book detail."""
+    """Extract TOC and cache chapter text (auto-started on upload or user retry)."""
     tid = self.request.id
     bid = UUID(book_id)
     cache_job(tid, {"status": "started", "phase": "extracting_contents", "book_id": book_id})
@@ -116,17 +116,19 @@ def extract_book_toc_task(self, book_id: str) -> dict[str, str]:
 
     except Exception as exc:
         log.error("book_toc_extraction_failed", extra={"book_id": book_id, "error": str(exc)}, exc_info=True)
-        with sync_session() as db:
-            book = db.execute(select(Book).where(Book.id == bid)).scalar_one_or_none()
-            if book is not None:
-                extras = dict(book.extras or {})
-                proc = dict(extras.get("processing") or {})
-                proc["phase"] = "error"
-                proc["kind"] = "toc_extraction"
-                proc["error"] = str(exc)[:500]
-                extras["processing"] = proc
-                book.extras = extras
-        cache_job(tid, {"status": "error", "phase": "failed", "book_id": book_id, "error": str(exc)[:500]})
-        if int(self.request.retries) >= int(self.max_retries):
+        is_final = int(self.request.retries) >= int(self.max_retries)
+        if is_final:
+            with sync_session() as db:
+                book = db.execute(select(Book).where(Book.id == bid)).scalar_one_or_none()
+                if book is not None:
+                    extras = dict(book.extras or {})
+                    proc = dict(extras.get("processing") or {})
+                    proc["phase"] = "error"
+                    proc["kind"] = "toc_extraction"
+                    proc["error"] = str(exc)[:500]
+                    proc["job_id"] = tid
+                    extras["processing"] = proc
+                    book.extras = extras
+            cache_job(tid, {"status": "error", "phase": "failed", "book_id": book_id, "error": str(exc)[:500]})
             raise
         raise self.retry(exc=exc) from exc

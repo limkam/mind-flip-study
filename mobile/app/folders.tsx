@@ -5,6 +5,7 @@ import {
   FlatList,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -15,10 +16,11 @@ import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { Screen } from "../components/Screen";
 import { api } from "../api/client";
+import { fetchFlashcardSetsList } from "../lib/flashcardSets";
 import { useScreenHeader } from "../hooks/useScreenHeader";
 import { useTheme } from "../hooks/useTheme";
 import { hapticImpact } from "../lib/haptics";
-import type { FolderOut } from "../types/api";
+import type { BookOut, FolderOut } from "../types/api";
 
 export default function FoldersScreen() {
   const { colors } = useTheme();
@@ -28,6 +30,9 @@ export default function FoldersScreen() {
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [viewing, setViewing] = useState<FolderOut | null>(null);
+  const [managing, setManaging] = useState<FolderOut | null>(null);
+  const [selectedBooks, setSelectedBooks] = useState<string[]>([]);
+  const [selectedSets, setSelectedSets] = useState<string[]>([]);
 
   const { data: folders = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["folders"],
@@ -54,9 +59,45 @@ export default function FoldersScreen() {
     },
     onSuccess: async () => {
       setViewing(null);
+      setManaging(null);
       await queryClient.invalidateQueries({ queryKey: ["folders"] });
     },
   });
+
+  const { data: books = [] } = useQuery({
+    queryKey: ["books", "folders-manage"],
+    enabled: !!managing,
+    queryFn: async () => {
+      const { data } = await api.get<BookOut[] | { items: BookOut[] }>("/books/", { params: { page: 1, size: 100 } });
+      return Array.isArray(data) ? data : (data.items ?? []);
+    },
+  });
+
+  const { data: sets = [] } = useQuery({
+    queryKey: ["flashcard-sets", "folders-manage"],
+    enabled: !!managing,
+    queryFn: () => fetchFlashcardSetsList(),
+  });
+
+  const updateFolderMutation = useMutation({
+    mutationFn: async (payload: { id: string; book_ids: string[]; flashcard_set_ids: string[] }) => {
+      await api.patch(`/folders/${payload.id}`, {
+        book_ids: payload.book_ids,
+        flashcard_set_ids: payload.flashcard_set_ids,
+      });
+    },
+    onSuccess: async () => {
+      setManaging(null);
+      await queryClient.invalidateQueries({ queryKey: ["folders"] });
+    },
+  });
+
+  const openManage = (folder: FolderOut) => {
+    setManaging(folder);
+    setSelectedBooks(folder.book_ids);
+    setSelectedSets(folder.flashcard_set_ids);
+    setViewing(null);
+  };
 
   return (
     <Screen keyboard={createOpen}>
@@ -163,6 +204,9 @@ export default function FoldersScreen() {
               <Pressable onPress={() => setViewing(null)}>
                 <Text style={{ color: colors.muted, fontWeight: "600" }}>Close</Text>
               </Pressable>
+              <Pressable onPress={() => viewing && openManage(viewing)}>
+                <Text style={{ color: colors.primary, fontWeight: "700" }}>Manage items</Text>
+              </Pressable>
               <Pressable
                 onPress={() =>
                   Alert.alert("Delete folder?", "This cannot be undone.", [
@@ -176,6 +220,74 @@ export default function FoldersScreen() {
                 }
               >
                 <Text style={{ color: colors.danger, fontWeight: "700" }}>Delete</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!managing} animationType="slide" transparent>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.manageCard, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Manage items</Text>
+            <Text style={[styles.cardMeta, { color: colors.muted, marginBottom: 8 }]}>
+              {selectedBooks.length + selectedSets.length} selected
+            </Text>
+            <View style={styles.manageActions}>
+              <Pressable onPress={() => { setSelectedBooks(books.map((b) => b.id)); setSelectedSets(sets.map((s) => s.id)); }}>
+                <Text style={{ color: colors.primary, fontWeight: "600" }}>Select all</Text>
+              </Pressable>
+              <Pressable onPress={() => { setSelectedBooks([]); setSelectedSets([]); }}>
+                <Text style={{ color: colors.muted, fontWeight: "600" }}>Deselect all</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.manageScroll}>
+              {books.map((b) => (
+                <Pressable
+                  key={b.id}
+                  style={styles.checkRow}
+                  onPress={() =>
+                    setSelectedBooks((prev) =>
+                      prev.includes(b.id) ? prev.filter((id) => id !== b.id) : [...prev, b.id],
+                    )
+                  }
+                >
+                  <Text>{selectedBooks.includes(b.id) ? "☑" : "☐"}</Text>
+                  <Text style={{ color: colors.text, flex: 1 }} numberOfLines={1}>{b.title}</Text>
+                </Pressable>
+              ))}
+              {sets.map((s) => (
+                <Pressable
+                  key={s.id}
+                  style={styles.checkRow}
+                  onPress={() =>
+                    setSelectedSets((prev) =>
+                      prev.includes(s.id) ? prev.filter((id) => id !== s.id) : [...prev, s.id],
+                    )
+                  }
+                >
+                  <Text>{selectedSets.includes(s.id) ? "☑" : "☐"}</Text>
+                  <Text style={{ color: colors.text, flex: 1 }} numberOfLines={1}>{s.title}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setManaging(null)}>
+                <Text style={{ color: colors.muted, fontWeight: "600" }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.addBtn, updateFolderMutation.isPending && { opacity: 0.6 }]}
+                disabled={updateFolderMutation.isPending || !managing}
+                onPress={() =>
+                  managing &&
+                  updateFolderMutation.mutate({
+                    id: managing.id,
+                    book_ids: selectedBooks,
+                    flashcard_set_ids: selectedSets,
+                  })
+                }
+              >
+                <Text style={styles.addBtnText}>{updateFolderMutation.isPending ? "Saving…" : "Save"}</Text>
               </Pressable>
             </View>
           </View>
@@ -234,4 +346,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 16, alignItems: "center" },
+  manageCard: { borderRadius: 16, padding: 20, maxHeight: "85%" },
+  manageScroll: { maxHeight: 320, marginVertical: 8 },
+  manageActions: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
+  checkRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10 },
 });

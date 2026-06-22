@@ -1,5 +1,6 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
@@ -7,6 +8,7 @@ import { Screen } from "../components/Screen";
 import { api } from "../api/client";
 import { useScreenHeader } from "../hooks/useScreenHeader";
 import { useTheme } from "../hooks/useTheme";
+import { hapticImpact } from "../lib/haptics";
 import { flattenPages, normalizePage } from "../lib/pagination";
 import type { Paginated, QuizResultOut } from "../types/api";
 
@@ -27,6 +29,7 @@ function scoreStyle(pct: number, colors: { success: string; warning: string; dan
 
 export default function QuizHistoryScreen() {
   const { colors } = useTheme();
+  const router = useRouter();
   const header = useScreenHeader("Quiz Results");
 
   const {
@@ -91,7 +94,13 @@ export default function QuizHistoryScreen() {
             const badge = scoreStyle(pct, colors);
             const label = pct >= 80 ? "Excellent" : pct >= 50 ? "Good" : "Needs work";
             return (
-              <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Pressable
+                style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                onPress={() => {
+                  void hapticImpact("light");
+                  router.push(`/quiz-results/${item.id}`);
+                }}
+              >
                 <View style={[styles.scoreCircle, { backgroundColor: badge.bg }]}>
                   <Text style={[styles.scoreText, { color: badge.color }]}>{pct}%</Text>
                 </View>
@@ -111,7 +120,7 @@ export default function QuizHistoryScreen() {
                 <View style={[styles.badge, { backgroundColor: badge.bg }]}>
                   <Text style={[styles.badgeText, { color: badge.color }]}>{label}</Text>
                 </View>
-              </View>
+              </Pressable>
             );
           }}
         />

@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import { api } from "../../api/client";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
+import { buildEnhancedSummaryPrompt, formatSummaryScope } from "../../lib/summaryScope";
 import { SummaryCard, type ChapterSummary } from "./SummaryCard";
 
 type Card = {
@@ -16,23 +17,31 @@ type Card = {
 type Props = {
   cards: Card[];
   bookTitle?: string | null;
+  selectedChapters?: string[];
 };
 
-export function ChapterSummaryView({ cards, bookTitle }: Props) {
+export function ChapterSummaryView({ cards, bookTitle, selectedChapters = [] }: Props) {
   const { colors } = useTheme();
   const [summaries, setSummaries] = useState<ChapterSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const scopedCards =
+    selectedChapters.length > 0
+      ? cards.filter((c) => c.chapter && selectedChapters.includes(c.chapter))
+      : cards;
+
+  const scopeLabel = formatSummaryScope(selectedChapters, bookTitle ?? "");
+
   const generateSummaries = async () => {
-    if (!cards.length) return;
+    if (!scopedCards.length) return;
     setLoading(true);
     setError(null);
     setGenerated(false);
 
     const byChapter: Record<string, Card[]> = {};
-    cards.forEach((card) => {
+    scopedCards.forEach((card) => {
       const ch = card.chapter || "General";
       if (!byChapter[ch]) byChapter[ch] = [];
       byChapter[ch].push(card);
@@ -46,18 +55,11 @@ export function ChapterSummaryView({ cards, bookTitle }: Props) {
 
     try {
       const { data: result } = await api.post<{ chapters?: ChapterSummary[] }>("/ai/invoke", {
-        prompt: `You are an expert educational content creator. Based on the flashcard Q&A pairs below from the book "${bookTitle ?? "this book"}", generate rich, high-quality chapter summaries.
-
-${chapterList.map((c) => `=== CHAPTER: ${c.chapter} (${c.cardCount} cards) ===\n${c.qa}`).join("\n\n---\n\n")}
-
-For EACH chapter, produce:
-1. **overview**: A clear 3-5 sentence overview that explains what the chapter covers, why it matters, and how concepts connect.
-2. **key_points**: 5-8 concise, memorable bullet points.
-3. **core_concept**: A single sentence that captures the most essential idea of the chapter.
-4. **common_mistakes**: 2-3 short notes on common misconceptions or tricky areas.
-5. **difficulty**: Rate the chapter as "beginner", "intermediate", or "advanced".
-
-Return structured JSON covering every chapter listed.`,
+        prompt: buildEnhancedSummaryPrompt({
+          bookTitle: bookTitle ?? "this book",
+          chapterList,
+          detailLevel: "standard",
+        }),
         response_json_schema: {
           type: "object",
           properties: {
@@ -88,7 +90,15 @@ Return structured JSON covering every chapter listed.`,
     }
   };
 
-  if (!cards.length) {
+  if (!scopedCards.length && selectedChapters.length > 0) {
+    return (
+      <View style={styles.center}>
+        <Text style={[styles.empty, { color: colors.muted }]}>No cards for the selected chapter scope.</Text>
+      </View>
+    );
+  }
+
+  if (!scopedCards.length) {
     return (
       <View style={styles.center}>
         <Text style={[styles.empty, { color: colors.muted }]}>No flashcards in this set yet.</Text>
@@ -96,68 +106,76 @@ Return structured JSON covering every chapter listed.`,
     );
   }
 
-  if (!generated && !loading) {
-    return (
-      <View style={[styles.prompt, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Text style={styles.promptEmoji}>📖</Text>
-        <Text style={[styles.promptTitle, { color: colors.text }]}>Chapter summaries</Text>
-        <Text style={[styles.promptSub, { color: colors.muted }]}>
-          Generate AI-powered overviews, key points, and common pitfalls for each chapter.
-        </Text>
-        {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
-        <Pressable
-          style={[styles.btn, { backgroundColor: colors.primary }]}
-          onPress={() => {
-            void hapticImpact("light");
-            void generateSummaries();
-          }}
-        >
-          <Text style={styles.btnText}>Generate summaries</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  if (loading) {
-    return (
-      <View style={[styles.prompt, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={[styles.promptTitle, { color: colors.text, marginTop: 16 }]}>Crafting summaries…</Text>
-        <Text style={[styles.promptSub, { color: colors.muted }]}>Analyzing your flashcards</Text>
-      </View>
-    );
-  }
-
   return (
     <View>
-      <View style={styles.toolbar}>
-        <Text style={[styles.count, { color: colors.muted }]}>
-          {summaries.length} chapter{summaries.length !== 1 ? "s" : ""} summarized
-        </Text>
-        <Pressable
-          onPress={() => {
-            void hapticImpact("light");
-            void generateSummaries();
-          }}
-        >
-          <Text style={[styles.regen, { color: colors.primary }]}>Regenerate</Text>
-        </Pressable>
+      <View style={[styles.scopeBox, { backgroundColor: `${colors.primary}11`, borderColor: `${colors.primary}33` }]}>
+        <Text style={[styles.scopeLabel, { color: colors.muted }]}>SUMMARY SCOPE</Text>
+        <Text style={[styles.scopeValue, { color: colors.text }]}>{scopeLabel}</Text>
       </View>
-      {summaries.map((s, i) => (
-        <SummaryCard key={`${s.chapter}-${i}`} {...s} defaultOpen={i === 0} />
-      ))}
+
+      {!generated && !loading ? (
+        <View style={[styles.prompt, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={styles.promptEmoji}>📖</Text>
+          <Text style={[styles.promptTitle, { color: colors.text }]}>Enhanced summaries</Text>
+          <Text style={[styles.promptSub, { color: colors.muted }]}>
+            Generate AI-powered overviews from your flashcards. Detail level is chosen when you generate flashcards from the book page.
+          </Text>
+          {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
+          <Pressable
+            style={[styles.btn, { backgroundColor: colors.primary }]}
+            onPress={() => {
+              void hapticImpact("light");
+              void generateSummaries();
+            }}
+          >
+            <Text style={styles.btnText}>Generate summaries</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {loading ? (
+        <View style={[styles.prompt, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.promptTitle, { color: colors.text, marginTop: 16 }]}>Crafting summaries…</Text>
+        </View>
+      ) : null}
+
+      {generated ? (
+        <View>
+          <View style={styles.toolbar}>
+            <Text style={[styles.count, { color: colors.muted }]}>
+              {summaries.length} chapter{summaries.length !== 1 ? "s" : ""} summarized
+            </Text>
+            <Pressable
+              onPress={() => {
+                void hapticImpact("light");
+                void generateSummaries();
+              }}
+            >
+              <Text style={[styles.regen, { color: colors.primary }]}>Regenerate</Text>
+            </Pressable>
+          </View>
+          {summaries.map((s, i) => (
+            <SummaryCard key={`${s.chapter}-${i}`} {...s} defaultOpen={i === 0} />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   center: { paddingVertical: 32, alignItems: "center" },
-  empty: { fontSize: 15 },
+  empty: { fontSize: 15, textAlign: "center" },
+  scopeBox: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 14 },
+  scopeLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 0.5, marginBottom: 4 },
+  scopeValue: { fontSize: 14, fontWeight: "600" },
   prompt: {
     borderRadius: 16,
     borderWidth: 1,
     padding: 24,
     alignItems: "center",
+    marginBottom: 12,
   },
   promptEmoji: { fontSize: 40, marginBottom: 12 },
   promptTitle: { fontSize: 18, fontWeight: "700", marginBottom: 8, textAlign: "center" },

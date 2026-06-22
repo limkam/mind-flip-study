@@ -1,9 +1,10 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
-import { Link } from "expo-router";
+import { Link, router } from "expo-router";
 import { useCallback, useState } from "react";
 import {
+  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -22,6 +23,7 @@ import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
 import { flattenPages, normalizePage } from "../../lib/pagination";
 import { uploadBookFromPicker, titleFromFilename } from "../../lib/uploadBook";
+import { formatFileSize, estimatePageCount } from "../../lib/formatFileSize";
 import type { BookOut, Paginated } from "../../types/api";
 
 const PAGE_SIZE = 20;
@@ -72,27 +74,31 @@ export default function LibraryTab() {
   const total = data?.pages[0]?.total ?? 0;
 
   const uploadMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (replaceBookId?: string) => {
       if (!picked || !title.trim() || !author.trim()) {
         throw new Error("Pick a file and enter title and author.");
       }
-      await uploadBookFromPicker({
+      return uploadBookFromPicker({
         title: title.trim(),
         author: author.trim(),
         uri: picked.uri,
         size: picked.size,
         name: picked.name,
         mimeType: picked.mimeType ?? "application/pdf",
+        replaceBookId,
         onProgress: setUploadPhase,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (book) => {
       setUploadPhase(null);
       setUploadOpen(false);
       setTitle("");
       setAuthor("");
       setPicked(null);
       await queryClient.invalidateQueries({ queryKey: ["books"] });
+      if (book?.id) {
+        router.push(`/book/${book.id}`);
+      }
     },
     onError: () => {
       setUploadPhase(null);
@@ -128,6 +134,35 @@ export default function LibraryTab() {
     );
   }, []);
 
+  const handleUploadPress = useCallback(async () => {
+    if (!picked) {
+      await pickFile();
+      return;
+    }
+    if (!title.trim() || !author.trim()) return;
+    try {
+      const { data: dup } = await api.get<{ is_duplicate: boolean; matches: { id: string; title: string }[] }>(
+        "/books/check-duplicate",
+        { params: { title: title.trim() } },
+      );
+      if (dup.is_duplicate && dup.matches.length > 0) {
+        Alert.alert(
+          "Book already exists",
+          "A book with this title already exists. What would you like to do?",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Keep Both", onPress: () => uploadMutation.mutate(undefined) },
+            { text: "Replace", style: "destructive", onPress: () => uploadMutation.mutate(dup.matches[0].id) },
+          ],
+        );
+        return;
+      }
+    } catch {
+      // proceed with upload if duplicate check fails
+    }
+    uploadMutation.mutate(undefined);
+  }, [picked, title, author, pickFile, uploadMutation]);
+
   const renderItem = useCallback(
     ({ item }: { item: BookOut }) => (
       <Link href={`/book/${item.id}`} asChild>
@@ -137,7 +172,15 @@ export default function LibraryTab() {
         >
           <Text style={[styles.cardTitle, { color: colors.text }]}>{item.title}</Text>
           <Text style={[styles.cardMeta, { color: colors.muted }]}>{item.author}</Text>
-          <Text style={[styles.cardMeta, { color: colors.muted }]}>{item.status}</Text>
+          {item.is_analyzing ? (
+            <Text style={[styles.cardMeta, { color: colors.primary }]}>Extracting TOC…</Text>
+          ) : (item.table_of_contents?.length ?? 0) === 0 ? (
+            <Text style={[styles.cardMeta, { color: colors.muted }]}>TOC pending</Text>
+          ) : (
+            <Text style={[styles.cardMeta, { color: colors.muted }]}>
+              {item.table_of_contents!.length} chapters
+            </Text>
+          )}
         </Pressable>
       </Link>
     ),
@@ -207,6 +250,12 @@ export default function LibraryTab() {
                 {picked ? picked.name : "Choose PDF (required first step)"}
               </Text>
             </Pressable>
+            {picked ? (
+              <Text style={{ color: colors.muted, marginTop: 6, fontSize: 13, fontWeight: "600" }}>
+                {formatFileSize(picked.size)}
+                {estimatePageCount(picked.size) ? ` • ~${estimatePageCount(picked.size)} pages` : ""}
+              </Text>
+            ) : null}
             {detectHint ? (
               <Text style={{ color: colors.muted, marginTop: 8, fontSize: 13 }}>{detectHint}</Text>
             ) : null}
@@ -240,11 +289,15 @@ export default function LibraryTab() {
               </Pressable>
               <Pressable
                 style={[styles.primaryBtn, uploadMutation.isPending && { opacity: 0.6 }]}
-                disabled={uploadMutation.isPending || !picked || !title.trim() || !author.trim()}
-                onPress={() => uploadMutation.mutate()}
+                disabled={uploadMutation.isPending || (!picked ? false : !title.trim() || !author.trim())}
+                onPress={handleUploadPress}
               >
                 <Text style={styles.primaryBtnText}>
-                  {uploadMutation.isPending ? uploadPhaseLabel ?? "Uploading…" : "Upload Book"}
+                  {uploadMutation.isPending
+                    ? uploadPhaseLabel ?? "Uploading…"
+                    : picked
+                      ? "Upload Book"
+                      : "Choose PDF"}
                 </Text>
               </Pressable>
             </View>

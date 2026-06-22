@@ -7,7 +7,13 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import client, { clearAccessToken, getAccessToken, setAccessToken } from '@/api/client';
+import client, {
+  clearAccessToken,
+  getAccessToken,
+  getRememberMe,
+  setAccessToken,
+  setRememberMe,
+} from '@/api/client';
 
 const AuthContext = createContext(null);
 
@@ -20,14 +26,20 @@ export function AuthProvider({ children }) {
     const seq = ++loadUserSeq.current;
     setIsLoading(true);
     try {
-      // Restore session after refresh/HMR: cookie refresh or persisted access token.
       if (!getAccessToken()) {
-        try {
-          const { data } = await client.post('/auth/refresh');
-          setAccessToken(data.access_token);
-        } catch {
-          /* no refresh cookie — not signed in */
+        if (getRememberMe()) {
+          try {
+            const { data } = await client.post('/auth/refresh');
+            setAccessToken(data.access_token);
+          } catch {
+            /* no refresh cookie — not signed in */
+          }
         }
+      }
+      if (!getAccessToken()) {
+        if (seq !== loadUserSeq.current) return;
+        setUser(null);
+        return;
       }
       const { data } = await client.get('/users/me');
       if (seq !== loadUserSeq.current) return;
@@ -47,22 +59,28 @@ export function AuthProvider({ children }) {
     loadUser();
   }, [loadUser]);
 
-  const login = useCallback(async (email, password) => {
+  const login = useCallback(async (email, password, rememberMe = true) => {
     loadUserSeq.current += 1;
     setIsLoading(false);
+    setRememberMe(rememberMe);
     const { data } = await client.post('/auth/login', {
       email: email.trim().toLowerCase(),
       password,
+      remember_me: rememberMe,
     });
     setAccessToken(data.access_token);
     setUser(data.user);
     return data.user;
   }, []);
 
-  const loginWithGoogle = useCallback(async (idToken) => {
+  const loginWithGoogle = useCallback(async (idToken, rememberMe = true) => {
     loadUserSeq.current += 1;
     setIsLoading(false);
-    const { data } = await client.post('/auth/google', { id_token: idToken });
+    setRememberMe(rememberMe);
+    const { data } = await client.post('/auth/google', {
+      id_token: idToken,
+      remember_me: rememberMe,
+    });
     setAccessToken(data.access_token);
     setUser(data.user);
     return data.user;
@@ -87,6 +105,7 @@ export function AuthProvider({ children }) {
       loginWithGoogle,
       logout,
       refreshUser: loadUser,
+      rememberMe: getRememberMe(),
     }),
     [user, isLoading, login, loginWithGoogle, logout, loadUser],
   );

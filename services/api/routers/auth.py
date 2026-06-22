@@ -48,18 +48,22 @@ router = APIRouter(tags=["auth"])
 _REFRESH_COOKIE_NAME = "refresh_token"
 
 
-def _refresh_cookie_kwargs() -> dict:
-    return {
-        "max_age": settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+def _refresh_cookie_kwargs(*, remember_me: bool = True) -> dict:
+    kwargs: dict = {
         "httponly": True,
         "secure": settings.REFRESH_TOKEN_COOKIE_SECURE,
         "samesite": settings.refresh_token_cookie_samesite,
         "path": settings.REFRESH_TOKEN_COOKIE_PATH,
     }
+    if remember_me:
+        kwargs["max_age"] = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
+    else:
+        kwargs["max_age"] = settings.SESSION_REFRESH_EXPIRE_HOURS * 3600
+    return kwargs
 
 
-def _set_refresh_cookie(response: Response, value: str) -> None:
-    response.set_cookie(_REFRESH_COOKIE_NAME, value, **_refresh_cookie_kwargs())
+def _set_refresh_cookie(response: Response, value: str, *, remember_me: bool = True) -> None:
+    response.set_cookie(_REFRESH_COOKIE_NAME, value, **_refresh_cookie_kwargs(remember_me=remember_me))
 
 
 def _clear_refresh_cookie(response: Response) -> None:
@@ -72,7 +76,12 @@ def _clear_refresh_cookie(response: Response) -> None:
     )
 
 
-def _issue_login_response(*, user: User, response: Response) -> LoginResponse:
+def _issue_login_response(
+    *,
+    user: User,
+    response: Response,
+    remember_me: bool = True,
+) -> LoginResponse:
     if user.is_banned:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -80,7 +89,7 @@ def _issue_login_response(*, user: User, response: Response) -> LoginResponse:
         )
     access = create_access_token(subject=user.id)
     refresh = create_refresh_token(subject=user.id)
-    _set_refresh_cookie(response, refresh)
+    _set_refresh_cookie(response, refresh, remember_me=remember_me)
     return LoginResponse(access_token=access, user=UserPublic.model_validate(user))
 
 
@@ -223,7 +232,7 @@ async def google_login(
     full_name = str(idinfo.get("name") or "").strip()
     email_norm = str(email).strip().lower()
     user = await _get_or_create_google_user(db, email_norm, full_name)
-    return _issue_login_response(user=user, response=response)
+    return _issue_login_response(user=user, response=response, remember_me=body.remember_me)
 
 
 @router.post(
@@ -250,7 +259,7 @@ async def apple_login(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Apple token") from exc
     user = await _get_or_create_apple_user(db, claims, body.full_name)
-    return _issue_login_response(user=user, response=response)
+    return _issue_login_response(user=user, response=response, remember_me=body.remember_me)
 
 
 @router.post(
@@ -453,7 +462,7 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
-    return _issue_login_response(user=user, response=response)
+    return _issue_login_response(user=user, response=response, remember_me=body.remember_me)
 
 
 @router.post("/refresh", response_model=RefreshTokenResponse)

@@ -1,36 +1,26 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 
 import { EmptyState } from "../components/EmptyState";
 import { FlashCard } from "../components/FlashCard";
 import { Screen } from "../components/Screen";
+import { StudySessionSummary } from "../components/study/StudySessionSummary";
 import { api } from "../api/client";
-import { fetchFlashcardSetsList } from "../lib/flashcardSets";
 import { useScreenHeader } from "../hooks/useScreenHeader";
 import { useTheme } from "../hooks/useTheme";
 import { hapticImpact, hapticSuccess } from "../lib/haptics";
 import { useAuthStore } from "../store/authStore";
-import type { DueFlashcardOut } from "../types/api";
+import type { BookOut, DueFlashcardOut, Paginated } from "../types/api";
 
 const RATING_TO_QUALITY = { hard: 2, medium: 3, easy: 5 } as const;
 
 type ReviewItem = {
-  card: { id: string; front: string; back: string };
+  card: { id: string; front: string; back: string; chapter?: string | null };
   setTitle: string;
+  bookTitle?: string | null;
 };
-
-function sortDueRows(rows: DueFlashcardOut[]) {
-  return [...rows].sort((a, b) => {
-    const da = a.next_review_date ? String(a.next_review_date) : "";
-    const db = b.next_review_date ? String(b.next_review_date) : "";
-    if (!da && !db) return 0;
-    if (!da) return -1;
-    if (!db) return 1;
-    return da.localeCompare(db);
-  });
-}
 
 export default function DailyReviewScreen() {
   const { colors } = useTheme();
@@ -41,89 +31,219 @@ export default function DailyReviewScreen() {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [sessionDone, setSessionDone] = useState(false);
+  const [pendingRating, setPendingRating] = useState<keyof typeof RATING_TO_QUALITY | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [selectedBooks, setSelectedBooks] = useState<Record<string, boolean>>({});
+  const [hardReviewMode, setHardReviewMode] = useState(false);
+  const [hardReviewItems, setHardReviewItems] = useState<ReviewItem[]>([]);
+  const [sessionStats, setSessionStats] = useState({ hard: 0, medium: 0, easy: 0, total: 0 });
+  const sessionStart = useRef(Date.now());
 
-  const { data: reviewItems = [], isLoading } = useQuery({
-    queryKey: ["daily-review-queue", user?.id],
+  const { data: books = [] } = useQuery({
+    queryKey: ["books-daily-review"],
     enabled: !!user,
     queryFn: async () => {
-      const sets = await fetchFlashcardSetsList();
-      const pages = await Promise.all(
-        sets.map((s) =>
-          api
-            .get<DueFlashcardOut[]>("/study/due-cards", { params: { set_id: s.id, limit: 20 } })
-            .then((r) => r.data)
-            .catch(() => [] as DueFlashcardOut[]),
-        ),
-      );
-      const merged = sortDueRows(pages.flat());
-      return merged.map(
+      const { data } = await api.get<Paginated<BookOut>>("/books/", { params: { page: 1, size: 100 } });
+      return data.items ?? [];
+    },
+  });
+
+  const activeBookIds = useMemo(() => {
+    const ids = Object.entries(selectedBooks)
+      .filter(([, v]) => v)
+      .map(([id]) => id);
+    return ids.length > 0 ? ids : null;
+  }, [selectedBooks]);
+
+  const { data: reviewItems = [], isLoading } = useQuery({
+    queryKey: ["daily-review-queue", user?.id, activeBookIds],
+    enabled: !!user && !hardReviewMode,
+    queryFn: async () => {
+      const params: Record<string, string | number> = { limit: 50 };
+      if (activeBookIds?.length === 1) params.book_id = activeBookIds[0];
+
+      const { data } = await api.get<DueFlashcardOut[]>("/study/daily-review", { params });
+
+      let filtered = data || [];
+      if (activeBookIds && activeBookIds.length > 1) {
+        const idSet = new Set(activeBookIds);
+        filtered = filtered.filter((r) => r.book_id && idSet.has(r.book_id));
+      }
+
+      return filtered.map(
         (row): ReviewItem => ({
-          card: { id: row.id, front: row.front, back: row.back },
+          card: { id: row.id, front: row.front, back: row.back, chapter: row.chapter },
           setTitle: row.set_title,
+          bookTitle: row.book_title,
         }),
       );
     },
   });
 
-  const count = reviewItems.length;
-  const item = reviewItems[currentIdx];
+  const displayItems = hardReviewMode ? hardReviewItems : reviewItems;
+  const count = displayItems.length;
+  const item = displayItems[currentIdx];
+
+  useEffect(() => {
+    setPendingRating(null);
+  }, [currentIdx]);
+
+  useEffect(() => {
+    if (books.length && Object.keys(selectedBooks).length === 0) {
+      const init: Record<string, boolean> = {};
+      books.forEach((b) => {
+        init[b.id] = true;
+      });
+      setSelectedBooks(init);
+    }
+  }, [books, selectedBooks]);
 
   const rate = useCallback(
     async (rating: keyof typeof RATING_TO_QUALITY) => {
-      if (!item) return;
+      if (!item || pendingRating) return;
+      setPendingRating(rating);
       const quality = RATING_TO_QUALITY[rating];
-      await api.post("/study/progress", { card_id: item.card.id, quality });
-      await queryClient.invalidateQueries({ queryKey: ["daily-review-queue"] });
-      if (rating === "easy") void hapticSuccess();
-      else void hapticImpact("medium");
-      if (currentIdx >= count - 1) {
-        setSessionDone(true);
-        return;
+      setSessionStats((s) => ({
+        ...s,
+        total: s.total + 1,
+        [rating]: (s[rating as keyof typeof s] as number) + 1,
+      }));
+      if (rating === "hard" && !hardReviewMode) {
+        setHardReviewItems((items) =>
+          items.some((i) => i.card.id === item.card.id) ? items : [...items, item],
+        );
       }
-      setCurrentIdx((i) => i + 1);
-      setFlipped(false);
+      try {
+        await api.post("/study/progress", { card_id: item.card.id, quality });
+        await queryClient.invalidateQueries({ queryKey: ["daily-review-queue"] });
+        if (rating === "easy") void hapticSuccess();
+        else void hapticImpact("medium");
+        if (currentIdx >= count - 1) {
+          setSessionDone(true);
+          return;
+        }
+        setCurrentIdx((i) => i + 1);
+        setFlipped(false);
+      } catch {
+        setPendingRating(null);
+        setSessionStats((s) => ({
+          ...s,
+          total: Math.max(0, s.total - 1),
+          [rating]: Math.max(0, (s[rating as keyof typeof s] as number) - 1),
+        }));
+      }
     },
-    [item, currentIdx, count, queryClient],
+    [item, currentIdx, count, queryClient, pendingRating, hardReviewMode],
   );
+
+  const restartHardSession = () => {
+    if (!hardReviewItems.length) return;
+    setHardReviewMode(true);
+    setSessionDone(false);
+    setCurrentIdx(0);
+    setFlipped(false);
+    setSessionStats({ hard: 0, medium: 0, easy: 0, total: 0 });
+    sessionStart.current = Date.now();
+  };
 
   const progressLabel = useMemo(
     () => (count ? `${Math.min(currentIdx + 1, count)} / ${count}` : "0 / 0"),
     [currentIdx, count],
   );
 
+  if (sessionDone) {
+    return (
+      <Screen>
+        {header}
+        <StudySessionSummary
+          stats={{ ...sessionStats, durationMs: Date.now() - sessionStart.current }}
+          mode="study"
+          onReviewHard={hardReviewItems.length > 0 ? restartHardSession : null}
+        />
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
       {header}
-      {isLoading ? (
+      {isLoading && !hardReviewMode ? (
         <Text style={[styles.center, { color: colors.muted }]}>Loading due cards…</Text>
       ) : count === 0 ? (
         <EmptyState
           icon="🧠"
           title="Nothing due today"
-          message="You have no flashcards scheduled for review."
+          message={hardReviewMode ? "No hard cards to review." : "You have no flashcards scheduled for review."}
         />
-      ) : sessionDone ? (
-        <View style={styles.doneWrap}>
-          <Text style={styles.doneEmoji}>✅</Text>
-          <Text style={[styles.doneTitle, { color: colors.text }]}>Session complete</Text>
-          <Text style={[styles.doneSub, { color: colors.muted }]}>Nice work — see you tomorrow.</Text>
-        </View>
       ) : (
         <View style={styles.session}>
           <View style={styles.topRow}>
-            <Text style={[styles.brand, { color: colors.primary }]}>Daily review</Text>
+            <Text style={[styles.brand, { color: colors.primary }]}>
+              {hardReviewMode ? "Hard card review" : "Daily review"}
+            </Text>
+            {!hardReviewMode ? (
+              <Pressable onPress={() => setShowFilters((v) => !v)}>
+                <Text style={[styles.filterBtn, { color: colors.primary }]}>Filter</Text>
+              </Pressable>
+            ) : null}
             <Text style={[styles.progress, { color: colors.muted }]}>{progressLabel}</Text>
           </View>
+
+          {showFilters && !hardReviewMode ? (
+            <View style={[styles.filterBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.filterTitle, { color: colors.muted }]}>REVIEW SCOPE</Text>
+              <ScrollView style={{ maxHeight: 160 }} nestedScrollEnabled>
+                {books.map((b) => (
+                  <Pressable
+                    key={b.id}
+                    style={styles.filterRow}
+                    onPress={() => {
+                      void hapticImpact("light");
+                      setSelectedBooks((prev) => ({ ...prev, [b.id]: !prev[b.id] }));
+                      setCurrentIdx(0);
+                    }}
+                  >
+                    <Text style={{ color: selectedBooks[b.id] ? colors.primary : colors.muted, fontSize: 16 }}>
+                      {selectedBooks[b.id] ? "☑" : "☐"}
+                    </Text>
+                    <Text style={[styles.filterLabel, { color: colors.text }]} numberOfLines={1}>
+                      {b.title}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
+
+          <View style={[styles.ratingHelp, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}22` }]}>
+            <Text style={[styles.helpTitle, { color: colors.text }]}>How ratings work</Text>
+            <Text style={[styles.helpLine, { color: colors.muted }]}>
+              <Text style={{ color: colors.danger, fontWeight: "700" }}>Hard</Text> — reviewed again soon
+            </Text>
+            <Text style={[styles.helpLine, { color: colors.muted }]}>
+              <Text style={{ color: colors.warning, fontWeight: "700" }}>OK</Text> — normal review interval
+            </Text>
+            <Text style={[styles.helpLine, { color: colors.muted }]}>
+              <Text style={{ color: colors.success, fontWeight: "700" }}>Easy</Text> — longer interval before next review
+            </Text>
+          </View>
+
           {item ? (
             <>
               <Text style={[styles.setTitle, { color: colors.muted }]} numberOfLines={1}>
                 {item.setTitle}
               </Text>
+              {item.card.chapter ? (
+                <Text style={[styles.chapter, { color: colors.primary }]} numberOfLines={1}>
+                  {item.card.chapter}
+                </Text>
+              ) : null}
               <View style={styles.cardArea}>
                 <FlashCard
                   key={item.card.id}
                   front={item.card.front}
                   back={item.card.back}
+                  chapter={item.card.chapter}
                   onFlippedChange={setFlipped}
                   onSwipeLeft={() => rate("hard")}
                   onSwipeRight={() => rate("easy")}
@@ -131,33 +251,13 @@ export default function DailyReviewScreen() {
               </View>
               {flipped ? (
                 <Animated.View entering={FadeIn} style={styles.ratingRow}>
-                  <RateBtn label="Hard" color={colors.danger} onPress={() => rate("hard")} />
-                  <RateBtn label="Good" color={colors.primary} onPress={() => rate("medium")} />
-                  <RateBtn label="Easy" color={colors.success} onPress={() => rate("easy")} />
+                  <RateBtn label="Hard" color={colors.danger} active={pendingRating === "hard"} onPress={() => rate("hard")} />
+                  <RateBtn label="OK" color={colors.warning} active={pendingRating === "medium"} onPress={() => rate("medium")} />
+                  <RateBtn label="Easy" color={colors.success} active={pendingRating === "easy"} onPress={() => rate("easy")} />
                 </Animated.View>
               ) : (
-                <Text style={[styles.hint, { color: colors.muted }]}>Tap to flip, then rate your recall</Text>
+                <Text style={[styles.hint, { color: colors.muted }]}>Tap to flip, then rate to continue</Text>
               )}
-              <View style={styles.navRow}>
-                <NavBtn
-                  label="Previous"
-                  disabled={currentIdx === 0}
-                  onPress={() => {
-                    setCurrentIdx((i) => Math.max(0, i - 1));
-                    setFlipped(false);
-                  }}
-                  colors={colors}
-                />
-                <NavBtn
-                  label="Next"
-                  disabled={currentIdx >= count - 1}
-                  onPress={() => {
-                    setCurrentIdx((i) => Math.min(count - 1, i + 1));
-                    setFlipped(false);
-                  }}
-                  colors={colors}
-                />
-              </View>
             </>
           ) : null}
         </View>
@@ -166,66 +266,51 @@ export default function DailyReviewScreen() {
   );
 }
 
-function RateBtn({ label, color, onPress }: { label: string; color: string; onPress: () => void }) {
-  return (
-    <Pressable style={[styles.rateBtn, { backgroundColor: color }]} onPress={onPress}>
-      <Text style={styles.rateBtnText}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function NavBtn({
+function RateBtn({
   label,
-  disabled,
+  color,
+  active,
   onPress,
-  colors,
 }: {
   label: string;
-  disabled: boolean;
+  color: string;
+  active?: boolean;
   onPress: () => void;
-  colors: { surface: string; text: string };
 }) {
   return (
-    <Pressable
-      style={[styles.navBtn, { backgroundColor: colors.surface }, disabled && { opacity: 0.35 }]}
-      disabled={disabled}
-      onPress={onPress}
-    >
-      <Text style={{ color: colors.text, fontWeight: "600" }}>{label}</Text>
+    <Pressable style={[styles.rateBtn, { backgroundColor: color }, active && styles.rateBtnActive]} onPress={onPress}>
+      <Text style={styles.rateBtnText}>{label}</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   center: { textAlign: "center", marginTop: 48, fontSize: 15 },
-  doneWrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  doneEmoji: { fontSize: 48, marginBottom: 12 },
-  doneTitle: { fontSize: 22, fontWeight: "700" },
-  doneSub: { fontSize: 15, marginTop: 8, textAlign: "center" },
   session: { flex: 1, paddingHorizontal: 16, paddingBottom: 16 },
-  topRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  topRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
   brand: { fontSize: 14, fontWeight: "700" },
-  progress: { fontSize: 13, fontWeight: "600" },
-  setTitle: { fontSize: 12, textAlign: "center", marginBottom: 12 },
-  cardArea: { flex: 1, justifyContent: "center" },
+  filterBtn: { fontSize: 13, fontWeight: "700" },
+  progress: { fontSize: 13, fontWeight: "600", marginLeft: "auto" },
+  filterBox: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 10 },
+  filterTitle: { fontSize: 10, fontWeight: "700", letterSpacing: 0.5, marginBottom: 8 },
+  filterRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
+  filterLabel: { flex: 1, fontSize: 14, fontWeight: "500" },
+  ratingHelp: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 12 },
+  helpTitle: { fontSize: 13, fontWeight: "700", marginBottom: 6 },
+  helpLine: { fontSize: 12, lineHeight: 18 },
+  setTitle: { fontSize: 12, textAlign: "center", marginBottom: 2 },
+  chapter: { fontSize: 12, textAlign: "center", fontWeight: "600", marginBottom: 8 },
+  cardArea: { flex: 1, justifyContent: "center", minHeight: 280 },
   hint: { textAlign: "center", fontSize: 14, marginBottom: 12 },
   ratingRow: { flexDirection: "row", justifyContent: "center", gap: 10, marginBottom: 12 },
   rateBtn: {
     minHeight: 44,
-    minWidth: 88,
+    minWidth: 80,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 12,
   },
+  rateBtnActive: { transform: [{ scale: 1.05 }], opacity: 0.92 },
   rateBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  navRow: { flexDirection: "row", justifyContent: "center", gap: 12 },
-  navBtn: {
-    minHeight: 44,
-    minWidth: 110,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 16,
-  },
 });

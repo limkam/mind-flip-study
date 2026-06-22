@@ -12,6 +12,8 @@ import Animated, {
 
 import { useTheme } from "../hooks/useTheme";
 import { hapticImpact } from "../lib/haptics";
+import { studyThemeFromPreferences } from "../lib/studyTheme";
+import { useAuthStore } from "../store/authStore";
 
 type Props = {
   front: string;
@@ -33,6 +35,7 @@ export function FlashCard({
   onFlippedChange,
 }: Props) {
   const { colors } = useTheme();
+  const studyTheme = studyThemeFromPreferences(useAuthStore((s) => s.user?.preferences));
   const rotation = useSharedValue(0);
   const translateX = useSharedValue(0);
   const isFlipped = useSharedValue(false);
@@ -105,10 +108,10 @@ export function FlashCard({
           style={[
             styles.face,
             frontStyle,
-            { backgroundColor: colors.cardFront, borderColor: colors.border },
+            { backgroundColor: studyTheme.cardFront, borderColor: colors.border },
           ]}
         >
-          <View style={[styles.header, { backgroundColor: colors.primary }]}>
+          <View style={[styles.header, { backgroundColor: studyTheme.questionHeader }]}>
             <Text style={styles.headerLabel}>Question</Text>
             {chapter ? <Text style={styles.chapter} numberOfLines={1}>{chapter}</Text> : null}
           </View>
@@ -126,10 +129,10 @@ export function FlashCard({
             styles.face,
             styles.backFace,
             backStyle,
-            { backgroundColor: colors.cardBack, borderColor: colors.border },
+            { backgroundColor: studyTheme.cardBack, borderColor: colors.border },
           ]}
         >
-          <View style={[styles.header, { backgroundColor: colors.success }]}>
+          <View style={[styles.header, { backgroundColor: studyTheme.answerHeader }]}>
             <Text style={styles.headerLabel}>Answer</Text>
           </View>
           <View style={styles.body}>

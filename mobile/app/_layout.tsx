@@ -55,9 +55,13 @@ function RootNavigator() {
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="quiz-history" options={{ headerShown: true, title: "Quiz Results" }} />
+        <Stack.Screen name="quiz-results/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="daily-review" options={{ headerShown: true, title: "Daily Review" }} />
         <Stack.Screen name="analytics" options={{ headerShown: true, title: "Analytics" }} />
         <Stack.Screen name="leaderboard" options={{ headerShown: true, title: "Leaderboard" }} />
+        <Stack.Screen name="study-groups" options={{ headerShown: true, title: "Study Groups" }} />
+        <Stack.Screen name="study-groups/[id]" options={{ headerShown: true, title: "Group" }} />
+        <Stack.Screen name="challenge-leaderboard" options={{ headerShown: true, title: "Challenge Board" }} />
         <Stack.Screen name="folders" options={{ headerShown: true, title: "Collections" }} />
         <Stack.Screen name="profile" options={{ headerShown: true, title: "My Profile" }} />
         <Stack.Screen name="settings" options={{ headerShown: true, title: "Settings" }} />
