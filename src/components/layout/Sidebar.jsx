@@ -94,11 +94,17 @@ function UserSection({ user, collapsed }) {
   return (
     <div className="p-3 border-t border-sidebar-border">
       <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : ""}`}>
-        <Avatar className="w-9 h-9 flex-shrink-0">
-          <AvatarFallback className="bg-sidebar-primary/20 text-sidebar-primary text-sm font-semibold">
-            {getInitials(user?.full_name)}
-          </AvatarFallback>
-        </Avatar>
+        <Link
+          to="/profile"
+          title="My Profile"
+          className="flex-shrink-0 rounded-full transition-shadow hover:ring-2 hover:ring-sidebar-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-primary"
+        >
+          <Avatar className="w-9 h-9">
+            <AvatarFallback className="bg-sidebar-primary/20 text-sidebar-primary text-sm font-semibold">
+              {getInitials(user?.full_name)}
+            </AvatarFallback>
+          </Avatar>
+        </Link>
         {!collapsed && (
           <div className="flex-1 overflow-hidden">
             <Link to="/profile" className="text-sm font-medium text-sidebar-foreground truncate hover:text-sidebar-primary transition-colors block">
