@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
+import { useFinishOnce } from "../../lib/gameLifecycle";
 
 type Props = {
   emoji: string;
@@ -13,6 +14,7 @@ type Props = {
 
 export function GameResult({ emoji, title, subtitle, primaryLabel = "Continue", onPrimary }: Props) {
   const { colors } = useTheme();
+  const finish = useFinishOnce(onPrimary);
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -23,7 +25,7 @@ export function GameResult({ emoji, title, subtitle, primaryLabel = "Continue", 
         style={[styles.btn, { backgroundColor: colors.primary }]}
         onPress={() => {
           void hapticImpact("light");
-          onPrimary();
+          finish();
         }}
       >
         <Text style={styles.btnText}>{primaryLabel}</Text>

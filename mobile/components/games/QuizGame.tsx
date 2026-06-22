@@ -17,6 +17,7 @@ export function QuizGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
     [cards, generationSeed, mode],
   );
   const [idx, setIdx] = useState(0);
+  const [answeredCount, setAnsweredCount] = useState(0);
   const [score, setScore] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -26,19 +27,18 @@ export function QuizGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
 
   useEffect(() => {
     setIdx(0);
+    setAnsweredCount(0);
     setScore(0);
     setSelected(null);
     setShowResult(false);
     setDone(false);
     setElapsed(0);
-  }, [mode, questions.length]);
-
-  useEffect(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, []);
+  }, [mode]);
 
   const q = questions[idx];
 
@@ -46,6 +46,7 @@ export function QuizGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
     if (showResult || !q) return;
     setSelected(opt);
     setShowResult(true);
+    setAnsweredCount((c) => c + 1);
     const ok = opt === q.correct;
     if (ok) {
       setScore((s) => s + 1);
@@ -70,9 +71,9 @@ export function QuizGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
       <GameResult
         emoji="🏆"
         title="Quiz complete!"
-        subtitle={`${score}/${questions.length} correct (${pct}%) · ${formatMmSs(elapsed)} · ${mode}`}
+        subtitle={`${score}/${questions.length} correct (${pct}%) · ${answeredCount} answered · ${formatMmSs(elapsed)} · ${mode}`}
         onPrimary={() =>
-          onComplete({ playerScore: score, computerScore: questions.length - score, totalRounds: questions.length })
+          onComplete({ playerScore: score, computerScore: questions.length - score, totalRounds: Math.max(questions.length, 1) })
         }
       />
     );
@@ -80,9 +81,9 @@ export function QuizGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
 
   return (
     <View>
-      <DifficultyModePicker value={mode} onChange={setMode} disabled={showResult} />
+      <DifficultyModePicker value={mode} onChange={setMode} disabled={answeredCount > 0} />
       <View style={styles.meta}>
-        <Text style={{ color: colors.muted }}>Q {idx + 1}/{questions.length}</Text>
+        <Text style={{ color: colors.muted }}>{answeredCount} of {questions.length} answered</Text>
         {q?.difficulty ? (
           <Text style={{ color: colors.primary, fontWeight: "700", textTransform: "uppercase", fontSize: 11 }}>
             {q.difficulty}
@@ -114,7 +115,7 @@ export function QuizGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
 }
 
 const styles = StyleSheet.create({
-  meta: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 8 },
+  meta: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 8, flexWrap: "wrap" },
   qCard: { borderRadius: 16, borderWidth: 1, padding: 20, minHeight: 100, justifyContent: "center" },
   chapter: { alignSelf: "flex-start", fontSize: 11, fontWeight: "600", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginBottom: 8 },
   q: { fontSize: 18, fontWeight: "600", textAlign: "center", lineHeight: 26 },

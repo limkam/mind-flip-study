@@ -5,15 +5,20 @@ import { Progress } from "@/components/ui/progress";
 import { CheckCircle2, XCircle, Timer, Zap, Trophy, ArrowRight } from "lucide-react";
 import { useConfetti } from "@/components/common/ConfettiEffect";
 import { buildMcqQuestions, difficultyLabel, QUIZ_DIFFICULTY_MODES } from "@/lib/gameUtils";
+import GameResultScreen from "@/components/games/GameResultScreen";
+import { useFinishOnce } from "@/lib/gameLifecycle";
 
 export default function QuizGame({ cards, setTitle, onComplete, generationSeed = 0, difficultyMode = "mixed" }) {
+  const finishGame = useFinishOnce(onComplete);
   const [mode, setMode] = useState(difficultyMode);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [answeredCount, setAnsweredCount] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [showResult, setShowResult] = useState(false);
   const [score, setScore] = useState(0);
   const [answers, setAnswers] = useState([]);
   const [gameOver, setGameOver] = useState(false);
+  const [pendingResult, setPendingResult] = useState(null);
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
@@ -28,22 +33,28 @@ export default function QuizGame({ cards, setTitle, onComplete, generationSeed =
   useEffect(() => {
     if (!questions.length) return;
     setCurrentIndex(0);
+    setAnsweredCount(0);
     setSelectedAnswer(null);
     setShowResult(false);
     setScore(0);
     setAnswers([]);
     setGameOver(false);
+    setPendingResult(null);
     setStreak(0);
     setMaxStreak(0);
     setTimeElapsed(0);
+    if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => setTimeElapsed((prev) => prev + 1), 1000);
-    return () => clearInterval(timerRef.current);
-  }, [questions]);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [mode]);
 
   const handleAnswer = (answer) => {
     if (showResult) return;
     setSelectedAnswer(answer);
     setShowResult(true);
+    setAnsweredCount((c) => c + 1);
 
     const isCorrect = answer === questions[currentIndex].correctAnswer;
     if (isCorrect) {
@@ -71,12 +82,11 @@ export default function QuizGame({ cards, setTitle, onComplete, generationSeed =
 
   const nextQuestion = () => {
     if (currentIndex + 1 >= questions.length) {
-      clearInterval(timerRef.current);
-      setGameOver(true);
+      if (timerRef.current) clearInterval(timerRef.current);
       const finalPct = Math.round((score / questions.length) * 100);
       if (finalPct === 100) fireConfetti("perfect");
       else if (finalPct >= 80) fireConfetti("default");
-      onComplete?.({
+      setPendingResult({
         score,
         total_questions: questions.length,
         percentage: finalPct,
@@ -84,6 +94,7 @@ export default function QuizGame({ cards, setTitle, onComplete, generationSeed =
         answers,
         difficulty_mode: mode,
       });
+      setGameOver(true);
     } else {
       setCurrentIndex((prev) => prev + 1);
       setSelectedAnswer(null);
@@ -99,25 +110,29 @@ export default function QuizGame({ cards, setTitle, onComplete, generationSeed =
 
   if (questions.length === 0) return null;
 
-  if (gameOver) {
-    const pct = Math.round((score / questions.length) * 100);
+  if (gameOver && pendingResult) {
+    const pct = pendingResult.percentage;
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="max-w-lg mx-auto text-center">
-        <div className="bg-card rounded-3xl border border-border p-8 shadow-lg">
-          <div className="w-20 h-20 mx-auto rounded-full bg-primary/10 flex items-center justify-center mb-6">
+      <GameResultScreen
+        icon={
+          <div className="w-20 h-20 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
             <Trophy className="w-10 h-10 text-primary" />
           </div>
-          <h2 className="font-heading text-3xl font-bold mb-2">Quiz Complete!</h2>
-          <p className="text-muted-foreground mb-6">{setTitle} · {difficultyLabel(mode)}</p>
-          <div className="text-6xl font-heading font-bold text-primary mb-2">{pct}%</div>
-          <p className="text-muted-foreground mb-8">{score} out of {questions.length} correct</p>
-        </div>
-      </motion.div>
+        }
+        title="Quiz Complete!"
+        subtitle={`${setTitle} · ${difficultyLabel(mode)} · ${answeredCount} of ${questions.length} answered`}
+        onContinue={finishGame}
+        result={pendingResult}
+        continueLabel="Continue"
+      >
+        <div className="text-6xl font-heading font-bold text-primary mb-2">{pct}%</div>
+        <p className="text-muted-foreground mb-2">{pendingResult.score} out of {questions.length} correct</p>
+      </GameResultScreen>
     );
   }
 
   const currentQ = questions[currentIndex];
-  const progress = ((currentIndex + 1) / questions.length) * 100;
+  const progress = (answeredCount / questions.length) * 100;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -137,7 +152,9 @@ export default function QuizGame({ cards, setTitle, onComplete, generationSeed =
 
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-muted-foreground">{currentIndex + 1} / {questions.length}</span>
+          <span className="text-sm font-medium text-muted-foreground">
+            {answeredCount} of {questions.length} answered · Q {currentIndex + 1}
+          </span>
           {currentQ.difficulty && (
             <span className="text-xs font-semibold uppercase bg-muted px-2 py-0.5 rounded">{currentQ.difficulty}</span>
           )}
@@ -200,7 +217,7 @@ export default function QuizGame({ cards, setTitle, onComplete, generationSeed =
 
       {showResult && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-6 flex justify-end">
-          <Button onClick={nextQuestion} size="lg" className="gap-2">
+          <Button type="button" onClick={nextQuestion} size="lg" className="gap-2">
             {currentIndex + 1 >= questions.length ? "See Results" : "Next Question"}
             <ArrowRight className="w-4 h-4" />
           </Button>

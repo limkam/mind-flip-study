@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Trophy, ArrowRight, CheckCircle2, XCircle, Zap } from "lucide-react";
+import GameResultScreen from "@/components/games/GameResultScreen";
+import { useFinishOnce } from "@/lib/gameLifecycle";
 
 const COLS = 8;
 const ROWS = 4;
@@ -157,6 +159,7 @@ function BreakoutCanvas({ bricksAlive, onBreakBrick, onGameEnd, launched, paddle
 }
 
 export default function BricksGame({ cards, onRoundComplete }) {
+  const finishGame = useFinishOnce(onRoundComplete);
   const totalBricks = Math.min(cards.length * 4, ROWS * COLS);
   const [bricksAlive, setBricksAlive] = useState(() => Array(ROWS * COLS).fill(false).map((_, i) => i < totalBricks));
   const [questions] = useState(() => cards.slice(0, Math.min(cards.length, 10)).map(card => {
@@ -194,15 +197,14 @@ export default function BricksGame({ cards, onRoundComplete }) {
     return () => { el.removeEventListener("mousemove", onMouse); el.removeEventListener("touchmove", onTouch); };
   }, []);
 
-  // Check win
+  // Check win — only end game UI, never call parent until Continue
   useEffect(() => {
     if (remainingBricks === 0 && !gameOver) {
       setLaunched(false);
       setGameOver(true);
       setGameResult("won");
-      onRoundComplete?.({ playerScore: score, computerScore: 0, totalRounds: questions.length });
     }
-  }, [remainingBricks]);
+  }, [remainingBricks, gameOver]);
 
   const handleBreakBrick = useCallback((idx) => {
     setBricksAlive(prev => { const n = [...prev]; n[idx] = false; return n; });
@@ -213,8 +215,7 @@ export default function BricksGame({ cards, onRoundComplete }) {
     setLaunched(false);
     setGameOver(true);
     setGameResult(result);
-    onRoundComplete?.({ playerScore: score, computerScore: 0, totalRounds: questions.length });
-  }, [score, questions.length]);
+  }, []);
 
   const handleAnswer = (option) => {
     if (showResult) return;
@@ -241,16 +242,19 @@ export default function BricksGame({ cards, onRoundComplete }) {
   };
 
   if (gameOver) {
+    const resultPayload = { playerScore: score, computerScore: 0, totalRounds: Math.max(questions.length, 1) };
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-        className="max-w-md mx-auto text-center bg-card rounded-3xl border border-border p-10">
-        <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center mb-5 ${gameResult === "won" ? "bg-green-500/10" : "bg-red-500/10"}`}>
-          <Trophy className={`w-10 h-10 ${gameResult === "won" ? "text-yellow-400" : "text-red-400"}`} />
-        </div>
-        <h2 className="font-heading text-3xl font-bold mb-2">{gameResult === "won" ? "You cleared the board! 🎉" : "Ball lost 😬"}</h2>
-        <p className="text-muted-foreground mb-6">{bricksSmashed} bricks smashed • {score} correct answers</p>
-        <Button onClick={() => onRoundComplete?.({ playerScore: score, computerScore: 0, totalRounds: questions.length })}>Continue</Button>
-      </motion.div>
+      <GameResultScreen
+        icon={
+          <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${gameResult === "won" ? "bg-green-500/10" : "bg-red-500/10"}`}>
+            <Trophy className={`w-10 h-10 ${gameResult === "won" ? "text-yellow-400" : "text-red-400"}`} />
+          </div>
+        }
+        title={gameResult === "won" ? "You cleared the board! 🎉" : "Ball lost 😬"}
+        subtitle={`${bricksSmashed} bricks smashed · ${score} correct answers`}
+        onContinue={finishGame}
+        result={resultPayload}
+      />
     );
   }
 

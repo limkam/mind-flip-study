@@ -16,6 +16,7 @@ export function TugOfWarGame({ cards, onComplete, generationSeed = 0 }: GameProp
   const { colors } = useTheme();
   const { mode, setMode, questions } = useGameMcq(cards, Math.min(10, cards.length), generationSeed, 4);
   const [idx, setIdx] = useState(0);
+  const [answeredCount, setAnsweredCount] = useState(0);
   const [ropePos, setRopePos] = useState(50);
   const rope = useSharedValue(50);
   const [selected, setSelected] = useState<string | null>(null);
@@ -48,6 +49,7 @@ export function TugOfWarGame({ cards, onComplete, generationSeed = 0 }: GameProp
           clearInterval(t);
           if (!timedOut.current) {
             timedOut.current = true;
+            setAnsweredCount((c) => c + 1);
             setRopePos((p) => Math.max(5, p - 15));
             setSelected("__timeout__");
             setShowResult(true);
@@ -65,6 +67,7 @@ export function TugOfWarGame({ cards, onComplete, generationSeed = 0 }: GameProp
 
   const pick = (opt: string) => {
     if (showResult || winner) return;
+    setAnsweredCount((c) => c + 1);
     const ok = opt === q?.correct;
     setSelected(opt);
     setShowResult(true);
@@ -94,12 +97,12 @@ export function TugOfWarGame({ cards, onComplete, generationSeed = 0 }: GameProp
       <GameResult
         emoji={winner === "player" ? "🎉" : "🤖"}
         title={winner === "player" ? "You win!" : "Computer wins"}
-        subtitle={`${correctCount}/${questions.length} correct`}
+        subtitle={`${correctCount} correct · ${answeredCount} of ${questions.length} answered`}
         onPrimary={() =>
           onComplete({
             playerScore: correctCount,
             computerScore: questions.length - correctCount,
-            totalRounds: questions.length,
+            totalRounds: Math.max(questions.length, 1),
           })
         }
       />
@@ -108,9 +111,9 @@ export function TugOfWarGame({ cards, onComplete, generationSeed = 0 }: GameProp
 
   return (
     <View>
-      <DifficultyModePicker value={mode} onChange={setMode} disabled={showResult || !!winner} />
+      <DifficultyModePicker value={mode} onChange={setMode} disabled={answeredCount > 0 || showResult || !!winner} />
       <Text style={{ color: colors.muted, textAlign: "center", marginBottom: 8 }}>
-        Q {idx + 1}/{questions.length} · {timeLeft}s
+        {answeredCount} of {questions.length} answered · Q {idx + 1} · {timeLeft}s
       </Text>
       <View style={[styles.arena, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <Text style={styles.side}>🤖</Text>
@@ -132,7 +135,7 @@ export function TugOfWarGame({ cards, onComplete, generationSeed = 0 }: GameProp
       />
       {showResult ? (
         <Pressable style={[styles.next, { backgroundColor: colors.primary }]} onPress={() => { void hapticImpact("light"); next(); }}>
-          <Text style={styles.nextText}>Next</Text>
+          <Text style={styles.nextText}>{idx + 1 >= questions.length ? "See results" : "Next"}</Text>
         </Pressable>
       ) : null}
     </View>

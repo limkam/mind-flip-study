@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Trophy, Skull, ArrowRight, Heart } from "lucide-react";
+import GameResultScreen from "@/components/games/GameResultScreen";
+import { useFinishOnce } from "@/lib/gameLifecycle";
 
 const MAX_WRONG = 6;
 
@@ -32,13 +34,14 @@ function HangmanSVG({ wrong }) {
 }
 
 export default function HangmanGame({ cards, onRoundComplete }) {
+  const finishGame = useFinishOnce(onRoundComplete);
   const [currentIdx, setCurrentIdx] = useState(0);
   const [guessed, setGuessed] = useState(new Set());
   const [wrongCount, setWrongCount] = useState(0);
   const [playerScore, setPlayerScore] = useState(0);
   const [computerScore, setComputerScore] = useState(0);
-  const [roundResult, setRoundResult] = useState(null); // 'win' | 'lose'
-  const [roundsDone, setRoundsDone] = useState(0);
+  const [roundResult, setRoundResult] = useState(null);
+  const [gameOver, setGameOver] = useState(false);
   const totalRounds = Math.min(cards.length, 8);
 
   const getAnswer = () => {
@@ -76,17 +79,37 @@ export default function HangmanGame({ cards, onRoundComplete }) {
   const nextRound = () => {
     const next = currentIdx + 1;
     if (next >= totalRounds) {
-      onRoundComplete?.({ playerScore: playerScore + (roundResult === "win" ? 0 : 0), computerScore, totalRounds });
+      setGameOver(true);
     } else {
       setCurrentIdx(next);
       setGuessed(new Set());
       setWrongCount(0);
       setRoundResult(null);
-      setRoundsDone(prev => prev + 1);
     }
   };
 
   const livesLeft = MAX_WRONG - wrongCount;
+  const resultPayload = {
+    playerScore,
+    computerScore,
+    totalRounds: Math.max(totalRounds, 1),
+  };
+
+  if (gameOver) {
+    return (
+      <GameResultScreen
+        icon={
+          <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${playerScore >= computerScore ? "bg-green-500/10" : "bg-red-500/10"}`}>
+            <Trophy className={`w-10 h-10 ${playerScore >= computerScore ? "text-green-500" : "text-red-500"}`} />
+          </div>
+        }
+        title={playerScore > computerScore ? "You Win! 🎉" : playerScore === computerScore ? "It's a Tie! 🤝" : "Computer Wins 🤖"}
+        subtitle={`${playerScore} rounds won · ${totalRounds} rounds played`}
+        onContinue={finishGame}
+        result={resultPayload}
+      />
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -104,7 +127,9 @@ export default function HangmanGame({ cards, onRoundComplete }) {
       </div>
 
       {/* Progress */}
-      <p className="text-center text-sm text-muted-foreground mb-4">Round {currentIdx + 1} of {totalRounds}</p>
+      <p className="text-center text-sm text-muted-foreground mb-4">
+        Round {currentIdx + 1} of {totalRounds} · {currentIdx} completed
+      </p>
 
       {/* Hint / Question */}
       <div className="bg-muted/50 rounded-xl p-4 mb-6 text-center">
@@ -180,7 +205,7 @@ export default function HangmanGame({ cards, onRoundComplete }) {
                 <p className="text-sm text-muted-foreground mt-1">Answer: <span className="font-semibold text-foreground">{answer}</span></p>
               </>
             )}
-            <Button onClick={nextRound} className="mt-4 gap-2">
+            <Button type="button" onClick={nextRound} className="mt-4 gap-2">
               {currentIdx + 1 >= totalRounds ? "See Final Results" : "Next Round"}
               <ArrowRight className="w-4 h-4" />
             </Button>

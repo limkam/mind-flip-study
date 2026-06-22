@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, Sword, Shield, Skull, Trophy } from "lucide-react";
+import GameResultScreen from "@/components/games/GameResultScreen";
+import { useFinishOnce } from "@/lib/gameLifecycle";
 
 const PLAYER_MAX_HP = 100;
 const ENEMY_MAX_HP = 100;
@@ -29,6 +31,7 @@ function HPBar({ hp, max, color }) {
 }
 
 export default function BattleRPGGame({ cards, onRoundComplete }) {
+  const finishGame = useFinishOnce(onRoundComplete);
   const questions = useRef(
     cards.slice(0, 12).map(card => {
       const wrong = cards.filter(c => c.back !== card.back).sort(() => Math.random() - 0.5).slice(0, 3).map(c => c.back);
@@ -48,6 +51,7 @@ export default function BattleRPGGame({ cards, onRoundComplete }) {
   const [gameOver, setGameOver] = useState(false);
   const [winner, setWinner] = useState(null);
   const [score, setScore] = useState(0);
+  const [answeredCount, setAnsweredCount] = useState(0);
 
   const triggerShake = (who) => {
     setShake(who);
@@ -58,6 +62,7 @@ export default function BattleRPGGame({ cards, onRoundComplete }) {
     if (showResult || gameOver) return;
     setSelected(opt);
     setShowResult(true);
+    setAnsweredCount(c => c + 1);
     const correct = opt === questions[qIdx]?.correct;
 
     if (correct) {
@@ -96,20 +101,23 @@ export default function BattleRPGGame({ cards, onRoundComplete }) {
   };
 
   if (gameOver) {
+    const resultPayload = {
+      playerScore: score,
+      computerScore: questions.length - score,
+      totalRounds: Math.max(questions.length, 1),
+    };
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-        className="max-w-md mx-auto text-center bg-card rounded-3xl border border-border p-10">
-        <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center mb-5 text-4xl ${winner === "player" ? "bg-yellow-500/10" : "bg-red-500/10"}`}>
-          {winner === "player" ? "🏆" : "💀"}
-        </div>
-        <h2 className="font-heading text-3xl font-bold mb-2">
-          {winner === "player" ? "Victory! 🎉" : `Defeated by ${enemy.name}!`}
-        </h2>
-        <p className="text-muted-foreground mb-6">{score} correct answers • {playerHP} HP remaining</p>
-        <Button onClick={() => onRoundComplete?.({ playerScore: score, computerScore: questions.length - score, totalRounds: questions.length })}>
-          Continue
-        </Button>
-      </motion.div>
+      <GameResultScreen
+        icon={
+          <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center text-4xl ${winner === "player" ? "bg-yellow-500/10" : "bg-red-500/10"}`}>
+            {winner === "player" ? "🏆" : "💀"}
+          </div>
+        }
+        title={winner === "player" ? "Victory! 🎉" : `Defeated by ${enemy.name}!`}
+        subtitle={`${score} correct · ${answeredCount} of ${questions.length} answered · ${playerHP} HP remaining`}
+        onContinue={finishGame}
+        result={resultPayload}
+      />
     );
   }
 
@@ -170,7 +178,7 @@ export default function BattleRPGGame({ cards, onRoundComplete }) {
           <div className="flex items-center gap-2 mb-2">
             <Sword className="w-4 h-4 text-primary" />
             <span className="text-xs font-semibold text-muted-foreground">Answer to attack!</span>
-            <span className="ml-auto text-xs text-muted-foreground">{qIdx + 1}/{questions.length}</span>
+            <span className="ml-auto text-xs text-muted-foreground">{answeredCount} / {questions.length} answered</span>
           </div>
           <p className="font-heading font-semibold text-base leading-snug">{q?.q}</p>
         </motion.div>

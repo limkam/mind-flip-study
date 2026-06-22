@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "@/api/client";
@@ -37,6 +37,7 @@ import RetryDeck from "@/components/study/RetryDeck";
 import { useToast } from "@/components/ui/use-toast";
 import { studyThemeFromUser } from "@/lib/studyTheme";
 import { trackClientEvent } from "@/lib/analytics";
+import { logGameEvent } from "@/lib/gameLifecycle";
 
 export default function StudySession() {
   const { id } = useParams();
@@ -49,6 +50,7 @@ export default function StudySession() {
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [slideDirection, setSlideDirection] = useState(1); // 1 = forward, -1 = backward
   const [selectedGame, setSelectedGame] = useState(null);
+  const [sessionGameCards, setSessionGameCards] = useState(null);
   const [cardProgressMap, setCardProgressMap] = useState({}); // index -> progress record
   const [retryCards, setRetryCards] = useState(null); // null = hidden, array = show retry
   const [offlineHint, setOfflineHint] = useState(false);
@@ -116,10 +118,21 @@ export default function StudySession() {
   const hardCount = Object.values(cardProgressMap).filter(p => p.rating === "hard").length;
   const easyCount = Object.values(cardProgressMap).filter(p => p.rating === "easy").length;
   const ratedCount = Object.values(cardProgressMap).length;
-  const gameCards = useMemo(() => {
+
+  const handleSelectGame = useCallback((gameId) => {
     const perf = ratedCount / Math.max(cards.length, 1);
-    return selectGameCards(cards, cards.length, gameSeed, perf);
-  }, [cards, gameSeed, ratedCount]);
+    const pool = selectGameCards(cards, cards.length, gameSeed, perf);
+    setSessionGameCards(pool);
+    setSelectedGame(gameId);
+    logGameEvent("start", { game: gameId, set_id: id, card_count: pool.length });
+  }, [cards, gameSeed, ratedCount, id]);
+
+  const exitGameMenu = useCallback(() => {
+    setSelectedGame(null);
+    setSessionGameCards(null);
+  }, []);
+
+  const gameCards = sessionGameCards ?? cards;
 
   const handleCardRate = async (index, rating) => {
     if (!user || !flashcardSet) return;
@@ -169,59 +182,73 @@ export default function StudySession() {
     }
   };
 
-  const handleQuizComplete = async (result) => {
-    await client.post("/quiz-results/", {
-      set_id: id,
-      score: result.score,
-      total_questions: result.total_questions,
-      time_taken_seconds: result.time_taken_seconds,
-      extras: {
-        set_title: flashcardSet.title,
-        book_title: flashcardSet.book_title,
-        percentage: result.percentage,
-        answers: result.answers || [],
-      },
-    });
-    queryClient.invalidateQueries({ queryKey: ['quiz-results'] });
-    queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
-    toast({ title: `Quiz saved! You scored ${result.percentage}%` });
-    // Show retry deck if any wrong answers
-    if (result.answers) {
-      const wrong = result.answers
-        .filter(a => !a.is_correct)
-        .map(a => cards.find(c => c.front === a.question))
-        .filter(Boolean);
-      if (wrong.length > 0) setRetryCards(wrong);
-    }
+  const handleQuizComplete = (result) => {
+    exitGameMenu();
+    void (async () => {
+      try {
+        await client.post("/quiz-results/", {
+          set_id: id,
+          score: result.score,
+          total_questions: result.total_questions,
+          time_taken_seconds: result.time_taken_seconds,
+          extras: {
+            set_title: flashcardSet.title,
+            book_title: flashcardSet.book_title,
+            percentage: result.percentage,
+            answers: result.answers || [],
+          },
+        });
+        queryClient.invalidateQueries({ queryKey: ['quiz-results'] });
+        queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
+        toast({ title: `Quiz saved! You scored ${result.percentage}%` });
+        if (result.answers) {
+          const wrong = result.answers
+            .filter(a => !a.is_correct)
+            .map(a => cards.find(c => c.front === a.question))
+            .filter(Boolean);
+          if (wrong.length > 0) setRetryCards(wrong);
+        }
+      } catch (err) {
+        logGameEvent("quiz_save_error", { set_id: id, message: String(err) });
+        toast({ title: "Quiz could not be saved", variant: "destructive" });
+      }
+    })();
   };
 
-  const handleGameComplete = async (result) => {
-    trackClientEvent("game_continue", { game: selectedGame, set_id: id });
-    const pct = Math.round((result.playerScore / result.totalRounds) * 100);
-    try {
-      await client.post("/quiz-results/", {
-        set_id: id,
-        score: result.playerScore,
-        total_questions: result.totalRounds,
-        time_taken_seconds: 0,
-        extras: {
-          set_title: `[${selectedGame?.toUpperCase()}] ${flashcardSet?.title}`,
-          book_title: flashcardSet?.book_title,
-          percentage: pct,
-        },
-      });
-      queryClient.invalidateQueries({ queryKey: ['quiz-results'] });
-      queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
-      toast({ title: `Game over! ${result.playerScore} / ${result.totalRounds} rounds won` });
-    } catch {
-      toast({
-        title: "Score could not be saved",
-        description: "Returning to game menu.",
-        variant: "destructive",
-      });
-    } finally {
-      setSelectedGame(null);
-    }
+  const handleGameComplete = (result) => {
+    const game = selectedGame;
+    logGameEvent("continue", { game, set_id: id, result });
+    trackClientEvent("game_continue", { game, set_id: id });
+    exitGameMenu();
+
+    const totalRounds = Math.max(result.totalRounds || 0, 1);
+    const pct = Math.round((result.playerScore / totalRounds) * 100);
+
+    void (async () => {
+      try {
+        await client.post("/quiz-results/", {
+          set_id: id,
+          score: result.playerScore,
+          total_questions: totalRounds,
+          time_taken_seconds: 0,
+          extras: {
+            set_title: `[${game?.toUpperCase()}] ${flashcardSet?.title}`,
+            book_title: flashcardSet?.book_title,
+            percentage: pct,
+          },
+        });
+        queryClient.invalidateQueries({ queryKey: ['quiz-results'] });
+        queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
+        toast({ title: `Game over! ${result.playerScore} / ${totalRounds} rounds won` });
+      } catch (err) {
+        logGameEvent("save_error", { game, set_id: id, message: String(err) });
+        toast({
+          title: "Score could not be saved",
+          description: "Returning to game menu.",
+          variant: "destructive",
+        });
+      }
+    })();
   };
 
   if (isLoading) {
@@ -285,7 +312,7 @@ export default function StudySession() {
         />
       </motion.div>
 
-      <Tabs value={mode} onValueChange={(v) => { setMode(v); setSelectedGame(null); }} className="mb-8">
+      <Tabs value={mode} onValueChange={(v) => { setMode(v); exitGameMenu(); }} className="mb-8">
         <TabsList className="w-full max-w-2xl mx-auto grid grid-cols-4 h-12">
           <TabsTrigger value="flashcards" className="gap-1.5 text-sm font-medium">
             <GraduationCap className="w-4 h-4" /> Study Cards
@@ -418,10 +445,10 @@ export default function StudySession() {
               Need at least 4 cards for games. This set has {cards.length}.
             </p>
           ) : (
-            <AnimatePresence mode="wait">
+            <AnimatePresence>
               {!selectedGame && (
                 <motion.div key="selector" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                  <GameSelector onSelect={setSelectedGame} />
+                  <GameSelector onSelect={handleSelectGame} />
                 </motion.div>
               )}
 
@@ -429,7 +456,7 @@ export default function StudySession() {
                 <motion.div key="mcq" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-heading text-lg font-semibold">Classic Quiz</h3>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">
+                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">
                       ← Change Game
                     </Button>
                   </div>
@@ -447,7 +474,7 @@ export default function StudySession() {
                 <motion.div key="hangman" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-heading text-lg font-semibold">🎯 Hangman</h3>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">
+                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">
                       ← Change Game
                     </Button>
                   </div>
@@ -463,7 +490,7 @@ export default function StudySession() {
                 <motion.div key="tugofwar" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-heading text-lg font-semibold">🪢 Tug of War</h3>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">
+                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">
                       ← Change Game
                     </Button>
                   </div>
@@ -479,7 +506,7 @@ export default function StudySession() {
                 <motion.div key="bricks" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-heading text-lg font-semibold">🧱 Brick Breaker</h3>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">← Change Game</Button>
+                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">← Change Game</Button>
                   </div>
                   <BricksGame key="bricks-game" cards={gameCards} onRoundComplete={handleGameComplete} />
                 </motion.div>
@@ -489,7 +516,7 @@ export default function StudySession() {
                 <motion.div key="memory" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-heading text-lg font-semibold">🃏 Memory Match</h3>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">← Change Game</Button>
+                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">← Change Game</Button>
                   </div>
                   <MemoryMatchGame key="memory-game" cards={gameCards} onRoundComplete={handleGameComplete} />
                 </motion.div>
@@ -499,7 +526,7 @@ export default function StudySession() {
                 <motion.div key="lightning" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-heading text-lg font-semibold">⚡ Lightning Round</h3>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">← Change Game</Button>
+                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">← Change Game</Button>
                   </div>
                   <LightningRoundGame key="lightning-game" cards={gameCards} onRoundComplete={handleGameComplete} />
                 </motion.div>
@@ -509,7 +536,7 @@ export default function StudySession() {
                 <motion.div key="battle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-heading text-lg font-semibold">⚔️ Battle RPG</h3>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">← Change Game</Button>
+                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">← Change Game</Button>
                   </div>
                   <BattleRPGGame key="battle-game" cards={gameCards} onRoundComplete={handleGameComplete} />
                 </motion.div>
@@ -519,7 +546,7 @@ export default function StudySession() {
                 <motion.div key="scramble" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-heading text-lg font-semibold">🔤 Word Scramble</h3>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedGame(null)} className="text-muted-foreground">← Change Game</Button>
+                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">← Change Game</Button>
                   </div>
                   <WordScrambleGame key="scramble-game" cards={gameCards} onRoundComplete={handleGameComplete} />
                 </motion.div>

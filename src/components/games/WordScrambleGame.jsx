@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Trophy, Cpu, ArrowRight, Shuffle, Timer, CheckCircle2, XCircle } from "lucide-react";
+import GameResultScreen from "@/components/games/GameResultScreen";
+import { useFinishOnce } from "@/lib/gameLifecycle";
 
 const COMPUTER_DELAY = 5; // seconds before computer "solves"
 const TIME_PER_ROUND = 20;
@@ -30,6 +32,7 @@ function scramble(str) {
 }
 
 export default function WordScrambleGame({ cards, onRoundComplete }) {
+  const finishGame = useFinishOnce(onRoundComplete);
   const rounds = cards.slice(0, 8).flatMap((c) => {
     const raw = c.back.split(".")[0].split(",")[0].trim();
     const word = raw.replace(/[^a-zA-Z0-9 ]/g, "").slice(0, 20).toUpperCase();
@@ -122,7 +125,6 @@ export default function WordScrambleGame({ cards, onRoundComplete }) {
   const nextRound = () => {
     if (currentIdx + 1 >= rounds.length) {
       setGameOver(true);
-      onRoundComplete?.({ playerScore, computerScore, totalRounds: rounds.length });
     } else {
       setCurrentIdx(prev => prev + 1);
     }
@@ -134,7 +136,7 @@ export default function WordScrambleGame({ cards, onRoundComplete }) {
         <p className="text-muted-foreground">
           Need flashcards with answers of at least two different letters to play Word Scramble.
         </p>
-        <Button className="mt-4" onClick={() => onRoundComplete?.({ playerScore: 0, computerScore: 0, totalRounds: 0 })}>
+        <Button type="button" className="mt-4" onClick={() => finishGame({ playerScore: 0, computerScore: 0, totalRounds: 1 })}>
           Back to games
         </Button>
       </div>
@@ -142,26 +144,28 @@ export default function WordScrambleGame({ cards, onRoundComplete }) {
   }
 
   if (gameOver || currentIdx >= rounds.length) {
+    const resultPayload = {
+      playerScore,
+      computerScore,
+      totalRounds: Math.max(rounds.length, 1),
+    };
     return (
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="max-w-md mx-auto text-center bg-card rounded-3xl border border-border p-10"
+      <GameResultScreen
+        icon={
+          <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${playerScore > computerScore ? "bg-green-500/10" : "bg-red-500/10"}`}>
+            <Trophy className={`w-10 h-10 ${playerScore > computerScore ? "text-green-500" : "text-red-500"}`} />
+          </div>
+        }
+        title={playerScore > computerScore ? "You Win! 🎉" : playerScore === computerScore ? "It's a Tie! 🤝" : "Computer Wins 🤖"}
+        subtitle={`${currentIdx + (roundResult ? 1 : 0)} of ${rounds.length} rounds completed`}
+        onContinue={finishGame}
+        result={resultPayload}
       >
-        <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center mb-5 ${playerScore > computerScore ? "bg-green-500/10" : "bg-red-500/10"}`}>
-          <Trophy className={`w-10 h-10 ${playerScore > computerScore ? "text-green-500" : "text-red-500"}`} />
-        </div>
-        <h2 className="font-heading text-3xl font-bold mb-2">
-          {playerScore > computerScore ? "You Win! 🎉" : playerScore === computerScore ? "It's a Tie! 🤝" : "Computer Wins 🤖"}
-        </h2>
         <div className="flex justify-center gap-10 my-5">
           <div><p className="text-3xl font-heading font-bold text-primary">{playerScore}</p><p className="text-xs text-muted-foreground">You</p></div>
           <div><p className="text-3xl font-heading font-bold text-red-500">{computerScore}</p><p className="text-xs text-muted-foreground">Computer</p></div>
         </div>
-        <Button onClick={() => onRoundComplete?.({ playerScore, computerScore, totalRounds: rounds.length })}>
-          Continue
-        </Button>
-      </motion.div>
+      </GameResultScreen>
     );
   }
 
@@ -183,7 +187,9 @@ export default function WordScrambleGame({ cards, onRoundComplete }) {
         </div>
       </div>
 
-      <p className="text-center text-sm text-muted-foreground mb-4">Round {currentIdx + 1} of {rounds.length}</p>
+      <p className="text-center text-sm text-muted-foreground mb-4">
+        Round {currentIdx + 1} of {rounds.length} · {currentIdx} completed
+      </p>
 
       {/* Timer */}
       <div className="flex items-center gap-3 mb-5">

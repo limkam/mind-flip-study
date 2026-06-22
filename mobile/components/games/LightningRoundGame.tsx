@@ -23,6 +23,7 @@ export function LightningRoundGame({ cards, onComplete, generationSeed = 0 }: Ga
   const [answered, setAnswered] = useState(0);
   const [timeLeft, setTimeLeft] = useState(DURATION);
   const [done, setDone] = useState(false);
+  const [locked, setLocked] = useState(false);
   const barWidth = useSharedValue(100);
 
   useEffect(() => {
@@ -31,7 +32,8 @@ export function LightningRoundGame({ cards, onComplete, generationSeed = 0 }: Ga
     setAnswered(0);
     setTimeLeft(DURATION);
     setDone(false);
-  }, [mode, questions.length]);
+    setLocked(false);
+  }, [mode]);
 
   useEffect(() => {
     barWidth.value = withTiming((timeLeft / DURATION) * 100, { duration: 300 });
@@ -54,24 +56,29 @@ export function LightningRoundGame({ cards, onComplete, generationSeed = 0 }: Ga
   const q = questions[idx % Math.max(questions.length, 1)];
 
   const pick = (opt: string) => {
-    if (done || !q) return;
+    if (done || locked || !q) return;
+    setLocked(true);
     const ok = opt === q.correct;
     setAnswered((a) => a + 1);
     if (ok) {
       setScore((s) => s + 1);
       void hapticSuccess();
     } else void hapticError();
-    setIdx((i) => i + 1);
+    setTimeout(() => {
+      setIdx((i) => i + 1);
+      setLocked(false);
+    }, 200);
   };
 
   if (done) {
+    const totalRounds = Math.max(answered, 1);
     return (
       <GameResult
         emoji="⚡"
         title="Time's up!"
-        subtitle={`${score}/${answered} correct · ${mode}`}
+        subtitle={`${score} correct · ${answered} answered · ${mode}`}
         onPrimary={() =>
-          onComplete({ playerScore: score, computerScore: answered - score, totalRounds: answered })
+          onComplete({ playerScore: score, computerScore: answered - score, totalRounds })
         }
       />
     );
@@ -81,9 +88,10 @@ export function LightningRoundGame({ cards, onComplete, generationSeed = 0 }: Ga
 
   return (
     <View>
-      <DifficultyModePicker value={mode} onChange={setMode} />
+      <DifficultyModePicker value={mode} onChange={setMode} disabled={answered > 0} />
       <View style={styles.meta}>
         <Text style={{ color: colors.muted }}>{timeLeft}s left</Text>
+        <Text style={{ color: colors.muted }}>{answered} of {questions.length} answered</Text>
         <Text style={{ color: colors.primary, fontWeight: "700" }}>{score} correct</Text>
       </View>
       <View style={[styles.barTrack, { backgroundColor: colors.border }]}>
@@ -96,7 +104,11 @@ export function LightningRoundGame({ cards, onComplete, generationSeed = 0 }: Ga
         {(q?.options ?? []).map((opt) => (
           <Pressable
             key={opt}
-            style={[styles.opt, { borderColor: colors.border, backgroundColor: colors.background }]}
+            disabled={locked}
+            style={[
+              styles.opt,
+              { borderColor: colors.border, backgroundColor: colors.background, opacity: locked ? 0.6 : 1 },
+            ]}
             onPress={() => {
               void hapticImpact("light");
               pick(opt);
@@ -111,7 +123,7 @@ export function LightningRoundGame({ cards, onComplete, generationSeed = 0 }: Ga
 }
 
 const styles = StyleSheet.create({
-  meta: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
+  meta: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8, gap: 8 },
   barTrack: { height: 6, borderRadius: 3, overflow: "hidden", marginBottom: 12 },
   barFill: { height: "100%" },
   qCard: { borderRadius: 12, borderWidth: 1, padding: 16, marginBottom: 12 },

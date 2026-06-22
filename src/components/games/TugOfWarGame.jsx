@@ -2,10 +2,13 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, ArrowRight, Trophy, Timer } from "lucide-react";
+import GameResultScreen from "@/components/games/GameResultScreen";
+import { useFinishOnce } from "@/lib/gameLifecycle";
 
 const TIME_PER_QUESTION = 10;
 
-export default function TugOfWarGame({ cards, onRoundComplete }) {
+export default function TugOfWarGame({ cards, onRoundComplete, onComplete }) {
+  const finishGame = useFinishOnce(onRoundComplete ?? onComplete);
   const [questions] = useState(() =>
     cards.slice(0, 10).map(card => {
       const wrong = cards
@@ -23,7 +26,8 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
   );
 
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [ropePos, setRopePos] = useState(50); // 0=computer wins, 100=player wins, start center=50
+  const [answeredCount, setAnsweredCount] = useState(0);
+  const [ropePos, setRopePos] = useState(50);
   const [selected, setSelected] = useState(null);
   const [showResult, setShowResult] = useState(false);
   const [timeLeft, setTimeLeft] = useState(TIME_PER_QUESTION);
@@ -51,7 +55,7 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
           clearInterval(timerRef.current);
           if (!timedOutRef.current) {
             timedOutRef.current = true;
-            // Computer pulls
+            setAnsweredCount(c => c + 1);
             setRopePos(p => Math.max(5, p - 15));
             setSelected("__timeout__");
             setShowResult(true);
@@ -70,12 +74,13 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
     clearInterval(timerRef.current);
     setSelected(answer);
     setShowResult(true);
+    setAnsweredCount(c => c + 1);
     const isCorrect = answer === questions[currentIdx].correct;
     if (isCorrect) {
       setTotalCorrect(p => p + 1);
-      setRopePos(p => Math.min(95, p + 18)); // Pull right (player)
+      setRopePos(p => Math.min(95, p + 18));
     } else {
-      setRopePos(p => Math.max(5, p - 15)); // Pull left (computer)
+      setRopePos(p => Math.max(5, p - 15));
     }
   };
 
@@ -91,26 +96,25 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
     }
   };
 
+  const resultPayload = {
+    playerScore: totalCorrect,
+    computerScore: questions.length - totalCorrect,
+    totalRounds: Math.max(questions.length, 1),
+  };
+
   if (gameOver) {
     return (
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="max-w-md mx-auto text-center bg-card rounded-3xl border border-border p-10"
-      >
-        <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center mb-5 ${winner === "player" ? "bg-green-500/10" : "bg-red-500/10"}`}>
-          <Trophy className={`w-10 h-10 ${winner === "player" ? "text-green-500" : "text-red-500"}`} />
-        </div>
-        <h2 className="font-heading text-3xl font-bold mb-2">
-          {winner === "player" ? "You Win! 🎉" : "Computer Wins 🤖"}
-        </h2>
-        <p className="text-muted-foreground mb-6">
-          {totalCorrect} out of {questions.length} correct answers
-        </p>
-        <Button onClick={() => onRoundComplete?.({ playerScore: totalCorrect, computerScore: questions.length - totalCorrect, totalRounds: questions.length })}>
-          Continue
-        </Button>
-      </motion.div>
+      <GameResultScreen
+        icon={
+          <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${winner === "player" ? "bg-green-500/10" : "bg-red-500/10"}`}>
+            <Trophy className={`w-10 h-10 ${winner === "player" ? "text-green-500" : "text-red-500"}`} />
+          </div>
+        }
+        title={winner === "player" ? "You Win! 🎉" : "Computer Wins 🤖"}
+        subtitle={`${totalCorrect} correct · ${answeredCount} of ${questions.length} answered`}
+        onContinue={finishGame}
+        result={resultPayload}
+      />
     );
   }
 
@@ -120,7 +124,7 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
   return (
     <div className="max-w-2xl mx-auto">
       <p className="text-center text-sm text-muted-foreground mb-4">
-        Question {currentIdx + 1} / {questions.length}
+        {answeredCount} of {questions.length} answered · Question {currentIdx + 1}
       </p>
 
       {/* Rope arena */}
@@ -138,7 +142,6 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
               animate={{ width: `${ropePos}%` }}
               transition={{ type: "spring", stiffness: 180, damping: 20 }}
             />
-            {/* Rope knot */}
             <motion.div
               className="absolute top-1/2 -translate-y-1/2 w-5 h-5 bg-white border-2 border-primary rounded-full shadow-lg flex items-center justify-center text-[8px] font-bold text-primary"
               animate={{ left: `calc(${ropePos}% - 10px)` }}
@@ -155,7 +158,6 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
           <span>Computer</span>
           <span className="font-semibold text-primary">You</span>
         </div>
-        {/* Pull indicator */}
         <AnimatePresence>
           {showResult && (
             <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
@@ -166,7 +168,6 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
         </AnimatePresence>
       </div>
 
-      {/* Timer */}
       <div className="flex items-center gap-3 mb-4">
         <Timer className={`w-4 h-4 ${timeLeft <= 3 ? "text-red-500" : "text-muted-foreground"}`} />
         <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
@@ -179,12 +180,10 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
         <span className={`text-sm font-bold w-6 text-right ${timeLeft <= 3 ? "text-red-500" : "text-muted-foreground"}`}>{timeLeft}</span>
       </div>
 
-      {/* Question */}
       <div className="bg-card rounded-2xl border border-border p-6 mb-5 shadow-sm">
         <p className="font-heading font-semibold text-lg leading-relaxed text-center">{q.question}</p>
       </div>
 
-      {/* Options */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {q.options.map((option, i) => {
           const isSelected = selected === option;
@@ -196,6 +195,7 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
           return (
             <motion.button
               key={i}
+              type="button"
               whileTap={{ scale: 0.97 }}
               onClick={() => handleAnswer(option)}
               disabled={showResult}
@@ -220,7 +220,7 @@ export default function TugOfWarGame({ cards, onRoundComplete }) {
 
       {showResult && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-5 flex justify-end">
-          <Button onClick={nextQuestion} className="gap-2">
+          <Button type="button" onClick={nextQuestion} className="gap-2">
             {currentIdx + 1 >= questions.length ? "See Results" : "Next"}
             <ArrowRight className="w-4 h-4" />
           </Button>

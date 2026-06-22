@@ -8,6 +8,7 @@ import { StudySkeleton } from "../../../components/skeletons/StudySkeleton";
 import { api } from "../../../api/client";
 import { cacheStudySet, getCachedStudySet } from "../../../lib/offlineStudy";
 import { MIN_GAME_CARDS, toGameCards } from "../../../lib/gameUtils";
+import { logGameEvent } from "../../../lib/gameLifecycle";
 import type { GameSlug } from "../../../components/games/types";
 import type { FlashcardSetOut } from "../../../types/api";
 
@@ -88,19 +89,29 @@ export default function GamePlayScreen() {
           generationSeed={data?.generation_seed ?? 0}
           onComplete={(result) => {
             const resolvedSetId = Array.isArray(setId) ? setId[0] : setId;
+            logGameEvent("continue", { game: gameSlug, set_id: resolvedSetId, result });
+            if (!resolvedSetId) {
+              router.back();
+              return;
+            }
+            router.replace(`/games/${resolvedSetId}`);
+            const totalRounds = Math.max(result.totalRounds || 0, 1);
             void api.post("/study/events", {
               event_type: "game_continue",
               set_id: resolvedSetId,
               metadata: { game: gameSlug, score: result.playerScore },
-            }).catch(() => undefined);
+            }).catch((err) => {
+              logGameEvent("event_error", { message: String(err) });
+            });
             void api.post("/quiz-results/", {
               set_id: resolvedSetId,
               score: result.playerScore,
-              total_questions: result.totalRounds,
+              total_questions: totalRounds,
               time_taken_seconds: 0,
-              extras: { percentage: Math.round((result.playerScore / result.totalRounds) * 100) },
-            }).catch(() => undefined);
-            router.replace(`/games/${resolvedSetId}`);
+              extras: { percentage: Math.round((result.playerScore / totalRounds) * 100) },
+            }).catch((err) => {
+              logGameEvent("save_error", { message: String(err) });
+            });
           }}
         />
       )}

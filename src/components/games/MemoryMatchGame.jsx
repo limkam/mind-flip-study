@@ -2,13 +2,16 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Trophy, Timer, RefreshCw } from "lucide-react";
+import GameResultScreen from "@/components/games/GameResultScreen";
+import { useFinishOnce } from "@/lib/gameLifecycle";
 
 function shuffle(arr) {
   return [...arr].sort(() => Math.random() - 0.5);
 }
 
 export default function MemoryMatchGame({ cards, onRoundComplete }) {
-  const pairs = cards.slice(0, 8); // up to 8 pairs = 16 tiles
+  const finishGame = useFinishOnce(onRoundComplete);
+  const pairs = cards.slice(0, 8);
   const [tiles] = useState(() =>
     shuffle([
       ...pairs.map((c, i) => ({ id: `q${i}`, pairId: i, type: "question", text: c.front })),
@@ -34,12 +37,9 @@ export default function MemoryMatchGame({ cards, onRoundComplete }) {
   useEffect(() => {
     if (matched.size === tiles.length && tiles.length > 0) {
       clearInterval(timerRef.current);
-      setTimeout(() => {
-        setGameOver(true);
-        onRoundComplete?.({ playerScore: pairs.length, computerScore: 0, totalRounds: pairs.length });
-      }, 600);
+      setGameOver(true);
     }
-  }, [matched.size]);
+  }, [matched.size, tiles.length]);
 
   const flip = (tile) => {
     if (lockRef.current || flipped.has(tile.id) || matched.has(tile.id)) return;
@@ -51,14 +51,12 @@ export default function MemoryMatchGame({ cards, onRoundComplete }) {
       setMoves(m => m + 1);
       lockRef.current = true;
       if (next[0].pairId === next[1].pairId && next[0].type !== next[1].type) {
-        // Match!
         setTimeout(() => {
           setMatched(p => new Set([...p, next[0].id, next[1].id]));
           setSelected([]);
           lockRef.current = false;
         }, 500);
       } else {
-        // No match
         setWrong(new Set([next[0].id, next[1].id]));
         setTimeout(() => {
           setFlipped(p => {
@@ -75,20 +73,21 @@ export default function MemoryMatchGame({ cards, onRoundComplete }) {
   };
 
   const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const resultPayload = { playerScore: pairs.length, computerScore: 0, totalRounds: Math.max(pairs.length, 1) };
 
   if (gameOver) {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-        className="max-w-md mx-auto text-center bg-card rounded-3xl border border-border p-10">
-        <div className="w-20 h-20 rounded-full bg-yellow-500/10 flex items-center justify-center mx-auto mb-5">
-          <Trophy className="w-10 h-10 text-yellow-400" />
-        </div>
-        <h2 className="font-heading text-3xl font-bold mb-2">Board Cleared! 🎉</h2>
-        <p className="text-muted-foreground mb-6">{moves} moves • {fmt(timeElapsed)}</p>
-        <Button onClick={() => onRoundComplete?.({ playerScore: pairs.length, computerScore: 0, totalRounds: pairs.length })}>
-          Continue
-        </Button>
-      </motion.div>
+      <GameResultScreen
+        icon={
+          <div className="w-20 h-20 rounded-full bg-yellow-500/10 flex items-center justify-center mx-auto">
+            <Trophy className="w-10 h-10 text-yellow-400" />
+          </div>
+        }
+        title="Board Cleared! 🎉"
+        subtitle={`${matched.size / 2} / ${pairs.length} matched · ${moves} moves · ${fmt(timeElapsed)}`}
+        onContinue={finishGame}
+        result={resultPayload}
+      />
     );
   }
 
@@ -102,7 +101,6 @@ export default function MemoryMatchGame({ cards, onRoundComplete }) {
         <span className="text-sm text-muted-foreground">{moves} moves</span>
       </div>
 
-      {/* Progress */}
       <div className="h-1.5 bg-muted rounded-full mb-5 overflow-hidden">
         <motion.div className="h-full bg-primary rounded-full"
           animate={{ width: `${(matched.size / tiles.length) * 100}%` }} />
@@ -117,6 +115,7 @@ export default function MemoryMatchGame({ cards, onRoundComplete }) {
           return (
             <motion.button
               key={tile.id}
+              type="button"
               onClick={() => flip(tile)}
               className="relative aspect-square"
               whileHover={!isFlipped && !isMatched ? { scale: 1.05 } : {}}
