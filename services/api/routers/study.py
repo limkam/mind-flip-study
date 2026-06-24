@@ -195,6 +195,7 @@ async def get_daily_review_queue(
     db: Annotated[AsyncSession, Depends(get_db)],
     limit: int = Query(50, ge=1, le=200),
     book_id: UUID | None = Query(None),
+    book_ids: list[UUID] | None = Query(None),
     set_id: UUID | None = Query(None),
     chapter: str | None = Query(None, max_length=512),
     subject: str | None = Query(None, max_length=128),
@@ -233,7 +234,9 @@ async def get_daily_review_queue(
     )
     if set_id is not None:
         stmt = stmt.where(Flashcard.set_id == set_id)
-    if book_id is not None:
+    if book_ids:
+        stmt = stmt.where(FlashcardSet.book_id.in_(book_ids))
+    elif book_id is not None:
         stmt = stmt.where(FlashcardSet.book_id == book_id)
     if chapter:
         stmt = stmt.where(Flashcard.chapter == chapter)
