@@ -27,7 +27,7 @@ from s3_service import (
     head_object_content_length,
 )
 from services.book_deletion import cascade_delete_book
-from services.book_duplicate import find_duplicate_books
+from services.book_duplicate import PDF_SHA256_EXTRAS_KEY, find_duplicate_books, pdf_sha256
 from services.toc_editor import normalize_toc_chapters, validate_toc_chapters
 from schemas.book import (
     BookCreate,
@@ -246,9 +246,32 @@ async def check_duplicate_book(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     title: str = Query(..., min_length=1, max_length=512),
+    file_sha256: str | None = Query(None, min_length=64, max_length=64),
+    file_size_bytes: int | None = Query(None, gt=0),
 ) -> CheckDuplicateResponse:
-    """Check if a book with the same title already exists in the user's library."""
-    matches = await find_duplicate_books(db, user_id=current_user.id, title=title)
+    """Check if this book title or PDF already exists in the user's library."""
+    want_hash = (file_sha256 or "").strip().lower() or None
+    matches = await find_duplicate_books(
+        db,
+        user_id=current_user.id,
+        title=title,
+        file_sha256=want_hash,
+        file_size_bytes=file_size_bytes,
+        fetch_pdf=_fetch_uploaded_pdf if want_hash and file_size_bytes else None,
+    )
+    normalized_title = title.strip().lower()
+
+    def match_reason(book: Book) -> str:
+        if want_hash:
+            stored = (book.extras or {}).get(PDF_SHA256_EXTRAS_KEY)
+            if isinstance(stored, str) and stored.lower() == want_hash:
+                return "file"
+            if file_size_bytes and book.file_size_bytes == file_size_bytes:
+                return "file"
+        if book.title.strip().lower() == normalized_title:
+            return "title"
+        return "title"
+
     return CheckDuplicateResponse(
         is_duplicate=len(matches) > 0,
         matches=[
@@ -258,6 +281,7 @@ async def check_duplicate_book(
                 author=b.author,
                 created_at=b.created_at,
                 file_size_bytes=b.file_size_bytes,
+                match_reason=match_reason(b),
             )
             for b in matches
         ],
@@ -290,6 +314,26 @@ async def create_book(
             detail=IMAGE_ONLY_PDF_MESSAGE,
         )
 
+    content_hash = pdf_sha256(pdf_bytes)
+    if body.replace_book_id is None:
+        duplicates = await find_duplicate_books(
+            db,
+            user_id=current_user.id,
+            title=body.title,
+            file_sha256=content_hash,
+            file_size_bytes=body.file_size_bytes,
+            fetch_pdf=_fetch_uploaded_pdf,
+        )
+        if duplicates:
+            existing = duplicates[0]
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f'This PDF is already in your library as "{existing.title}" '
+                    f"by {existing.author}. Open that book instead of uploading again."
+                ),
+            )
+
     book = Book(
         user_id=current_user.id,
         title=body.title.strip(),
@@ -303,6 +347,7 @@ async def create_book(
     if book.extras is not None:
         merged = dict(book.extras)
         merged.setdefault("table_of_contents", [])
+        merged[PDF_SHA256_EXTRAS_KEY] = content_hash
         book.extras = merged
     db.add(book)
     await db.flush()

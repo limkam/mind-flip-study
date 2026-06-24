@@ -23,6 +23,7 @@ import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
 import { flattenPages, normalizePage } from "../../lib/pagination";
 import { uploadBookFromPicker, titleFromFilename } from "../../lib/uploadBook";
+import { sha256FileUri } from "../../lib/fileHash";
 import { formatFileSize, estimatePageCount } from "../../lib/formatFileSize";
 import type { BookOut, Paginated } from "../../types/api";
 
@@ -74,7 +75,7 @@ export default function LibraryTab() {
   const total = data?.pages[0]?.total ?? 0;
 
   const uploadMutation = useMutation({
-    mutationFn: async (replaceBookId?: string) => {
+    mutationFn: async () => {
       if (!picked || !title.trim() || !author.trim()) {
         throw new Error("Pick a file and enter title and author.");
       }
@@ -85,7 +86,6 @@ export default function LibraryTab() {
         size: picked.size,
         name: picked.name,
         mimeType: picked.mimeType ?? "application/pdf",
-        replaceBookId,
         onProgress: setUploadPhase,
       });
     },
@@ -100,8 +100,16 @@ export default function LibraryTab() {
         router.push(`/book/${book.id}`);
       }
     },
-    onError: () => {
+    onError: (err: unknown) => {
       setUploadPhase(null);
+      const ax = err as { response?: { status?: number; data?: { detail?: string } }; message?: string };
+      if (ax.response?.status === 409) {
+        const detail =
+          typeof ax.response.data?.detail === "string"
+            ? ax.response.data.detail
+            : "This PDF is already in your library.";
+        Alert.alert("Duplicate book", detail);
+      }
     },
   });
 
@@ -141,26 +149,33 @@ export default function LibraryTab() {
     }
     if (!title.trim() || !author.trim()) return;
     try {
-      const { data: dup } = await api.get<{ is_duplicate: boolean; matches: { id: string; title: string }[] }>(
-        "/books/check-duplicate",
-        { params: { title: title.trim() } },
-      );
+      const fileHash = await sha256FileUri(picked.uri);
+      const { data: dup } = await api.get<{
+        is_duplicate: boolean;
+        matches: { id: string; title: string; author: string; match_reason?: string }[];
+      }>("/books/check-duplicate", {
+        params: {
+          title: title.trim(),
+          file_sha256: fileHash,
+          file_size_bytes: picked.size,
+        },
+      });
       if (dup.is_duplicate && dup.matches.length > 0) {
+        const match = dup.matches[0];
+        const reason =
+          match.match_reason === "file"
+            ? "This exact PDF is already in your library."
+            : "A book with this title already exists.";
         Alert.alert(
-          "Book already exists",
-          "A book with this title already exists. What would you like to do?",
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "Keep Both", onPress: () => uploadMutation.mutate(undefined) },
-            { text: "Replace", style: "destructive", onPress: () => uploadMutation.mutate(dup.matches[0].id) },
-          ],
+          "Duplicate book",
+          `${reason}\n\nOpen "${match.title}" by ${match.author} instead.`,
         );
         return;
       }
     } catch {
-      // proceed with upload if duplicate check fails
+      // proceed if duplicate check fails; server still enforces on create
     }
-    uploadMutation.mutate(undefined);
+    uploadMutation.mutate();
   }, [picked, title, author, pickFile, uploadMutation]);
 
   const renderItem = useCallback(

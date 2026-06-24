@@ -240,6 +240,21 @@ export default function BookByIdScreen() {
               ) : null}
             </View>
 
+            {book.toc_ai_error && chapters.length > 0 ? (
+              <Text style={[styles.tocWarning, { color: colors.warning, borderColor: colors.warning }]}>
+                AI chapter extraction failed: {book.toc_ai_error} Set ANTHROPIC_API_KEY on API and worker, then re-extract TOC.
+              </Text>
+            ) : null}
+
+            {book.toc_extraction_method
+              && !["ai", "bookmarks", "toc_text", "numbered_list", "chapter_markers", "presentation_slides"].includes(book.toc_extraction_method)
+              && !book.toc_ai_error
+              && chapters.length > 0 ? (
+              <Text style={[styles.tocWarning, { color: colors.warning, borderColor: colors.warning }]}>
+                Chapter list may be incomplete — extracted using {book.toc_extraction_method} without AI. Re-extract after configuring the API key.
+              </Text>
+            ) : null}
+
             {chapters.length === 0 ? (
               isTocExtractionInProgress(book) || tocJobId || tocPhase ? (
                 <View style={styles.tocEmpty}>
@@ -476,6 +491,15 @@ const styles = StyleSheet.create({
   linkBtn: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
   linkBtnText: { fontSize: 12, fontWeight: "700" },
   nativeToc: { fontSize: 11, marginTop: 4, fontWeight: "600" },
+  tocWarning: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: "rgba(180, 83, 9, 0.08)",
+  },
   detailRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
   detailChip: {
     flex: 1,

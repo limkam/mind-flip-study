@@ -16,7 +16,6 @@ export type UploadBookOptions = {
   description?: string;
   subject?: string;
   tags?: string[];
-  replaceBookId?: string;
   onProgress?: (phase: "uploading" | "creating") => void;
 };
 
@@ -43,7 +42,6 @@ export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<{ i
     description = "",
     subject = "other",
     tags = [],
-    replaceBookId,
     onProgress,
   } = opts;
   const contentType = mimeType || "application/pdf";
@@ -71,7 +69,6 @@ export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<{ i
     author: author.trim(),
     s3_key: presign.s3_key,
     file_size_bytes: size,
-    replace_book_id: replaceBookId ?? undefined,
     extras: {
       table_of_contents: [],
       tags,

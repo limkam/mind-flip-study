@@ -88,7 +88,7 @@ def pdf_is_likely_image_only(data: bytes, *, max_pages: int = _MAX_IMAGE_CHECK_P
     return False
 
 
-def _collect_heading_lines(full_text: str, *, limit: int = 300) -> list[str]:
+def _collect_heading_lines(full_text: str, *, limit: int = 500) -> list[str]:
     """Scan the full document for section-heading lines to give AI document-wide structure."""
     found: list[str] = []
     seen: set[str] = set()

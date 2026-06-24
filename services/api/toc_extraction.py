@@ -18,19 +18,125 @@ log = logging.getLogger(__name__)
 
 TOC_SYSTEM = """You are an expert at reading books, reports, and blog compilations and extracting table of contents structure.
 Always respond with valid JSON only.
-Format: {"chapters":[{"chapter_number":1,"title":"Exact section title from the text","subtopics":["..."]}]}
+Format: {"chapters":[{"chapter_number":1,"title":"Exact section title from the text","subtopics":[]}]}
 Rules:
 - Include EVERY top-level section/chapter/essay in document order — typical books have 8-30 sections; do NOT stop after 1-2.
 - Blog compilations and memoirs often have 15-25 essay titles with NO "Chapter" prefix — include ALL of them.
 - If a numbered candidate list is provided, return EVERY item from that list unless clearly wrong.
 - Use titles that actually appear in the provided PDF text when possible.
 - Number sections sequentially starting at 1.
-- subtopics may be empty."""
+- Always use an empty subtopics array — do NOT include subsections (e.g. 1.1, 1.2, 2.3)."""
+
+TOC_SYSTEM_WITH_CONTENTS = TOC_SYSTEM + """
+- This book has a formal table of contents. Return ONLY main chapters (1, 2, 3…), never subsections like 1.1 or 2.3."""
 
 _NOISE_LINE = re.compile(
     r"^(page \d|copyright|©|all rights|www\.|http|isbn|table of contents|\d+$|mindflip)",
     re.I,
 )
+
+_SUBSECTION_LINE_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?(?:\s|$)")
+_SUBSECTION_TITLE_RE = re.compile(r"^(?:chapter\s+)?\d+\.\d+", re.I)
+
+
+def _has_contents_page(full_text: str) -> bool:
+    """True when the PDF text includes a table-of-contents region."""
+    for line in full_text.splitlines()[:1500]:
+        if re.search(r"\btable of contents\b|\bcontents\b", line, re.I):
+            return True
+    return False
+
+
+def _is_subsection_title(title: str) -> bool:
+    stripped = title.strip()
+    if not stripped:
+        return True
+    if _SUBSECTION_TITLE_RE.match(stripped):
+        return True
+    if re.match(r"^\d+\.\d+\s", stripped):
+        return True
+    return False
+
+
+def _strip_page_number(title: str) -> str:
+    """Remove TOC leader dots and trailing page numbers from a title."""
+    text = title.strip()
+    text = re.sub(r"\s*[.\·\u2024\s]{2,}\s*\d+\s*$", "", text).strip()
+    # Inline page refs like "Sets 22" — but keep titles such as "Topic Number 1".
+    m = re.search(r"^(.+?)\s+(\d{1,4})$", text)
+    if not m:
+        return text
+    prefix, tail_num = m.group(1).strip(), int(m.group(2))
+    if re.search(r"(?:number|chapter|ch|part|vol|no\.?|#)\s*$", prefix, re.I):
+        return text
+    if tail_num >= 10 or len(prefix.split()) >= 2:
+        return prefix
+    return text
+
+
+def _sequential_main_chapters(numbered: list[tuple[int, str]]) -> list[dict[str, Any]] | None:
+    """
+    Keep chapters numbered 1, 2, 3… without gaps (drops stray page numbers like 22, 99).
+  """
+    by_num: dict[int, str] = {}
+    for num, raw_title in numbered:
+        if num < 1 or num > 200:
+            continue
+        title = _strip_page_number(raw_title)
+        if len(title) < 2 or _is_subsection_title(title):
+            continue
+        if num not in by_num:
+            by_num[num] = title
+
+    if 1 not in by_num:
+        return None
+
+    end = 1
+    while (end + 1) in by_num:
+        end += 1
+    if end < 2:
+        return None
+
+    return [
+        {"chapter_number": i, "title": by_num[i], "subtopics": []}
+        for i in range(1, end + 1)
+    ]
+
+
+def _finalize_numbered_main_chapters(chapters: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Prefer a clean 1..N main-chapter sequence when TOC lines are numbered."""
+    numbered: list[tuple[int, str]] = []
+    for ch in chapters:
+        toc_num = ch.get("_toc_num")
+        title = _strip_page_number(str(ch.get("title", "")))
+        if not title:
+            continue
+        if toc_num is not None:
+            try:
+                numbered.append((int(toc_num), title))
+                continue
+            except (TypeError, ValueError):
+                pass
+        lead = re.match(r"^(\d{1,2})\s+(.+)$", title)
+        if lead and not re.match(r"^\d+\.\d+", title):
+            numbered.append((int(lead.group(1)), _strip_page_number(lead.group(2))))
+
+    seq = _sequential_main_chapters(numbered)
+    if seq:
+        return seq
+
+    out: list[dict[str, Any]] = []
+    for ch in chapters:
+        title = _strip_page_number(str(ch.get("title", "")))
+        if not title or _is_subsection_title(title):
+            continue
+        out.append({"chapter_number": len(out) + 1, "title": title, "subtopics": []})
+    return out
+
+
+def _strip_to_main_chapters(chapters: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep only top-level chapters; drop subsections and clear subtopics."""
+    return _finalize_numbered_main_chapters(chapters)
 
 
 def _normalize_chapters(raw: list[Any]) -> list[dict[str, Any]]:
@@ -38,7 +144,7 @@ def _normalize_chapters(raw: list[Any]) -> list[dict[str, Any]]:
     for i, item in enumerate(raw):
         if not isinstance(item, dict):
             continue
-        title = str(item.get("title", "")).strip()
+        title = _strip_page_number(str(item.get("title", "")).strip())
         if not title:
             continue
         num = item.get("chapter_number")
@@ -46,26 +152,90 @@ def _normalize_chapters(raw: list[Any]) -> list[dict[str, Any]]:
             chapter_number = int(num) if num is not None else i + 1
         except (TypeError, ValueError):
             chapter_number = i + 1
-        subtopics = item.get("subtopics") or []
-        if not isinstance(subtopics, list):
-            subtopics = []
         chapters.append(
             {
                 "chapter_number": chapter_number,
                 "title": title,
-                "subtopics": [str(s).strip() for s in subtopics if str(s).strip()],
+                "subtopics": [],
             },
         )
     return chapters
 
 
-def _strip_page_number(title: str) -> str:
-    """Remove TOC leader dots and trailing page number only (not title-ending digits)."""
-    return re.sub(r"\s*[.\·\u2024\s]{2,}\s*\d+\s*$", "", title.strip()).strip()
+def _chapter_dict(
+    title: str,
+    index: int,
+    subtopics: list[str] | None = None,
+    *,
+    toc_num: int | None = None,
+) -> dict[str, Any]:
+    subs = [s for s in (subtopics or []) if s and str(s).strip()]
+    entry: dict[str, Any] = {
+        "chapter_number": index + 1,
+        "title": _strip_page_number(title),
+        "subtopics": subs,
+    }
+    if toc_num is not None:
+        entry["_toc_num"] = toc_num
+    return entry
 
 
-def _chapter_dict(title: str, index: int) -> dict[str, Any]:
-    return {"chapter_number": index + 1, "title": title, "subtopics": []}
+_CONTAINER_TITLE_RE = re.compile(
+    r"^(?:part|book|volume|vol\.?|section|unit)\s+([IVXLC]+|\d+)\b",
+    re.I,
+)
+
+
+def _outline_children(item: Any) -> list[Any]:
+    try:
+        return list(getattr(item, "children", None) or [])
+    except Exception:
+        return []
+
+
+def _outline_to_tree(items: list[Any]) -> list[dict[str, Any]]:
+    """Convert PDF outline to a simple title/children tree."""
+    nodes: list[dict[str, Any]] = []
+    for item in items or []:
+        if isinstance(item, list):
+            nodes.extend(_outline_to_tree(item))
+            continue
+        try:
+            title = str(getattr(item, "title", "") or "").strip()
+        except Exception:
+            title = ""
+        if not title or len(title) < 2:
+            continue
+        nodes.append({"title": title, "children": _outline_to_tree(_outline_children(item))})
+    return nodes
+
+
+def _tree_to_chapters(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Map bookmark hierarchy to main chapters only (no subtopics)."""
+    chapters: list[dict[str, Any]] = []
+
+    def append_chapter(title: str) -> None:
+        title = title.strip()
+        if len(title) < 2 or _is_subsection_title(title):
+            return
+        chapters.append(_chapter_dict(title, len(chapters)))
+
+    for node in nodes:
+        title = node["title"]
+        children = node["children"]
+
+        if not children:
+            append_chapter(title)
+            continue
+
+        if _CONTAINER_TITLE_RE.match(title):
+            for child in children:
+                append_chapter(child["title"])
+            continue
+
+        append_chapter(title)
+
+    return chapters[:80]
 
 
 def _score_chapter_list(chapters: list[dict[str, Any]]) -> tuple[int, int, int]:
@@ -78,11 +248,38 @@ def _score_chapter_list(chapters: list[dict[str, Any]]) -> tuple[int, int, int]:
     return (len(chapters), chapter_like, -part_like)
 
 
+def _sequential_chapter_score(chapters: list[dict[str, Any]]) -> int:
+    """Higher when chapters form a clean 1..N main sequence."""
+    numbered: list[tuple[int, str]] = []
+    for ch in chapters:
+        toc_num = ch.get("_toc_num")
+        title = str(ch.get("title", ""))
+        if toc_num is not None:
+            try:
+                numbered.append((int(toc_num), title))
+                continue
+            except (TypeError, ValueError):
+                pass
+        lead = re.match(r"^(\d{1,2})\s+(.+)$", title)
+        if lead:
+            numbered.append((int(lead.group(1)), lead.group(2)))
+    seq = _sequential_main_chapters(numbered)
+    return len(seq) if seq else 0
+
+
 def _pick_best_toc(candidates: list[tuple[list[dict[str, Any]], str]]) -> tuple[list[dict[str, Any]], str]:
     valid = [(ch, method) for ch, method in candidates if len(ch) >= 2]
     if not valid:
         return [], "none"
-    valid.sort(key=lambda item: (len(item[0]), _score_chapter_list(item[0])), reverse=True)
+    valid.sort(
+        key=lambda item: (
+            _sequential_chapter_score(item[0]),
+            _toc_richness(item[0]),
+            len(item[0]),
+            _score_chapter_list(item[0]),
+        ),
+        reverse=True,
+    )
     return valid[0]
 
 
@@ -103,7 +300,7 @@ def _align_chapter_titles(chapters: list[dict[str, Any]], full_text: str) -> lis
                 pos = _find_title_pos(text_lower, stripped)
                 if pos != -1:
                     title = stripped
-        aligned.append({**ch, "title": title})
+        aligned.append({**ch, "title": _strip_page_number(title)})
     return aligned
 
 
@@ -128,17 +325,45 @@ def _flatten_outline(items: list[Any], depth: int = 0) -> list[tuple[str, int]]:
     return out
 
 
+def _chapters_from_flat_outline(flat: list[tuple[str, int]]) -> list[dict[str, Any]]:
+    """Build main chapters from outline depth (ignore nested subsections)."""
+    if not flat:
+        return []
+    min_depth = min(depth for _, depth in flat)
+    chapters: list[dict[str, Any]] = []
+
+    for title, depth in flat:
+        rel = depth - min_depth
+        if len(title) < 2:
+            continue
+        if _CONTAINER_TITLE_RE.match(title):
+            continue
+        if rel <= 1 and not _is_subsection_title(title):
+            chapters.append(_chapter_dict(title, len(chapters)))
+
+    if len(chapters) >= 2:
+        return chapters[:80]
+    return []
+
+
 def extract_toc_from_bookmarks(pdf_bytes: bytes) -> list[dict[str, Any]]:
-    """Use PDF outline/bookmarks — prefer chapter-level entries over Part/Section groupings."""
+    """Use PDF outline/bookmarks — main chapters only."""
     chapter_re = re.compile(r"^(?:chapter|ch\.?|unit|lesson)\s+(\d+|[IVXLC]+)\b", re.I)
     try:
         reader = PdfReader(BytesIO(pdf_bytes))
         outline = reader.outline
         if not outline:
             return []
+
         flat = _flatten_outline(list(outline))
-        if not flat:
-            return []
+        from_flat = _chapters_from_flat_outline(flat)
+        if len(from_flat) >= 2:
+            return from_flat
+
+        tree = _outline_to_tree(list(outline))
+        hierarchical = _tree_to_chapters(tree)
+        if len(hierarchical) >= 2:
+            return hierarchical
 
         by_depth: dict[int, list[str]] = {}
         for title, depth in flat:
@@ -157,17 +382,17 @@ def extract_toc_from_bookmarks(pdf_bytes: bytes) -> list[dict[str, Any]]:
                 best_score = score
                 best_titles = titles
 
-        chapter_like = [t for t, _ in flat if chapter_re.match(t)]
+        chapter_like = [t for t, _ in flat if chapter_re.match(t) and not _is_subsection_title(t)]
         if len(chapter_like) >= 2 and len(chapter_like) > len(best_titles):
             best_titles = chapter_like
 
         if len(best_titles) < 2:
-            best_titles = [t for t, _ in flat if len(t) >= 3]
+            best_titles = [t for t, _ in flat if len(t) >= 3 and not _is_subsection_title(t)]
 
         if len(best_titles) < 2:
             return []
 
-        return [_chapter_dict(title, i) for i, title in enumerate(best_titles[:60])]
+        return [_chapter_dict(title, i) for i, title in enumerate(best_titles[:80])]
     except Exception as exc:
         log.debug("bookmark_toc_failed", extra={"error": str(exc)})
         return []
@@ -178,9 +403,20 @@ _TOC_ENTRY_PATTERNS = [
         r"^(?:chapter|ch\.?)\s*(\d+|[IVXLC]+)\s*[:\.\-\s]+(.+?)(?:\s*[.\·\u2024\s]{2,}\s*\d+\s*)?$",
         re.I,
     ),
-    re.compile(r"^(\d+)\.\s+(.+?)(?:\s*[.\·\u2024\s]{2,}\s*\d+\s*)?$"),
-    re.compile(r"^(\d+)\s+([A-Z][\w\s\-:,()'/&]{3,100})(?:\s*[.\·\u2024\s]{2,}\s*\d+\s*)?$"),
+    re.compile(r"^(\d{1,2})\.(?!\d)\s+(.+?)(?:\s*[.\·\u2024\s]{2,}\s*\d+\s*)?$"),
+    re.compile(r"^(\d{1,2})\s+([A-Z].+?)(?:\s*[.\·\u2024\s]{2,}\s*\d+\s*)?$"),
+    re.compile(
+        r"^(?:section|sec\.?)\s+(\d+|[IVXLC]+)\s*[:\.\-\s]+(.+?)(?:\s*[.\·\u2024\s]{2,}\s*\d+\s*)?$",
+        re.I,
+    ),
 ]
+
+_TOC_END_MARKERS = re.compile(r"^(index|appendix|bibliography|references|preface|foreword)\b", re.I)
+
+
+def _toc_richness(chapters: list[dict[str, Any]]) -> int:
+    """Higher = more main chapters (subsections are not counted)."""
+    return len(chapters) * 10
 
 
 def extract_toc_from_text(full_text: str) -> list[dict[str, Any]]:
@@ -190,14 +426,14 @@ def extract_toc_from_text(full_text: str) -> list[dict[str, Any]]:
 
     lines = full_text.splitlines()
     start = 0
-    for i, line in enumerate(lines[:1000]):
+    for i, line in enumerate(lines[:1500]):
         if re.search(r"\btable of contents\b|\bcontents\b", line, re.I):
             start = i
             break
 
-    search_end = min(len(lines), start + 600)
+    search_end = min(len(lines), start + 1200)
     if start == 0:
-        search_end = min(len(lines), 500)
+        search_end = min(len(lines), 900)
 
     found: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -207,29 +443,48 @@ def extract_toc_from_text(full_text: str) -> list[dict[str, Any]]:
         stripped = re.sub(r"\s+", " ", line.strip())
         if not stripped:
             blank_run += 1
-            if blank_run >= 10 and len(found) >= 5:
+            # Only stop after a long blank gap once we already parsed a real TOC block.
+            if blank_run >= 30 and len(found) >= 3:
                 break
             continue
         blank_run = 0
 
-        for pat in _TOC_ENTRY_PATTERNS:
+        if _TOC_END_MARKERS.match(stripped) and len(found) >= 5:
+            break
+
+        # Stray page-number lines in messy PDF text (e.g. "22" on its own).
+        if re.fullmatch(r"\d{1,4}", stripped):
+            continue
+
+        # Skip subsections (1.1, 2.3, etc.) — main chapters only.
+        if _SUBSECTION_LINE_RE.match(stripped):
+            continue
+
+        for pat_idx, pat in enumerate(_TOC_ENTRY_PATTERNS):
             m = pat.match(stripped)
             if not m:
                 continue
+            toc_num: int | None = None
+            if pat_idx in (1, 2):
+                toc_num = int(m.group(1))
+            elif pat_idx == 0 and str(m.group(1)).isdigit():
+                toc_num = int(m.group(1))
             title = _strip_page_number(m.group(m.lastindex or 2))
-            if len(title) < 3 or len(title) > 120:
+            if len(title) < 3 or len(title) > 120 or _is_subsection_title(title):
                 continue
             key = title.lower()
             if key in seen:
                 break
             seen.add(key)
-            found.append(_chapter_dict(title, len(found)))
+            found.append(_chapter_dict(title, len(found), toc_num=toc_num))
             break
 
-        if len(found) >= 60:
+        if len(found) >= 80:
             break
 
-    return found if len(found) >= 3 else []
+    if len(found) >= 2:
+        return _finalize_numbered_main_chapters(found)
+    return []
 
 
 _NUMBERED_LIST_LINE = re.compile(
@@ -257,6 +512,8 @@ def extract_toc_from_numbered_list(full_text: str) -> list[dict[str, Any]]:
     seen: set[str] = set()
     for line in lines[start:search_end]:
         stripped = re.sub(r"\s+", " ", line.strip())
+        if _SUBSECTION_LINE_RE.match(stripped):
+            continue
         m = _NUMBERED_LIST_LINE.match(stripped)
         if not m:
             continue
@@ -278,7 +535,10 @@ def extract_toc_from_numbered_list(full_text: str) -> list[dict[str, Any]]:
     if entries[0][0] != 1:
         return []
 
-    return [_chapter_dict(title, i) for i, (_, title) in enumerate(entries[:60])]
+    chapters = [_chapter_dict(title, i, toc_num=num) for i, (num, title) in enumerate(entries[:80])]
+    if _has_contents_page(full_text):
+        return _finalize_numbered_main_chapters(chapters)
+    return chapters
 
 
 _CHAPTER_MARKER_ONLY = re.compile(r"^(?:ch\.?\s*|chapter\s+)(\d{1,2})\.?\s*[:\.\-\s]*$", re.I)
@@ -344,7 +604,7 @@ def extract_toc_from_chapter_markers(full_text: str) -> list[dict[str, Any]]:
     if entries[0][0] != 1:
         return []
 
-    return [_chapter_dict(title, num - 1) for num, title in entries[:60]]
+    return [_chapter_dict(title, num - 1) for num, title in entries[:80]]
 
 
 def extract_toc_from_body_headings(full_text: str) -> list[dict[str, Any]]:
@@ -399,8 +659,8 @@ def extract_toc_from_body_headings(full_text: str) -> list[dict[str, Any]]:
     if len(found) > 8:
         trimmed = found[1:] if len(found[0][1]) < 20 else found
 
-    if len(trimmed) > 35:
-        trimmed = trimmed[:35]
+    if len(trimmed) > 60:
+        trimmed = trimmed[:60]
 
     return [_chapter_dict(title, i) for i, (_, title) in enumerate(trimmed)]
 
@@ -410,12 +670,13 @@ def _structural_toc_candidates(
     text: str,
 ) -> tuple[list[dict[str, Any]], str]:
     """Best non-AI TOC from chapter markers, numbered lists, contents, body headings, bookmarks."""
+    has_contents = _has_contents_page(text)
     candidates: list[tuple[list[dict[str, Any]], str]] = []
     markers = extract_toc_from_chapter_markers(text)
     numbered = extract_toc_from_numbered_list(text)
     toc_text = extract_toc_from_text(text)
-    body = extract_toc_from_body_headings(text)
-    headings = extract_toc_from_headings(text)
+    body = extract_toc_from_body_headings(text) if not has_contents else []
+    headings = extract_toc_from_headings(text) if not has_contents else []
     bookmarks = extract_toc_from_bookmarks(pdf_bytes)
 
     if markers:
@@ -436,7 +697,7 @@ def _structural_toc_candidates(
 
 _HEADING_PATTERNS = [
     re.compile(r"^(?:chapter|ch\.?)\s+(\d+|[IVXLC]+)\s*[:\.\-\s]+(.+)$", re.I),
-    re.compile(r"^(\d+(?:\.\d+)*)\s+([A-Z][\w\s\-:,]{4,80})$"),
+    re.compile(r"^(\d{1,2})\s+([A-Z][\w\s\-:,]{4,80})$"),
 ]
 
 
@@ -451,12 +712,16 @@ def extract_toc_from_headings(full_text: str) -> list[dict[str, Any]]:
         stripped = re.sub(r"\s+", " ", line.strip())
         if len(stripped) < 4 or len(stripped) > 120:
             continue
+        if _SUBSECTION_LINE_RE.match(stripped):
+            continue
         for pat in _HEADING_PATTERNS:
             m = pat.match(stripped)
             if not m:
                 continue
             title = m.group(m.lastindex) if m.lastindex else stripped
             title = str(title).strip()
+            if _is_subsection_title(title):
+                continue
             key = title.lower()
             if key in seen or len(title) < 4:
                 continue
@@ -475,24 +740,29 @@ def extract_toc_with_ai(
     author: str,
     description: str | None = None,
     candidate_titles: list[str] | None = None,
+    main_chapters_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Primary TOC extraction — AI reads a rich sample built from the full PDF text."""
     sample = toc_sample_text(full_text)
     desc = f"\nDescription: {description}" if description else ""
     candidates_block = ""
-    if candidate_titles:
-        listed = "\n".join(f"  {i + 1}. {t}" for i, t in enumerate(candidate_titles[:40]))
+    filtered_candidates = candidate_titles or []
+    if main_chapters_only and filtered_candidates:
+        filtered_candidates = [t for t in filtered_candidates if not _is_subsection_title(t)]
+    if filtered_candidates:
+        listed = "\n".join(f"  {i + 1}. {t}" for i, t in enumerate(filtered_candidates[:40]))
         candidates_block = (
-            f"\n\nSECTION TITLES DETECTED BY SCANNING THE FULL PDF ({len(candidate_titles)} found):\n"
+            f"\n\nSECTION TITLES DETECTED BY SCANNING THE FULL PDF ({len(filtered_candidates)} found):\n"
             f"{listed}\n\n"
             "You MUST return ALL of these as chapters in order (fix numbering/titles only if clearly wrong).\n"
         )
 
+    system = TOC_SYSTEM_WITH_CONTENTS if main_chapters_only else TOC_SYSTEM
     client = get_anthropic_client()
     message = client.messages.create(
         model=CLAUDE_SONNET_MODEL,
         max_tokens=8192,
-        system=TOC_SYSTEM,
+        system=system,
         messages=[
             {
                 "role": "user",
@@ -501,15 +771,23 @@ def extract_toc_with_ai(
                     f"{candidates_block}\n\n"
                     f"PDF TEXT (table of contents, document start, end, and headings from the full PDF):\n"
                     f"{sample}\n\n"
-                    "Return ONLY JSON with every major section/chapter/essay in order. "
-                    "Typical books have many sections — do not stop after 1-2. Copy titles from the PDF text."
+                    + (
+                        "Return ONLY JSON with every MAIN chapter in order (1, 2, 3…). "
+                        "Skip subsections like 1.1 or 2.3. "
+                        if main_chapters_only
+                        else "Return ONLY JSON with every major section/chapter/essay in order. "
+                    )
+                    + "Typical books have many sections — do not stop after 1-2. Copy titles from the PDF text."
                 ),
             },
         ],
     )
     raw = "".join(b.text for b in message.content if hasattr(b, "text"))
     data = parse_model_json(raw)
-    return _normalize_chapters(data.get("chapters") or [])
+    chapters = _normalize_chapters(data.get("chapters") or [])
+    if main_chapters_only:
+        chapters = _strip_to_main_chapters(chapters)
+    return chapters
 
 
 def _heuristic_toc(
@@ -518,6 +796,25 @@ def _heuristic_toc(
 ) -> tuple[list[dict[str, Any]], str]:
     """Non-AI fallbacks when Claude is unavailable or returns nothing."""
     return _structural_toc_candidates(pdf_bytes, text)
+
+
+# Methods reliable enough to skip AI when they find a solid chapter list.
+_STRONG_STRUCTURAL_METHODS = frozenset({
+    "bookmarks",
+    "toc_text",
+    "numbered_list",
+    "chapter_markers",
+    "presentation_slides",
+})
+
+
+def _structural_is_reliable(method: str, chapters: list[dict[str, Any]]) -> bool:
+    """True when heuristic extraction is trustworthy without AI."""
+    if method not in _STRONG_STRUCTURAL_METHODS:
+        return False
+    if len(chapters) < 5:
+        return False
+    return True
 
 
 # Native PDF TOC methods — prefer these over AI when they yield a valid structure.
@@ -542,7 +839,10 @@ def _best_native_toc(
         candidates.append((toc_text, "toc_text"))
     if not candidates:
         return [], "none"
-    candidates.sort(key=lambda item: (len(item[0]), _score_chapter_list(item[0])), reverse=True)
+    candidates.sort(
+        key=lambda item: (_toc_richness(item[0]), len(item[0]), _score_chapter_list(item[0])),
+        reverse=True,
+    )
     return candidates[0]
 
 
@@ -563,6 +863,8 @@ def extract_toc_from_pdf_bytes(
         log.warning("toc_extract_empty_pdf", extra={"title": title})
         return [], "empty", None
 
+    has_contents = _has_contents_page(text)
+
     try:
         from presentation_pdf import extract_slides_as_chapters, is_presentation_pdf
 
@@ -578,55 +880,73 @@ def extract_toc_from_pdf_bytes(
     except Exception as exc:
         log.warning("presentation_pdf_detect_failed", extra={"error": str(exc), "title": title})
 
-    # Prefer native PDF TOC (bookmarks / TOC page) — preserve hierarchy and ordering.
+    # Prefer native PDF TOC when it is at least as complete as structural heuristics.
+    structural, structural_method = _structural_toc_candidates(pdf_bytes, text)
     native, native_method = _best_native_toc(pdf_bytes, text)
-    if _is_native_toc(native_method, native):
+    native_ok = (
+        _is_native_toc(native_method, native)
+        and _toc_richness(native) >= _toc_richness(structural) - 5
+        and len(native) >= max(len(structural) - 2, 2)
+    )
+    if native_ok:
         aligned = _align_chapter_titles(native, text)
+        if has_contents:
+            aligned = _strip_to_main_chapters(aligned)
         log.info(
             "toc_using_native_pdf",
             extra={"title": title, "method": native_method, "chapters": len(aligned)},
         )
         return aligned, native_method, None
 
-    structural, structural_method = _structural_toc_candidates(pdf_bytes, text)
     structural_titles = [str(c.get("title", "")).strip() for c in structural if c.get("title")]
 
     chapters: list[dict[str, Any]] = []
     method = "ai"
     ai_error: str | None = None
+    ai_chapters: list[dict[str, Any]] = []
 
-    # Use structural heuristics when they find a solid chapter list without AI.
-    if len(structural) >= 3:
+    if _structural_is_reliable(structural_method, structural):
         chapters = structural
         method = structural_method
+        if has_contents:
+            chapters = _strip_to_main_chapters(chapters)
         log.info(
-            "toc_using_structural_heuristics",
+            "toc_using_reliable_structural",
             extra={"title": title, "method": structural_method, "chapters": len(chapters)},
         )
     else:
         try:
-            chapters = extract_toc_with_ai(
+            ai_chapters = extract_toc_with_ai(
                 text,
                 title=title,
                 author=author,
                 description=description,
                 candidate_titles=structural_titles or None,
+                main_chapters_only=has_contents,
             )
         except Exception as exc:
             ai_error = str(exc)
             log.warning("ai_toc_failed", extra={"error": ai_error, "title": title})
-            method = "fallback"
 
-        if len(structural) >= 2 and len(structural) > len(chapters):
+        candidates: list[tuple[list[dict[str, Any]], str]] = []
+        if ai_chapters:
+            candidates.append((ai_chapters, "ai"))
+        if structural:
+            candidates.append((structural, structural_method))
+
+        if candidates:
+            chapters, method = _pick_best_toc(candidates)
             log.info(
-                "toc_using_structural_over_ai",
-                extra={"structural": len(structural), "ai": len(chapters), "method": structural_method},
+                "toc_picked_best",
+                extra={
+                    "title": title,
+                    "method": method,
+                    "chapters": len(chapters),
+                    "ai_chapters": len(ai_chapters),
+                    "structural_chapters": len(structural),
+                    "structural_method": structural_method,
+                },
             )
-            chapters = structural
-            method = structural_method
-        elif not chapters and structural:
-            chapters = structural
-            method = structural_method
 
     if not chapters:
         chapters, method = _heuristic_toc(pdf_bytes, text)
@@ -648,6 +968,8 @@ def extract_toc_from_pdf_bytes(
         )
 
     aligned = _align_chapter_titles(chapters, text)
+    if has_contents:
+        aligned = _strip_to_main_chapters(aligned)
     log.info(
         "toc_extracted",
         extra={"title": title, "method": method, "chapters": len(aligned), "ai_error": ai_error},

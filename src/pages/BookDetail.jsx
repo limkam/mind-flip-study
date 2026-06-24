@@ -377,9 +377,19 @@ export default function BookDetail() {
           )}
         </div>
 
-        {book.toc_extraction_method && book.toc_extraction_method !== "ai" && book.toc_extraction_method !== "bookmarks" && book.toc_extraction_method !== "toc_text" && toc.length > 0 && (
+        {book.toc_ai_error && toc.length > 0 && (
           <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 mb-4">
-            Chapter list may be incomplete — AI did not run on the server (method: {book.toc_extraction_method}).
+            AI chapter extraction failed on the worker: {book.toc_ai_error}
+            {" "}Ensure <code className="text-xs">ANTHROPIC_API_KEY</code> is set on both API and worker in production, then extract TOC again.
+          </p>
+        )}
+
+        {book.toc_extraction_method
+          && !["ai", "bookmarks", "toc_text", "numbered_list", "chapter_markers", "presentation_slides"].includes(book.toc_extraction_method)
+          && !book.toc_ai_error
+          && toc.length > 0 && (
+          <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 mb-4">
+            Chapter list may be incomplete — extracted using {book.toc_extraction_method} heuristics without AI.
             Ensure <code className="text-xs">ANTHROPIC_API_KEY</code> is set on both API and worker in production, then extract TOC again.
           </p>
         )}

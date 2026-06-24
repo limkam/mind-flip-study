@@ -122,6 +122,7 @@ export type BookOut = {
   toc_job_id?: string;
   toc_error?: string;
   toc_extraction_method?: string;
+  toc_ai_error?: string;
   extras?: { processing?: { job_id?: string; phase?: string; error?: string } };
 };
 

@@ -98,6 +98,8 @@ def extract_book_toc_task(self, book_id: str) -> dict[str, str]:
             extras["toc_extraction_method"] = toc_method
             if toc_ai_error:
                 extras["toc_ai_error"] = toc_ai_error[:500]
+            else:
+                extras.pop("toc_ai_error", None)
             extras = persist_chapter_segments(extras, segments, text_hash=text_hash)
             book.extras = extras
             _set_toc_phase(book, "complete", toc_method=toc_method, chapters=len(chapters))

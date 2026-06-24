@@ -70,6 +70,10 @@ class DuplicateBookMatch(BaseModel):
     author: str
     created_at: datetime
     file_size_bytes: int
+    match_reason: str = Field(
+        default="title",
+        description="Why this book matched: title or file",
+    )
 
 
 class CheckDuplicateResponse(BaseModel):
@@ -132,6 +136,7 @@ class BookOut(BaseModel):
     toc_extraction_method: str = ""
     toc_job_id: str = ""
     toc_error: str = ""
+    toc_ai_error: str = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -167,6 +172,7 @@ class BookOut(BaseModel):
                 "toc_extraction_method": ex.get("toc_extraction_method") or "",
                 "toc_job_id": str(proc.get("job_id") or ""),
                 "toc_error": str(proc.get("error") or "") if phase == "error" else "",
+                "toc_ai_error": str(ex.get("toc_ai_error") or ""),
             }
         return data
 
