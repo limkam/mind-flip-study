@@ -1,14 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { Screen } from "../components/Screen";
 import { api } from "../api/client";
+import { unlockedBadgeList, type AchievementRow } from "../lib/achievementBadges";
+import { fetchFlashcardSetsList } from "../lib/flashcardSets";
 import { useScreenHeader } from "../hooks/useScreenHeader";
 import { useTheme } from "../hooks/useTheme";
 import { useAuthStore } from "../store/authStore";
+import type { AnalyticsSummaryOut, QuizChallengeOut } from "../types/api";
 
 type OverallRow = {
   rank: number;
@@ -18,14 +21,6 @@ type OverallRow = {
   accuracy: number;
   activity: number;
   wins: number;
-};
-
-type Badge = {
-  id: string;
-  title: string;
-  description: string;
-  icon: string;
-  category: string;
 };
 
 const TABS = [
@@ -63,16 +58,62 @@ export default function ChallengeLeaderboardScreen() {
     },
   });
 
-  const badgesQuery = useQuery({
-    queryKey: ["challenge-leaderboard", "badges"],
-    enabled: tab === "badges",
+  const userEmail = useAuthStore((s) => s.user?.email);
+  const badgesTab = tab === "badges";
+
+  const earnedQuery = useQuery({
+    queryKey: ["achievements", userEmail],
+    enabled: badgesTab && !!userEmail,
+    staleTime: 0,
+    refetchOnMount: "always",
     queryFn: async () => {
-      const { data } = await api.get<Badge[]>("/challenge-leaderboard/badges");
+      const { data } = await api.get<AchievementRow[]>("/achievements/");
       return data ?? [];
     },
   });
 
-  const loading = tab === "overall" ? overallQuery.isLoading : tab === "by_content" ? contentQuery.isLoading : badgesQuery.isLoading;
+  const summaryQuery = useQuery({
+    queryKey: ["analytics-summary"],
+    enabled: badgesTab,
+    queryFn: async () => {
+      const { data } = await api.get<AnalyticsSummaryOut>("/analytics/summary");
+      return data;
+    },
+  });
+
+  const flashcardSetsQuery = useQuery({
+    queryKey: ["flashcard-sets"],
+    enabled: badgesTab,
+    queryFn: fetchFlashcardSetsList,
+  });
+
+  const challengesQuery = useQuery({
+    queryKey: ["quiz-challenges"],
+    enabled: badgesTab,
+    queryFn: async () => {
+      const { data } = await api.get<QuizChallengeOut[]>("/quiz-challenges/");
+      return data ?? [];
+    },
+  });
+
+  const badges = useMemo(() => {
+    if (!badgesTab) return [];
+    const stats = {
+      quizCount: summaryQuery.data?.quiz_count ?? 0,
+      hasPerfect: !!summaryQuery.data?.has_perfect_quiz,
+      streak: summaryQuery.data?.streak_days ?? 0,
+      totalCards: (flashcardSetsQuery.data ?? []).reduce((n, s) => n + (s.card_count ?? 0), 0),
+      challengesSent: (challengesQuery.data ?? []).filter((c) => c.challenger_email === userEmail).length,
+    };
+    return unlockedBadgeList(earnedQuery.data ?? [], stats);
+  }, [badgesTab, earnedQuery.data, summaryQuery.data, flashcardSetsQuery.data, challengesQuery.data, userEmail]);
+
+  const loading =
+    tab === "overall"
+      ? overallQuery.isLoading
+      : tab === "by_content"
+        ? contentQuery.isLoading
+        : earnedQuery.isLoading || summaryQuery.isLoading || flashcardSetsQuery.isLoading || challengesQuery.isLoading;
 
   return (
     <Screen>
@@ -132,10 +173,16 @@ export default function ChallengeLeaderboardScreen() {
         />
       ) : (
         <FlatList
-          data={badgesQuery.data ?? []}
+          data={badges}
           keyExtractor={(b) => b.id}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<EmptyState icon="🎖️" title="No badges yet" message="Win challenges to earn badges." />}
+          ListEmptyComponent={
+            <EmptyState
+              icon="🎖️"
+              title="No badges yet"
+              message="Complete quizzes to earn achievements."
+            />
+          }
           renderItem={({ item }) => (
             <View style={[styles.row, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <Text style={styles.badgeIcon}>{item.icon}</Text>

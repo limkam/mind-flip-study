@@ -51,7 +51,7 @@ export function AchievementsPanel({ userEmail, stats }: Props) {
         }
       }
       if (!cancelled) {
-        await queryClient.invalidateQueries({ queryKey: ["achievements", userEmail] });
+        await queryClient.invalidateQueries({ queryKey: ["achievements"] });
       }
     })();
     return () => {

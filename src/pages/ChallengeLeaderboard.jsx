@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import client from "@/api/client";
 import { useAuth } from "@/lib/AuthContext";
@@ -7,6 +7,7 @@ import { Swords, Crown, Medal, Award } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Pagination from "@/components/pagination/Pagination";
 import { LeaderboardListSkeleton } from "@/components/skeletons";
+import { unlockedBadgeList } from "@/lib/achievementBadges";
 
 const PAGE_SIZE = 50;
 const TABS = [
@@ -103,14 +104,55 @@ export default function ChallengeLeaderboard() {
     enabled: tab === "by_content",
   });
 
-  const { data: badges = [], isLoading: loadingBadges } = useQuery({
-    queryKey: ["challenge-leaderboard", "badges"],
+  const { data: earned = [], isLoading: loadingBadges } = useQuery({
+    queryKey: ["achievements", me?.email],
     queryFn: async () => {
-      const { data } = await client.get("/challenge-leaderboard/badges");
+      const { data } = await client.get("/achievements/");
+      return data ?? [];
+    },
+    enabled: tab === "badges" && !!me?.email,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+
+  const { data: summary } = useQuery({
+    queryKey: ["analytics-summary"],
+    queryFn: async () => {
+      const { data } = await client.get("/analytics/summary");
       return data;
     },
     enabled: tab === "badges",
   });
+
+  const { data: flashcardSets = [] } = useQuery({
+    queryKey: ["flashcard-sets"],
+    queryFn: async () => {
+      const { data } = await client.get("/flashcard-sets/", { params: { include_cards: false } });
+      return data ?? [];
+    },
+    enabled: tab === "badges",
+  });
+
+  const { data: challenges = [] } = useQuery({
+    queryKey: ["quiz-challenges"],
+    queryFn: async () => {
+      const { data } = await client.get("/quiz-challenges/");
+      return data ?? [];
+    },
+    enabled: tab === "badges",
+  });
+
+  const badges = useMemo(() => {
+    if (tab !== "badges") return [];
+    const stats = {
+      quizCount: summary?.quiz_count ?? 0,
+      hasPerfect: !!summary?.has_perfect_quiz,
+      streak: summary?.streak_days ?? 0,
+      totalCards: flashcardSets.reduce((n, s) => n + (s.card_count || 0), 0),
+      challengesSent: challenges.filter((c) => c.challenger_email === me?.email).length,
+    };
+    return unlockedBadgeList(earned, stats);
+  }, [tab, earned, summary, flashcardSets, challenges, me?.email]);
 
   const isLoading = tab === "overall" ? loadingOverall : tab === "by_content" ? loadingContent : loadingBadges;
 
@@ -170,7 +212,7 @@ export default function ChallengeLeaderboard() {
           {badges.length === 0 ? (
             <div className="text-center py-12">
               <Award className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-50" />
-              <p className="text-muted-foreground">No badges earned yet — keep studying and challenging friends!</p>
+              <p className="text-muted-foreground">No badges earned yet — complete quizzes to unlock achievements.</p>
             </div>
           ) : (
             badges.map((b) => <BadgeCard key={b.id} badge={b} />)
