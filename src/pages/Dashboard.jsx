@@ -20,12 +20,12 @@ function getGreeting() {
 export default function Dashboard() {
   const { user } = useOutletContext();
 
-  const { data: books = [] } = useQuery({
+  const { data: books = [], isPending: booksPending } = useQuery({
     queryKey: ["books"],
     queryFn: () => fetchAllBooksPages(),
   });
 
-  const { data: flashcardSets = [] } = useQuery({
+  const { data: flashcardSets = [], isPending: setsPending } = useQuery({
     queryKey: ["flashcard-sets"],
     queryFn: async () => {
       const { data } = await client.get("/flashcard-sets/", { params: { include_cards: false } });
@@ -133,8 +133,8 @@ export default function Dashboard() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard title="Books" value={books.length} icon={BookOpen} color="bg-primary/10 text-primary" subtitle="In library" />
-        <StatCard title="Flashcard Sets" value={flashcardSets.length} icon={GraduationCap} color="bg-accent/10 text-accent" subtitle="Created" />
+        <StatCard title="Books" value={booksPending ? "—" : books.length} icon={BookOpen} color="bg-primary/10 text-primary" subtitle="In library" />
+        <StatCard title="Flashcard Sets" value={setsPending ? "—" : flashcardSets.length} icon={GraduationCap} color="bg-accent/10 text-accent" subtitle="Created" />
         <StatCard title="Quizzes Taken" value={quizTotal} icon={Trophy} color="bg-green-500/10 text-green-500" subtitle="Total played" />
 
         {/* Avg Score with ring */}

@@ -1,10 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useQueryClient } from "@tanstack/react-query";
 import { Redirect, Tabs } from "expo-router";
+import { useEffect } from "react";
 import { View } from "react-native";
 
+import { api } from "../../api/client";
 import { GenerationStatusBanner } from "../../components/GenerationStatusBanner";
+import { fetchFlashcardSetsList } from "../../lib/flashcardSets";
+import { normalizePage } from "../../lib/pagination";
 import { useTheme } from "../../hooks/useTheme";
 import { useAuthStore } from "../../store/authStore";
+import type { BookOut, Paginated } from "../../types/api";
 
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Dashboard: "home-outline",
@@ -17,6 +23,26 @@ const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 export default function TabsLayout() {
   const accessToken = useAuthStore((s) => s.accessToken);
   const { colors } = useTheme();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!accessToken) return;
+    void queryClient.prefetchQuery({
+      queryKey: ["flashcard-sets"],
+      queryFn: fetchFlashcardSetsList,
+    });
+    void queryClient.prefetchInfiniteQuery({
+      queryKey: ["books", "paginated"],
+      initialPageParam: 1,
+      queryFn: async ({ pageParam }) => {
+        const { data } = await api.get<Paginated<BookOut> | BookOut[]>("/books/", {
+          params: { page: pageParam, size: 20 },
+        });
+        return normalizePage(data, pageParam, 20);
+      },
+    });
+  }, [accessToken, queryClient]);
+
   if (!accessToken) {
     return <Redirect href="/(auth)/login" />;
   }

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { Link, useRouter } from "expo-router";
+import { useState } from "react";
 import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import { EmptyState } from "../../components/EmptyState";
@@ -21,16 +21,9 @@ export default function FlashcardsTab() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const { data: sets = [], isLoading, isError, error, refetch, isRefetching } = useQuery({
-    queryKey: ["flashcard-sets", "list"],
+    queryKey: ["flashcard-sets"],
     queryFn: fetchFlashcardSetsList,
-    staleTime: 0,
   });
-
-  useFocusEffect(
-    useCallback(() => {
-      void refetch();
-    }, [refetch]),
-  );
 
   const confirmDelete = (setId: string, title: string, cardCount: number) => {
     Alert.alert(

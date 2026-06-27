@@ -19,6 +19,8 @@ export type GameRoundResult = {
   playerScore: number;
   computerScore: number;
   totalRounds: number;
+  percentage?: number;
+  timeTakenSeconds?: number;
 };
 
 export type GameProps = {

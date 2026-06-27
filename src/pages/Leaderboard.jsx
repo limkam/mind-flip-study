@@ -105,7 +105,7 @@ export default function Leaderboard() {
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-8 text-center">
         <Trophy className="w-10 h-10 text-yellow-400 mx-auto mb-3" />
         <h1 className="font-heading text-3xl font-bold">Leaderboard</h1>
-        <p className="text-muted-foreground mt-1">See how you rank against other learners</p>
+        <p className="text-muted-foreground mt-1">See how you rank against people you study and challenge with</p>
       </motion.div>
 
       <div className="flex gap-2 mb-6 p-1 bg-muted/50 rounded-xl">
@@ -146,8 +146,8 @@ export default function Leaderboard() {
         </div>
       )}
       {!isLoading && !isError && items.length === 0 && (
-        <p className="text-center text-muted-foreground py-12">
-          No leaderboard data yet — complete a quiz or master cards to appear.
+        <p className="text-center text-muted-foreground py-12 max-w-md mx-auto">
+          No one in your network yet. Send a quiz challenge or join a study group to compare scores with other learners.
         </p>
       )}
 

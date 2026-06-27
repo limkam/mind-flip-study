@@ -27,7 +27,6 @@ export default function DashboardTab() {
   const { data: flashcardSets = [], isLoading: setsLoading } = useQuery({
     queryKey: ["flashcard-sets"],
     queryFn: fetchFlashcardSetsList,
-    staleTime: 0,
   });
 
   const weakTopics = summary?.weak_topics ?? [];

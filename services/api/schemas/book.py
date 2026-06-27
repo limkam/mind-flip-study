@@ -137,6 +137,10 @@ class BookOut(BaseModel):
     toc_job_id: str = ""
     toc_error: str = ""
     toc_ai_error: str = ""
+    chapter_card_counts: dict[str, int] = Field(
+        default_factory=dict,
+        description="Chapter title -> number of flashcards generated for that chapter.",
+    )
 
     @model_validator(mode="before")
     @classmethod

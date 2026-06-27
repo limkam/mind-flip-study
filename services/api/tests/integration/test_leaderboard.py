@@ -14,6 +14,7 @@ from dependencies import get_current_user
 from main import app
 from models.enums import UserRole
 from models.user import User
+from services import connected_users as connected_users_module
 
 
 def _student() -> User:
@@ -38,7 +39,15 @@ def _mock_db_session() -> AsyncMock:
     count_result.scalar.return_value = 0
     empty_result = MagicMock()
     empty_result.all.return_value = []
-    mock_db.execute = AsyncMock(side_effect=[count_result, empty_result])
+    empty_scalars = MagicMock()
+    empty_scalars.all.return_value = []
+    scalars_result = MagicMock()
+    scalars_result.scalars.return_value = empty_scalars
+
+    async def _execute(_stmt):
+        return count_result
+
+    mock_db.execute = AsyncMock(side_effect=_execute)
     return mock_db
 
 
@@ -55,6 +64,9 @@ async def test_leaderboard_queries_database():
 
     app.dependency_overrides[get_current_user] = _user
     app.dependency_overrides[get_db] = _db_dep
+    async def _connected(_db, me):
+        return {me}
+    connected_users_module.connected_user_ids = _connected
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/leaderboard")
@@ -80,6 +92,9 @@ async def test_leaderboard_pagination():
 
     app.dependency_overrides[get_current_user] = _user
     app.dependency_overrides[get_db] = _db_dep
+    async def _connected(_db, me):
+        return {me}
+    connected_users_module.connected_user_ids = _connected
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.get("/leaderboard?page=1&size=10&metric=most_quizzes")

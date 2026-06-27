@@ -8,7 +8,7 @@ import { api } from "../api/client";
 import { fetchFlashcardSetsList } from "../lib/flashcardSets";
 import { useTheme } from "../hooks/useTheme";
 import { useAuthStore } from "../store/authStore";
-import type { AnalyticsSummaryOut } from "../types/api";
+import type { AnalyticsSummaryOut, QuizChallengeOut } from "../types/api";
 import type { AchievementStats } from "../lib/achievements";
 
 export default function AchievementsScreen() {
@@ -28,12 +28,20 @@ export default function AchievementsScreen() {
     queryFn: fetchFlashcardSetsList,
   });
 
+  const { data: challenges = [] } = useQuery({
+    queryKey: ["quiz-challenges"],
+    queryFn: async () => {
+      const { data } = await api.get<QuizChallengeOut[]>("/quiz-challenges/");
+      return data ?? [];
+    },
+  });
+
   const stats: AchievementStats = {
     quizCount: summary?.quiz_count ?? 0,
     hasPerfect: !!summary?.has_perfect_quiz,
     streak: summary?.streak_days ?? 0,
     totalCards: flashcardSets.reduce((n, s) => n + (s.card_count ?? 0), 0),
-    challengesSent: 0,
+    challengesSent: challenges.filter((c) => c.challenger_email === user?.email).length,
   };
 
   return (
@@ -42,7 +50,7 @@ export default function AchievementsScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={[styles.title, { color: colors.text }]}>Achievements</Text>
         <Text style={[styles.sub, { color: colors.muted }]}>Badges, XP, milestones, and rewards</Text>
-        <AchievementsPanel stats={stats} userId={user?.id} />
+        <AchievementsPanel stats={stats} userEmail={user?.email} />
       </ScrollView>
     </Screen>
   );

@@ -22,11 +22,16 @@ export function AchievementsPanel({ userEmail, stats }: Props) {
       return data;
     },
     enabled: !!userEmail,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const earnedIds = useMemo(() => new Set(earned.map((a) => a.achievement_type)), [earned]);
   const earnedKey = useMemo(() => [...earnedIds].sort().join(","), [earnedIds]);
   const statsKey = JSON.stringify(stats);
+
+  const isUnlocked = (ach: (typeof ALL_ACHIEVEMENTS)[number]) =>
+    earnedIds.has(ach.id) || ach.check(stats);
 
   useEffect(() => {
     if (!isFetched || !userEmail) return;
@@ -54,8 +59,8 @@ export function AchievementsPanel({ userEmail, stats }: Props) {
     };
   }, [isFetched, userEmail, earnedKey, statsKey, earnedIds, queryClient]);
 
-  const unlocked = ALL_ACHIEVEMENTS.filter((a) => earnedIds.has(a.id));
-  const locked = ALL_ACHIEVEMENTS.filter((a) => !earnedIds.has(a.id));
+  const unlocked = ALL_ACHIEVEMENTS.filter((a) => isUnlocked(a));
+  const locked = ALL_ACHIEVEMENTS.filter((a) => !isUnlocked(a));
 
   return (
     <View style={styles.card}>

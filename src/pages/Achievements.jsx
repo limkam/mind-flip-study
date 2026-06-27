@@ -30,14 +30,21 @@ export default function Achievements() {
     },
   });
 
+  const { data: challenges = [] } = useQuery({
+    queryKey: ["quiz-challenges"],
+    queryFn: async () => {
+      const { data } = await client.get("/quiz-challenges/");
+      return data;
+    },
+  });
+
   const stats = useMemo(() => ({
     quizCount: summary?.quiz_count ?? 0,
-    streakDays: summary?.streak_days ?? 0,
-    cardCount: flashcardSets.reduce((n, s) => n + (s.card_count || 0), 0),
-    setCount: flashcardSets.length,
-    bookCount: books.length,
-    avgScore: summary?.avg_score ?? 0,
-  }), [summary, flashcardSets, books]);
+    hasPerfect: !!summary?.has_perfect_quiz,
+    streak: summary?.streak_days ?? 0,
+    totalCards: flashcardSets.reduce((n, s) => n + (s.card_count || 0), 0),
+    challengesSent: challenges.filter((c) => c.challenger_email === user?.email).length,
+  }), [summary, flashcardSets, challenges, user?.email]);
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -48,7 +55,7 @@ export default function Achievements() {
         </p>
       </motion.div>
 
-      <AchievementsPanel stats={stats} userId={user?.id} />
+      <AchievementsPanel user={user} stats={stats} />
     </div>
   );
 }

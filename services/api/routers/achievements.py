@@ -13,6 +13,7 @@ from database import get_db
 from dependencies import get_current_user
 from models.achievement import Achievement
 from models.user import User
+from services.achievement_sync import sync_user_achievements
 
 router = APIRouter(tags=["achievements"])
 
@@ -50,6 +51,7 @@ async def list_achievements(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[AchievementOut]:
+    await sync_user_achievements(db, current_user.id)
     r = await db.execute(
         select(Achievement).where(Achievement.user_id == current_user.id).order_by(Achievement.earned_at.desc()),
     )

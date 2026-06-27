@@ -14,6 +14,7 @@ from dependencies import get_current_user
 from models.quiz import CardProgress, QuizResult
 from models.user import User
 from schemas.pagination import total_pages
+from services.connected_users import connected_user_ids
 from user_identity import resolve_display_name
 
 router = APIRouter(tags=["leaderboard"])
@@ -75,7 +76,15 @@ def _avg_score_expr():
     )
 
 
-async def _count_leaderboard_users(db: AsyncSession, metric: LeaderboardMetric) -> int:
+async def _count_leaderboard_users(
+    db: AsyncSession,
+    metric: LeaderboardMetric,
+    *,
+    allowed_ids: set,
+) -> int:
+    if not allowed_ids:
+        return 0
+    id_filter = User.id.in_(allowed_ids)
     if metric in ("avg_score", "most_quizzes", "xp"):
         having = (
             func.count(QuizResult.id) > 0
@@ -85,7 +94,7 @@ async def _count_leaderboard_users(db: AsyncSession, metric: LeaderboardMetric) 
         subq = (
             select(User.id)
             .join(QuizResult, QuizResult.user_id == User.id)
-            .where(User.is_banned.is_(False))
+            .where(User.is_banned.is_(False), id_filter)
             .group_by(User.id)
             .having(having)
         ).subquery()
@@ -95,7 +104,7 @@ async def _count_leaderboard_users(db: AsyncSession, metric: LeaderboardMetric) 
     subq = (
         select(User.id)
         .join(CardProgress, CardProgress.user_id == User.id)
-        .where(User.is_banned.is_(False), _mastered_filter())
+        .where(User.is_banned.is_(False), _mastered_filter(), id_filter)
         .group_by(User.id)
         .having(func.count(CardProgress.id) > 0)
     ).subquery()
@@ -109,7 +118,11 @@ async def _fetch_leaderboard_page(
     *,
     offset: int,
     limit: int,
+    allowed_ids: set,
 ) -> list[tuple]:
+    if not allowed_ids:
+        return []
+    id_filter = User.id.in_(allowed_ids)
     if metric == "avg_score":
         pct = _avg_score_expr()
         stmt = (
@@ -121,7 +134,7 @@ async def _fetch_leaderboard_page(
                 func.avg(pct).label("value"),
             )
             .join(QuizResult, QuizResult.user_id == User.id)
-            .where(User.is_banned.is_(False))
+            .where(User.is_banned.is_(False), id_filter)
             .group_by(User.id, User.full_name, User.email, User.avatar_url)
             .having(func.count(QuizResult.id) > 0)
             .order_by(func.avg(pct).desc(), User.full_name.asc())
@@ -141,7 +154,7 @@ async def _fetch_leaderboard_page(
                 func.count(QuizResult.id).label("value"),
             )
             .join(QuizResult, QuizResult.user_id == User.id)
-            .where(User.is_banned.is_(False))
+            .where(User.is_banned.is_(False), id_filter)
             .group_by(User.id, User.full_name, User.email, User.avatar_url)
             .having(func.count(QuizResult.id) > 0)
             .order_by(func.count(QuizResult.id).desc(), User.full_name.asc())
@@ -180,7 +193,7 @@ async def _fetch_leaderboard_page(
             func.coalesce(func.sum(QuizResult.score), 0).label("value"),
         )
         .join(QuizResult, QuizResult.user_id == User.id)
-        .where(User.is_banned.is_(False))
+        .where(User.is_banned.is_(False), id_filter)
         .group_by(User.id, User.full_name, User.email, User.avatar_url)
         .having(func.coalesce(func.sum(QuizResult.score), 0) > 0)
         .order_by(func.coalesce(func.sum(QuizResult.score), 0).desc(), User.full_name.asc())
@@ -225,7 +238,17 @@ async def _user_metric_value(db: AsyncSession, user_id, metric: LeaderboardMetri
     return float(r.scalar() or 0)
 
 
-async def _user_rank(db: AsyncSession, user_id, metric: LeaderboardMetric, value: float) -> int | None:
+async def _user_rank(
+    db: AsyncSession,
+    user_id,
+    metric: LeaderboardMetric,
+    value: float,
+    *,
+    allowed_ids: set,
+) -> int | None:
+    if not allowed_ids or user_id not in allowed_ids:
+        return None
+    id_filter = User.id.in_(allowed_ids)
     if value <= 0 and metric != "avg_score":
         return None
     if metric == "avg_score" and value <= 0:
@@ -240,7 +263,7 @@ async def _user_rank(db: AsyncSession, user_id, metric: LeaderboardMetric, value
         better = (
             select(User.id)
             .join(QuizResult, QuizResult.user_id == User.id)
-            .where(User.is_banned.is_(False))
+            .where(User.is_banned.is_(False), id_filter)
             .group_by(User.id)
             .having(func.count(QuizResult.id) > 0, func.avg(pct) > value)
         )
@@ -248,7 +271,7 @@ async def _user_rank(db: AsyncSession, user_id, metric: LeaderboardMetric, value
         better = (
             select(User.id)
             .join(QuizResult, QuizResult.user_id == User.id)
-            .where(User.is_banned.is_(False))
+            .where(User.is_banned.is_(False), id_filter)
             .group_by(User.id)
             .having(func.count(QuizResult.id) > value)
         )
@@ -256,7 +279,7 @@ async def _user_rank(db: AsyncSession, user_id, metric: LeaderboardMetric, value
         better = (
             select(User.id)
             .join(CardProgress, CardProgress.user_id == User.id)
-            .where(User.is_banned.is_(False), _mastered_filter())
+            .where(User.is_banned.is_(False), _mastered_filter(), id_filter)
             .group_by(User.id)
             .having(func.count(CardProgress.id) > value)
         )
@@ -264,7 +287,7 @@ async def _user_rank(db: AsyncSession, user_id, metric: LeaderboardMetric, value
         better = (
             select(User.id)
             .join(QuizResult, QuizResult.user_id == User.id)
-            .where(User.is_banned.is_(False))
+            .where(User.is_banned.is_(False), id_filter)
             .group_by(User.id)
             .having(func.coalesce(func.sum(QuizResult.score), 0) > value)
         )
@@ -297,15 +320,24 @@ def _row_to_item(row, *, rank: int, metric: LeaderboardMetric) -> LeaderboardIte
 
 @router.get("", response_model=LeaderboardPageOut)
 async def get_leaderboard(
+    current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     metric: LeaderboardMetric = Query("avg_score"),
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=100),
 ) -> LeaderboardPageOut:
+    """Leaderboard limited to users you have challenged or share a study group with."""
     size = _clamp_size(size)
-    total = await _count_leaderboard_users(db, metric)
+    allowed_ids = await connected_user_ids(db, current_user.id)
+    total = await _count_leaderboard_users(db, metric, allowed_ids=allowed_ids)
     offset = (page - 1) * size
-    rows = await _fetch_leaderboard_page(db, metric, offset=offset, limit=size)
+    rows = await _fetch_leaderboard_page(
+        db,
+        metric,
+        offset=offset,
+        limit=size,
+        allowed_ids=allowed_ids,
+    )
 
     base_rank = offset + 1
     items = [_row_to_item(row, rank=base_rank + i, metric=metric) for i, row in enumerate(rows)]
@@ -329,8 +361,9 @@ async def get_my_leaderboard_rank(
     db: Annotated[AsyncSession, Depends(get_db)],
     metric: LeaderboardMetric = Query("avg_score"),
 ) -> LeaderboardMeOut:
+    allowed_ids = await connected_user_ids(db, current_user.id)
     value = _format_value(metric, await _user_metric_value(db, current_user.id, metric))
-    rank = await _user_rank(db, current_user.id, metric, value)
+    rank = await _user_rank(db, current_user.id, metric, value, allowed_ids=allowed_ids)
     return LeaderboardMeOut(
         rank=rank,
         value=value,

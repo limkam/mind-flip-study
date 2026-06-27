@@ -43,8 +43,33 @@ async def _book_title(db: AsyncSession, book_id: UUID | None) -> str | None:
     return r.scalar_one_or_none()
 
 
-async def _serialize_set(db: AsyncSession, s: FlashcardSet, *, include_cards: bool = True) -> FlashcardSetOut:
-    bt = await _book_title(db, s.book_id)
+async def _book_titles_map(db: AsyncSession, book_ids: set[UUID]) -> dict[UUID, str]:
+    if not book_ids:
+        return {}
+    r = await db.execute(select(Book.id, Book.title).where(Book.id.in_(book_ids)))
+    return {row.id: row.title for row in r.all()}
+
+
+async def _card_counts_map(db: AsyncSession, set_ids: list[UUID]) -> dict[UUID, int]:
+    if not set_ids:
+        return {}
+    r = await db.execute(
+        select(Flashcard.set_id, func.count(Flashcard.id))
+        .where(Flashcard.set_id.in_(set_ids))
+        .group_by(Flashcard.set_id),
+    )
+    return {row.set_id: int(row.count) for row in r.all()}
+
+
+async def _serialize_set(
+    db: AsyncSession,
+    s: FlashcardSet,
+    *,
+    include_cards: bool = True,
+    book_title: str | None = None,
+    card_count: int | None = None,
+) -> FlashcardSetOut:
+    bt = book_title if book_title is not None else await _book_title(db, s.book_id)
     meta = flashcard_set_meta_from_description(s.description)
     summary_text = str(meta.get("summary") or "").strip() or None
     scenario_rows = [
@@ -82,8 +107,9 @@ async def _serialize_set(db: AsyncSession, s: FlashcardSet, *, include_cards: bo
         ]
     else:
         card_rows = []
-        n = await db.scalar(select(func.count(Flashcard.id)).where(Flashcard.set_id == s.id))
-        card_count = int(n or 0)
+        if card_count is None:
+            n = await db.scalar(select(func.count(Flashcard.id)).where(Flashcard.set_id == s.id))
+            card_count = int(n or 0)
     return FlashcardSetOut(
         id=s.id,
         user_id=s.user_id,
@@ -216,9 +242,21 @@ async def list_flashcard_sets(
         .order_by(FlashcardSet.created_at.desc()),
     )
     rows = r.scalars().all()
+    set_ids = [s.id for s in rows]
+    book_ids = {s.book_id for s in rows if s.book_id is not None}
+    counts_map = await _card_counts_map(db, set_ids)
+    titles_map = await _book_titles_map(db, book_ids)
     out: list[FlashcardSetOut] = []
     for s in rows:
-        out.append(await _serialize_set(db, s, include_cards=include_cards))
+        out.append(
+            await _serialize_set(
+                db,
+                s,
+                include_cards=include_cards,
+                book_title=titles_map.get(s.book_id) if s.book_id else None,
+                card_count=counts_map.get(s.id, 0) if not include_cards else None,
+            ),
+        )
     return out
 
 

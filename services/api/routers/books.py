@@ -28,6 +28,7 @@ from s3_service import (
 )
 from services.book_deletion import cascade_delete_book
 from services.book_duplicate import PDF_SHA256_EXTRAS_KEY, find_duplicate_books, pdf_sha256
+from services.chapter_cards import chapter_card_counts_for_book
 from services.toc_editor import normalize_toc_chapters, validate_toc_chapters
 from schemas.book import (
     BookCreate,
@@ -403,7 +404,12 @@ async def get_book(
     book = result.scalar_one_or_none()
     if book is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
-    return BookOut.model_validate(book)
+    counts = await chapter_card_counts_for_book(
+        db,
+        book_id=book.id,
+        user_id=current_user.id,
+    )
+    return BookOut.model_validate(book).model_copy(update={"chapter_card_counts": counts})
 
 
 @router.post("/{book_id}/extract-toc", response_model=JobEnqueueResponse, status_code=status.HTTP_202_ACCEPTED)

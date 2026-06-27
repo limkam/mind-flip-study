@@ -22,7 +22,8 @@ export default function QuizChallenges() {
   const [selectedSetId, setSelectedSetId] = useState("");
   const [opponentEmail, setOpponentEmail] = useState("");
   const [sending, setSending] = useState(false);
-  const [activeChallenge, setActiveChallenge] = useState(null); // challenge being answered
+  const [sendQuiz, setSendQuiz] = useState(null);
+  const [activeChallenge, setActiveChallenge] = useState(null);
   const [activeChallengeCards, setActiveChallengeCards] = useState([]);
 
   const { data: challenges = [] } = useQuery({
@@ -46,22 +47,51 @@ export default function QuizChallenges() {
   const sent = myChallenges.filter(c => c.status === "pending" && c.challenger_email === user?.email);
   const completed = myChallenges.filter(c => c.status === "completed");
 
-  const handleSendChallenge = async () => {
+  const handleStartSendQuiz = async () => {
     if (!selectedSetId || !opponentEmail) return;
     setSending(true);
     try {
+      const { data: setData } = await client.get(`/flashcard-sets/${selectedSetId}`);
+      if (!setData?.cards?.length) {
+        toast({ title: "No cards in this set", variant: "destructive" });
+        return;
+      }
       const set = sets.find((s) => s.id === selectedSetId);
+      setSendOpen(false);
+      setSendQuiz({
+        opponentEmail: opponentEmail.trim(),
+        set,
+        cards: setData.cards,
+      });
+    } catch (err) {
+      toast({
+        title: "Could not load flashcards",
+        description: err.response?.data?.detail || err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSendQuizComplete = async (result) => {
+    if (!sendQuiz) return;
+    setSending(true);
+    try {
       await client.post('/quiz-challenges/', {
-        flashcard_set_id: selectedSetId,
-        opponent_email: opponentEmail,
-        set_title: set?.title,
-        book_title: set?.book_title,
+        flashcard_set_id: sendQuiz.set.id,
+        opponent_email: sendQuiz.opponentEmail,
+        set_title: sendQuiz.set?.title,
+        book_title: sendQuiz.set?.book_title,
+        challenger_score: result.score,
+        challenger_percentage: result.percentage,
+        challenger_time_seconds: result.time_taken_seconds,
       });
       queryClient.invalidateQueries({ queryKey: ['quiz-challenges'] });
-      toast({ title: 'Challenge sent' });
+      toast({ title: 'Challenge sent', description: `Your score: ${result.percentage}%` });
       setOpponentEmail('');
       setSelectedSetId('');
-      setSendOpen(false);
+      setSendQuiz(null);
     } catch (err) {
       toast({
         title: 'Could not send challenge',
@@ -82,21 +112,19 @@ export default function QuizChallenges() {
   };
 
   const handleChallengeComplete = async (result) => {
-    const isWinner = result.percentage > (activeChallenge.challenger_percentage || 0) ||
-      (result.percentage === activeChallenge.challenger_percentage &&
-        result.time_taken_seconds < (activeChallenge.challenger_time_seconds || 9999));
-
     await client.patch(`/quiz-challenges/${activeChallenge.id}`, {
       opponent_score: result.score,
       opponent_percentage: result.percentage,
       opponent_time_seconds: result.time_taken_seconds,
       status: "completed",
-      winner_email: isWinner ? user?.email : activeChallenge.challenger_email,
     });
     queryClient.invalidateQueries({ queryKey: ["quiz-challenges"] });
+    const beatThem = result.percentage > (activeChallenge.challenger_percentage || 0)
+      || (result.percentage === activeChallenge.challenger_percentage
+        && result.time_taken_seconds < (activeChallenge.challenger_time_seconds || 9999));
     setActiveChallenge(null);
     setActiveChallengeCards([]);
-    toast({ title: isWinner ? "🏆 You won the challenge!" : "Challenge completed — better luck next time!" });
+    toast({ title: beatThem ? "🏆 You won the challenge!" : "Challenge completed — better luck next time!" });
   };
 
   const getResultForChallenge = (c) => {
@@ -104,6 +132,27 @@ export default function QuizChallenges() {
     const iWon = c.winner_email === user?.email;
     return iWon ? "win" : "loss";
   };
+
+  if (sendQuiz) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="font-heading text-xl font-bold">⚔️ Take the quiz first</h2>
+            <p className="text-sm text-muted-foreground">
+              Score on {sendQuiz.set?.title} — then challenge {sendQuiz.opponentEmail}
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setSendQuiz(null)} className="text-muted-foreground">✕ Cancel</Button>
+        </div>
+        <QuizGame
+          cards={sendQuiz.cards}
+          setTitle={sendQuiz.set?.title}
+          onComplete={handleSendQuizComplete}
+        />
+      </div>
+    );
+  }
 
   if (activeChallenge) {
     return (
@@ -182,6 +231,9 @@ export default function QuizChallenges() {
                 <div className="flex-1">
                   <p className="font-medium">{c.set_title}</p>
                   <p className="text-sm text-muted-foreground">To: <span className="font-medium text-foreground">{c.opponent_email}</span></p>
+                  {c.challenger_percentage != null ? (
+                    <p className="text-xs text-primary font-medium mt-1">Your score: {c.challenger_percentage}%</p>
+                  ) : null}
                 </div>
                 <Badge variant="outline" className="text-muted-foreground">Pending</Badge>
               </motion.div>
@@ -270,8 +322,8 @@ export default function QuizChallenges() {
                 💡 You'll take the quiz first, then your opponent will see your score and try to beat it.
               </div>
             )}
-            <Button onClick={handleSendChallenge} disabled={sending || !selectedSetId || !opponentEmail} className="w-full gap-2">
-              {sending ? "Sending..." : <><Swords className="w-4 h-4" /> Challenge!</>}
+            <Button onClick={handleStartSendQuiz} disabled={sending || !selectedSetId || !opponentEmail} className="w-full gap-2">
+              {sending ? "Loading quiz…" : <><Swords className="w-4 h-4" /> Take quiz & send challenge</>}
             </Button>
           </div>
         </DialogContent>

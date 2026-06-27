@@ -73,7 +73,13 @@ export function QuizGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
         title="Quiz complete!"
         subtitle={`${score}/${questions.length} correct (${pct}%) · ${answeredCount} answered · ${formatMmSs(elapsed)} · ${mode}`}
         onPrimary={() =>
-          onComplete({ playerScore: score, computerScore: questions.length - score, totalRounds: Math.max(questions.length, 1) })
+          onComplete({
+            playerScore: score,
+            computerScore: questions.length - score,
+            totalRounds: Math.max(questions.length, 1),
+            percentage: pct,
+            timeTakenSeconds: elapsed,
+          })
         }
       />
     );

@@ -18,7 +18,7 @@ import { api } from "../../api/client";
 import { useJobPoll } from "../../hooks/useJobPoll";
 import { generationPhaseLabel } from "../../lib/generationPhases";
 import { getTocErrorFromBook, getTocJobIdFromBook, isTocExtractionInProgress } from "../../lib/bookToc";
-import { chapterSelectionSubtitle } from "../../lib/studySetDisplay";
+import { chapterSelectionSubtitle, cardsGeneratedLabel } from "../../lib/studySetDisplay";
 import { useGenerationJobStore } from "../../store/generationJobStore";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
@@ -40,7 +40,7 @@ const COUNTS = [5, 10, 20, 30, 40, 50] as const;
 export default function BookByIdScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const startJob = useGenerationJobStore((s) => s.startJob);
   const activeBookJob = useGenerationJobStore((s) => (id ? s.getBookJob(id) : undefined));
 
@@ -136,6 +136,7 @@ export default function BookByIdScreen() {
   };
 
   const chapters = book?.table_of_contents ?? [];
+  const chapterCardCounts = book?.chapter_card_counts ?? {};
   const tocKey = JSON.stringify(book?.table_of_contents ?? null);
 
   useEffect(() => {
@@ -317,12 +318,20 @@ export default function BookByIdScreen() {
                 const on = selectedChapter === t;
                 const expanded = expandedChapters[idx];
                 const hasSubs = (chapter.subtopics?.length ?? 0) > 0;
+                const cardsLabel = cardsGeneratedLabel(chapterCardCounts[t]);
+                const cardCount = chapterCardCounts[t] ?? 0;
+                const hasCards = cardCount > 0;
+                const generatedBg = isDark ? "#052e16" : "#ecfdf5";
+                const generatedBorder = isDark ? "#065f46" : "#a7f3d0";
                 return (
                   <View
                     key={`${t}-${idx}`}
                     style={[
                       styles.chapterCard,
-                      { borderColor: on ? colors.primary : colors.border, backgroundColor: on ? `${colors.primary}10` : colors.background },
+                      {
+                        borderColor: on ? colors.primary : hasCards ? generatedBorder : colors.border,
+                        backgroundColor: on ? `${colors.primary}10` : hasCards ? generatedBg : colors.background,
+                      },
                     ]}
                   >
                     <Pressable style={styles.chapterRow} onPress={() => selectChapter(t)}>
@@ -334,6 +343,14 @@ export default function BookByIdScreen() {
                           Ch. {chapter.chapter_number ?? idx + 1}
                         </Text>
                         <Text style={[styles.chTitle, { color: colors.text }]}>{t}</Text>
+                        {hasCards ? (
+                          <View style={styles.generatedRow}>
+                            <View style={[styles.checkBadge, { backgroundColor: colors.success }]}>
+                              <Text style={styles.checkMark}>✓</Text>
+                            </View>
+                            <Text style={[styles.cardsGenerated, { color: colors.success }]}>{cardsLabel}</Text>
+                          </View>
+                        ) : null}
                       </View>
                       {hasSubs ? (
                         <Pressable
@@ -534,6 +551,16 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   chTitle: { fontSize: 14, fontWeight: "600" },
+  generatedRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  checkBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkMark: { color: "#fff", fontSize: 10, fontWeight: "800", lineHeight: 12 },
+  cardsGenerated: { fontSize: 12, fontWeight: "600" },
   subtopics: { paddingHorizontal: 12, paddingBottom: 12, paddingLeft: 44, gap: 4 },
   subtopic: { fontSize: 13, lineHeight: 18 },
   label: { fontSize: 14, fontWeight: "600", marginBottom: 8 },

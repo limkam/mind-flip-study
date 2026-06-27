@@ -98,12 +98,19 @@ export type QuizChallengeOut = {
   id: string;
   flashcard_set_id: string;
   challenger_email: string;
+  challenger_name?: string | null;
   opponent_email: string;
+  opponent_name?: string | null;
   status: string;
   set_title?: string | null;
   book_title?: string | null;
   challenger_score?: number | null;
+  challenger_percentage?: number | null;
+  challenger_time_seconds?: number | null;
   opponent_score?: number | null;
+  opponent_percentage?: number | null;
+  opponent_time_seconds?: number | null;
+  winner_email?: string | null;
 };
 
 export type BookOut = {
@@ -123,6 +130,7 @@ export type BookOut = {
   toc_error?: string;
   toc_extraction_method?: string;
   toc_ai_error?: string;
+  chapter_card_counts?: Record<string, number>;
   extras?: { processing?: { job_id?: string; phase?: string; error?: string } };
 };
 

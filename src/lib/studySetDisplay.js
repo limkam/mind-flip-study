@@ -36,3 +36,9 @@ export function chapterSelectionSubtitle(chapterCount) {
   if (chapterCount === 1) return 'Generating flashcards for 1 chapter';
   return `Generating flashcards for ${chapterCount} chapters`;
 }
+
+export function cardsGeneratedLabel(count) {
+  const n = Number(count);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return `${n} card${n === 1 ? '' : 's'} generated`;
+}

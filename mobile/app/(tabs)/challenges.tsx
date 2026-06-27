@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -11,6 +14,7 @@ import {
 } from "react-native";
 
 import { EmptyState } from "../../components/EmptyState";
+import { QuizGame } from "../../components/games/QuizGame";
 import { PageHeader } from "../../components/PageHeader";
 import { Screen } from "../../components/Screen";
 import { api } from "../../api/client";
@@ -18,7 +22,19 @@ import { fetchFlashcardSetsList } from "../../lib/flashcardSets";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
 import { useAuthStore } from "../../store/authStore";
-import type { FlashcardSetOut, QuizChallengeOut } from "../../types/api";
+import type { FlashcardOut, FlashcardSetOut, QuizChallengeOut } from "../../types/api";
+import type { GameRoundResult } from "../../components/games/types";
+
+type SendQuizState = {
+  opponentEmail: string;
+  set: FlashcardSetOut;
+  cards: FlashcardOut[];
+};
+
+type ActiveChallengeState = {
+  challenge: QuizChallengeOut;
+  cards: FlashcardOut[];
+};
 
 export default function ChallengesTab() {
   const { colors } = useTheme();
@@ -28,6 +44,9 @@ export default function ChallengesTab() {
   const [sendOpen, setSendOpen] = useState(false);
   const [opponentEmail, setOpponentEmail] = useState("");
   const [selectedSetId, setSelectedSetId] = useState("");
+  const [sendQuiz, setSendQuiz] = useState<SendQuizState | null>(null);
+  const [activeChallenge, setActiveChallenge] = useState<ActiveChallengeState | null>(null);
+  const [loadingQuiz, setLoadingQuiz] = useState(false);
 
   const { data: challenges = [], isLoading } = useQuery({
     queryKey: ["quiz-challenges"],
@@ -38,9 +57,8 @@ export default function ChallengesTab() {
   });
 
   const { data: sets = [] } = useQuery({
-    queryKey: ["flashcard-sets", "list"],
+    queryKey: ["flashcard-sets"],
     queryFn: fetchFlashcardSetsList,
-    staleTime: 0,
   });
 
   const { pending, sent, completed } = useMemo(() => {
@@ -54,34 +72,145 @@ export default function ChallengesTab() {
     };
   }, [challenges, user?.email]);
 
+  const startSendQuiz = async () => {
+    if (!selectedSetId || !opponentEmail.trim()) return;
+    const set = sets.find((s) => s.id === selectedSetId);
+    if (!set) return;
+    setLoadingQuiz(true);
+    try {
+      const { data } = await api.get<FlashcardSetOut & { cards?: FlashcardOut[] }>(`/flashcard-sets/${selectedSetId}`);
+      if (!data.cards?.length) {
+        Alert.alert("No cards", "This set has no flashcards to quiz on.");
+        return;
+      }
+      setSendOpen(false);
+      setSendQuiz({
+        opponentEmail: opponentEmail.trim(),
+        set,
+        cards: data.cards,
+      });
+    } catch {
+      Alert.alert("Could not load quiz", "Please try again.");
+    } finally {
+      setLoadingQuiz(false);
+    }
+  };
+
   const sendMutation = useMutation({
-    mutationFn: async () => {
-      const set = sets.find((s) => s.id === selectedSetId);
+    mutationFn: async (result: GameRoundResult) => {
+      if (!sendQuiz) return;
+      const pct = result.percentage ?? Math.round((result.playerScore / result.totalRounds) * 100);
+      const time = result.timeTakenSeconds ?? 0;
       await api.post("/quiz-challenges/", {
-        flashcard_set_id: selectedSetId,
-        opponent_email: opponentEmail.trim(),
-        set_title: set?.title,
-        book_title: set?.book_title,
+        flashcard_set_id: sendQuiz.set.id,
+        opponent_email: sendQuiz.opponentEmail,
+        set_title: sendQuiz.set.title,
+        book_title: sendQuiz.set.book_title,
+        challenger_score: result.playerScore,
+        challenger_percentage: pct,
+        challenger_time_seconds: time,
       });
     },
     onSuccess: async () => {
-      setSendOpen(false);
+      setSendQuiz(null);
       setOpponentEmail("");
       setSelectedSetId("");
       await queryClient.invalidateQueries({ queryKey: ["quiz-challenges"] });
     },
+    onError: () => Alert.alert("Could not send challenge", "Please try again."),
+  });
+
+  const acceptChallenge = async (challenge: QuizChallengeOut) => {
+    setLoadingQuiz(true);
+    try {
+      const { data } = await api.get<FlashcardSetOut & { cards?: FlashcardOut[] }>(
+        `/flashcard-sets/${challenge.flashcard_set_id}`,
+      );
+      if (!data.cards?.length) {
+        Alert.alert("No cards", "Could not load flashcards for this challenge.");
+        return;
+      }
+      setActiveChallenge({ challenge, cards: data.cards });
+    } catch {
+      Alert.alert("Could not start challenge", "Please try again.");
+    } finally {
+      setLoadingQuiz(false);
+    }
+  };
+
+  const completeMutation = useMutation({
+    mutationFn: async ({ challenge, result }: { challenge: QuizChallengeOut; result: GameRoundResult }) => {
+      const pct = result.percentage ?? Math.round((result.playerScore / result.totalRounds) * 100);
+      const time = result.timeTakenSeconds ?? 0;
+      await api.patch(`/quiz-challenges/${challenge.id}`, {
+        opponent_score: result.playerScore,
+        opponent_percentage: pct,
+        opponent_time_seconds: time,
+        status: "completed",
+      });
+    },
+    onSuccess: async () => {
+      setActiveChallenge(null);
+      await queryClient.invalidateQueries({ queryKey: ["quiz-challenges"] });
+    },
+    onError: () => Alert.alert("Could not submit score", "Please try again."),
   });
 
   const sections = [
-    { title: "Pending (for you)", data: pending },
-    { title: "Sent", data: sent },
-    { title: "Completed", data: completed },
+    { title: "Pending (for you)", data: pending, incoming: true },
+    { title: "Sent", data: sent, incoming: false },
+    { title: "Completed", data: completed, incoming: false },
   ].filter((s) => s.data.length > 0);
+
+  if (sendQuiz) {
+    return (
+      <Screen>
+        <View style={styles.quizHeader}>
+          <Text style={[styles.quizTitle, { color: colors.text }]}>Take the quiz first</Text>
+          <Text style={[styles.quizSub, { color: colors.muted }]}>
+            Then challenge {sendQuiz.opponentEmail}
+          </Text>
+          <Pressable onPress={() => setSendQuiz(null)}>
+            <Text style={{ color: colors.primary, fontWeight: "600", marginTop: 8 }}>Cancel</Text>
+          </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
+          <QuizGame
+            cards={sendQuiz.cards}
+            onComplete={(result) => sendMutation.mutate(result)}
+          />
+        </ScrollView>
+      </Screen>
+    );
+  }
+
+  if (activeChallenge) {
+    const ch = activeChallenge.challenge;
+    return (
+      <Screen>
+        <View style={styles.quizHeader}>
+          <Text style={[styles.quizTitle, { color: colors.text }]}>Beat their score</Text>
+          <Text style={[styles.quizSub, { color: colors.muted }]}>
+            {ch.challenger_name || ch.challenger_email} scored {ch.challenger_percentage ?? "—"}%
+          </Text>
+          <Pressable onPress={() => setActiveChallenge(null)}>
+            <Text style={{ color: colors.primary, fontWeight: "600", marginTop: 8 }}>Cancel</Text>
+          </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
+          <QuizGame
+            cards={activeChallenge.cards}
+            onComplete={(result) => completeMutation.mutate({ challenge: ch, result })}
+          />
+        </ScrollView>
+      </Screen>
+    );
+  }
 
   return (
     <Screen keyboard={sendOpen}>
       <View style={styles.headerRow}>
-        <PageHeader title="Challenges" subtitle="Quiz battles with friends" />
+        <PageHeader title="Challenges" subtitle="Take a quiz, then challenge a friend to beat your score" />
         <Pressable
           style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
           onPress={() => {
@@ -93,13 +222,13 @@ export default function ChallengesTab() {
         </Pressable>
       </View>
 
-      {isLoading ? (
-        <Text style={[styles.center, { color: colors.muted }]}>Loading…</Text>
+      {isLoading || loadingQuiz ? (
+        <ActivityIndicator style={{ marginTop: 32 }} color={colors.primary} />
       ) : sections.length === 0 ? (
         <EmptyState
           icon="⚔️"
           title="No challenges yet"
-          message="Challenge a friend to a quiz on one of your flashcard sets."
+          message="Take a quiz on one of your sets, then challenge a friend to beat your score."
           actionLabel="Send challenge"
           onAction={() => setSendOpen(true)}
         />
@@ -112,7 +241,13 @@ export default function ChallengesTab() {
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>{section.title}</Text>
               {section.data.map((c) => (
-                <ChallengeCard key={c.id} challenge={c} userEmail={user?.email} colors={colors} />
+                <ChallengeCard
+                  key={c.id}
+                  challenge={c}
+                  userEmail={user?.email}
+                  colors={colors}
+                  onAccept={section.incoming ? () => void acceptChallenge(c) : undefined}
+                />
               ))}
             </View>
           )}
@@ -123,6 +258,9 @@ export default function ChallengesTab() {
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Send challenge</Text>
+            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 8 }}>
+              You must take the quiz first. Your opponent will see your score and try to beat it.
+            </Text>
             <Text style={[styles.label, { color: colors.muted }]}>Opponent email</Text>
             <TextInput
               value={opponentEmail}
@@ -160,20 +298,17 @@ export default function ChallengesTab() {
                 </Pressable>
               ))}
             </View>
-            {sendMutation.isError ? (
-              <Text style={{ color: colors.danger, marginTop: 8 }}>Could not send challenge</Text>
-            ) : null}
             <View style={styles.modalActions}>
               <Pressable onPress={() => setSendOpen(false)}>
                 <Text style={{ color: colors.muted, fontWeight: "600" }}>Cancel</Text>
               </Pressable>
               <Pressable
-                style={[styles.primaryBtn, sendMutation.isPending && { opacity: 0.6 }]}
-                disabled={!opponentEmail.trim() || !selectedSetId || sendMutation.isPending}
-                onPress={() => sendMutation.mutate()}
+                style={[styles.primaryBtn, loadingQuiz && { opacity: 0.6 }]}
+                disabled={!opponentEmail.trim() || !selectedSetId || loadingQuiz}
+                onPress={() => void startSendQuiz()}
               >
                 <Text style={styles.primaryBtnText}>
-                  {sendMutation.isPending ? "Sending…" : "Send"}
+                  {loadingQuiz ? "Loading…" : "Take quiz & send"}
                 </Text>
               </Pressable>
             </View>
@@ -188,6 +323,7 @@ function ChallengeCard({
   challenge,
   userEmail,
   colors,
+  onAccept,
 }: {
   challenge: QuizChallengeOut;
   userEmail?: string;
@@ -199,8 +335,14 @@ function ChallengeCard({
     primary: string;
     success: string;
   };
+  onAccept?: () => void;
 }) {
   const isIncoming = challenge.opponent_email === userEmail && challenge.status === "pending";
+  const myPct =
+    challenge.challenger_email === userEmail ? challenge.challenger_percentage : challenge.opponent_percentage;
+  const theirPct =
+    challenge.challenger_email === userEmail ? challenge.opponent_percentage : challenge.challenger_percentage;
+
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={1}>
@@ -213,9 +355,19 @@ function ChallengeCard({
       ) : null}
       <Text style={[styles.cardMeta, { color: colors.muted }]}>
         {isIncoming
-          ? `From ${challenge.challenger_email}`
+          ? `From ${challenge.challenger_name || challenge.challenger_email}`
           : `To ${challenge.opponent_email}`}
       </Text>
+      {isIncoming && challenge.challenger_percentage != null ? (
+        <Text style={[styles.scoreLine, { color: colors.primary }]}>
+          They scored {challenge.challenger_percentage}% — beat it!
+        </Text>
+      ) : null}
+      {!isIncoming && challenge.challenger_percentage != null && challenge.status === "pending" ? (
+        <Text style={[styles.scoreLine, { color: colors.muted }]}>
+          Your score: {challenge.challenger_percentage}%
+        </Text>
+      ) : null}
       <Text
         style={[
           styles.status,
@@ -230,11 +382,22 @@ function ChallengeCard({
         ]}
       >
         {challenge.status === "completed"
-          ? `Done · You ${challenge.challenger_email === userEmail ? challenge.challenger_score : challenge.opponent_score ?? "—"}`
+          ? `${myPct ?? "—"}% vs ${theirPct ?? "—"}%`
           : isIncoming
             ? "Awaiting your response"
             : "Waiting for opponent"}
       </Text>
+      {onAccept ? (
+        <Pressable
+          style={[styles.acceptBtn, { backgroundColor: colors.primary }]}
+          onPress={() => {
+            void hapticImpact("light");
+            onAccept();
+          }}
+        >
+          <Text style={styles.acceptBtnText}>Accept & play</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -246,6 +409,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     paddingRight: 16,
   },
+  quizHeader: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+  quizTitle: { fontSize: 20, fontWeight: "700" },
+  quizSub: { fontSize: 14, marginTop: 4 },
   primaryBtn: {
     marginTop: 16,
     paddingHorizontal: 16,
@@ -255,7 +421,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   primaryBtnText: { color: "#fff", fontWeight: "700" },
-  center: { textAlign: "center", marginTop: 32 },
   list: { paddingHorizontal: 16, paddingBottom: 32 },
   section: { marginBottom: 16 },
   sectionTitle: { fontSize: 15, fontWeight: "700", marginBottom: 8 },
@@ -267,7 +432,16 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 16, fontWeight: "600" },
   cardMeta: { fontSize: 13, marginTop: 4 },
+  scoreLine: { fontSize: 12, fontWeight: "600", marginTop: 6 },
   status: { fontSize: 12, fontWeight: "700", marginTop: 8 },
+  acceptBtn: {
+    marginTop: 10,
+    minHeight: 44,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  acceptBtnText: { color: "#fff", fontWeight: "700" },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15,23,42,0.45)",

@@ -5,7 +5,7 @@ import client from "@/api/client";
 import GenerateProgressBar from "@/components/dashboard/GenerateProgressBar";
 import SelectedChaptersList from "@/components/study/SelectedChaptersList";
 import { generationPhaseLabel } from "@/lib/generationPhases";
-import { buildFlashcardSetTitle, chapterSelectionSubtitle } from "@/lib/studySetDisplay";
+import { buildFlashcardSetTitle, chapterSelectionSubtitle, cardsGeneratedLabel } from "@/lib/studySetDisplay";
 import { useBookGenerationJob, useGenerationJobs } from "@/lib/GenerationJobContext";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import {
   BookOpen, User, Sparkles, Loader2, ChevronDown, ChevronRight,
-  ArrowLeft, FileText, Tag, Trash2
+  ArrowLeft, FileText, Tag, Trash2, Check
 } from "lucide-react";
 import {
   AlertDialog,
@@ -252,6 +252,7 @@ export default function BookDetail() {
   }
 
   const toc = book.table_of_contents || [];
+  const chapterCardCounts = book.chapter_card_counts || {};
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -440,16 +441,34 @@ export default function BookDetail() {
             {toc.map((chapter, idx) => {
               const isSelected = selectedChapter === chapter.title;
               const isExpanded = expandedChapters[idx];
+              const cardCount = chapterCardCounts[chapter.title] ?? 0;
+              const hasCards = cardCount > 0;
+              const cardsLabel = cardsGeneratedLabel(cardCount);
               return (
-                <div key={idx} className={`rounded-xl border transition-colors ${isSelected ? "border-primary/30 bg-primary/5" : "border-border"}`}>
+                <div
+                  key={idx}
+                  className={`rounded-xl border transition-colors ${
+                    hasCards
+                      ? "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30"
+                      : isSelected
+                        ? "border-primary/30 bg-primary/5"
+                        : "border-border"
+                  } ${isSelected ? "ring-2 ring-primary/20" : ""}`}
+                >
                   <div className="flex items-center gap-3 p-4">
                     <RadioGroupItem value={chapter.title} id={`chapter-${idx}`} className="flex-shrink-0" />
                     <Label htmlFor={`chapter-${idx}`} className="flex-1 cursor-pointer font-normal">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded">
                           Ch. {chapter.chapter_number || idx + 1}
                         </span>
                         <span className="font-medium text-sm">{chapter.title}</span>
+                        {hasCards ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                            <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.5} />
+                            {cardsLabel}
+                          </span>
+                        ) : null}
                       </div>
                     </Label>
                     {chapter.subtopics?.length > 0 && (

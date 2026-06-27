@@ -19,6 +19,7 @@ const ALL_ACHIEVEMENTS = [
 
 export default function AchievementsPanel({
   user,
+  stats: statsProp,
   quizResults = [],
   quizCount: quizCountProp,
   hasPerfectQuiz,
@@ -35,19 +36,20 @@ export default function AchievementsPanel({
   const challengesSent = challenges.filter((c) => c.challenger_email === user?.email).length;
 
   const stats = useMemo(
-    () => ({
-      quizCount: quizCountProp ?? quizResults.length,
-      hasPerfect:
-        hasPerfectQuiz ??
-        quizResults.some((r) => (r.percentage ?? r.extras?.percentage) === 100),
-      streak,
-      totalCards,
-      challengesSent,
-    }),
-    [quizCountProp, quizResults, hasPerfectQuiz, streak, totalCards, challengesSent],
+    () =>
+      statsProp ?? {
+        quizCount: quizCountProp ?? quizResults.length,
+        hasPerfect:
+          hasPerfectQuiz ??
+          quizResults.some((r) => (r.percentage ?? r.extras?.percentage) === 100),
+        streak,
+        totalCards,
+        challengesSent,
+      },
+    [statsProp, quizCountProp, quizResults, hasPerfectQuiz, streak, totalCards, challengesSent],
   );
 
-  const { data: earned = [] } = useQuery({
+  const { data: earned = [], isFetched } = useQuery({
     queryKey: ['achievements', user?.email],
     queryFn: async () => {
       if (!user?.id) return [];
@@ -55,26 +57,44 @@ export default function AchievementsPanel({
       return data;
     },
     enabled: !!user?.email,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const earnedIds = useMemo(() => new Set(earned.map((a) => a.achievement_type)), [earned]);
+  const earnedKey = useMemo(() => [...earnedIds].sort().join(","), [earnedIds]);
+  const statsKey = JSON.stringify(stats);
 
-  // Auto-award new achievements
+  const isUnlocked = (ach) => earnedIds.has(ach.id) || ach.check(stats);
+
   useEffect(() => {
-    if (!user?.email) return;
-    ALL_ACHIEVEMENTS.forEach(async (ach) => {
-      if (!earnedIds.has(ach.id) && ach.check(stats)) {
-        await client.post("/achievements/", {
-          achievement_type: ach.id,
-          metadata: { title: ach.title, description: ach.description, icon: ach.icon },
-        });
+    if (!isFetched || !user?.email) return;
+    const missing = ALL_ACHIEVEMENTS.filter((ach) => !earnedIds.has(ach.id) && ach.check(stats));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const ach of missing) {
+        if (cancelled) return;
+        try {
+          await client.post("/achievements/", {
+            achievement_type: ach.id,
+            metadata: { title: ach.title, description: ach.description, icon: ach.icon },
+          });
+        } catch {
+          /* duplicate / race */
+        }
+      }
+      if (!cancelled) {
         queryClient.invalidateQueries({ queryKey: ["achievements", user.email] });
       }
-    });
-  }, [user?.email, earned, queryClient, stats]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isFetched, user?.email, earnedKey, statsKey, queryClient]);
 
-  const unlocked = ALL_ACHIEVEMENTS.filter(a => earnedIds.has(a.id));
-  const locked = ALL_ACHIEVEMENTS.filter(a => !earnedIds.has(a.id));
+  const unlocked = ALL_ACHIEVEMENTS.filter((a) => isUnlocked(a));
+  const locked = ALL_ACHIEVEMENTS.filter((a) => !isUnlocked(a));
 
   return (
     <div className="bg-card rounded-2xl border border-border p-6">

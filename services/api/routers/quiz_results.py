@@ -16,6 +16,7 @@ from models.quiz import QuizResult
 from models.user import User
 from schemas.pagination import total_pages
 from schemas.quiz_api import QuizResultCreate, QuizResultOut, QuizResultPage
+from services.achievement_sync import sync_user_achievements
 
 router = APIRouter(tags=["quiz-results"])
 log = logging.getLogger(__name__)
@@ -106,6 +107,7 @@ async def create_quiz_result(
     db.add(row)
     await db.commit()
     await db.refresh(row)
+    await sync_user_achievements(db, current_user.id)
     enriched = await _enrich_extras_for_results(db, [row])
     try:
         # Send by name so the API process never imports task modules at startup (avoids

@@ -15,6 +15,7 @@ from models.enums import QuizChallengeStatus
 from models.flashcard import FlashcardSet
 from models.quiz import QuizChallenge
 from models.user import User
+from services.achievement_sync import sync_user_achievements
 from schemas.quiz_api import QuizChallengeCreate
 
 router = APIRouter(tags=["quiz-challenges"])
@@ -37,13 +38,33 @@ def _serialize_challenge(
         "opponent_name": challengee.full_name,
         "set_title": rd.get("set_title") or fset.title,
         "book_title": rd.get("book_title"),
+        "challenger_score": rd.get("challenger_score"),
         "challenger_percentage": rd.get("challenger_percentage"),
         "challenger_time_seconds": rd.get("challenger_time_seconds"),
+        "opponent_score": rd.get("opponent_score"),
         "opponent_percentage": rd.get("opponent_percentage"),
         "opponent_time_seconds": rd.get("opponent_time_seconds"),
         "winner_email": rd.get("winner_email"),
         "created_at": ch.created_at.isoformat() if ch.created_at else None,
     }
+
+
+def _winner_email_from_scores(
+    *,
+    challenger_email: str,
+    opponent_email: str,
+    challenger_percentage: int,
+    challenger_time_seconds: int,
+    opponent_percentage: int,
+    opponent_time_seconds: int,
+) -> str:
+    if opponent_percentage > challenger_percentage:
+        return opponent_email
+    if opponent_percentage < challenger_percentage:
+        return challenger_email
+    if opponent_time_seconds < challenger_time_seconds:
+        return opponent_email
+    return challenger_email
 
 
 @router.get("/", response_model=list[dict[str, Any]])
@@ -87,6 +108,7 @@ async def create_challenge(
     fset = sr.scalar_one_or_none()
     if fset is None:
         raise HTTPException(status_code=404, detail="Flashcard set not found")
+
     now = datetime.now(timezone.utc)
     rd = {
         "set_title": body.set_title or fset.title,
@@ -94,6 +116,9 @@ async def create_challenge(
         "challenger_email": current_user.email,
         "challenger_name": current_user.full_name,
         "opponent_email": challengee.email,
+        "challenger_score": body.challenger_score,
+        "challenger_percentage": body.challenger_percentage,
+        "challenger_time_seconds": body.challenger_time_seconds,
     }
     ch = QuizChallenge(
         challenger_id=current_user.id,
@@ -107,6 +132,8 @@ async def create_challenge(
     await db.commit()
     await db.refresh(ch)
 
+    await sync_user_achievements(db, current_user.id)
+
     try:
         from tasks.notification_tasks import send_challenge_notification as notify_challenge_task
 
@@ -117,13 +144,12 @@ async def create_challenge(
     try:
         from tasks.email_tasks import send_challenge_alert_task
 
-        score = int(body.challenger_percentage or 0)
         send_challenge_alert_task.delay(
             challengee.full_name,
             challengee.email,
             current_user.full_name,
             rd.get("set_title") or fset.title,
-            score,
+            int(body.challenger_percentage),
             str(ch.id),
         )
     except Exception:
@@ -144,14 +170,44 @@ async def patch_challenge(
         raise HTTPException(status_code=404, detail="Challenge not found")
     if ch.challenger_id != current_user.id and ch.challengee_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
+
     rd = dict(ch.result_data or {})
     patch = dict(body)
     status_val = patch.pop("status", None)
+
+    is_challenger = ch.challenger_id == current_user.id
+    is_challengee = ch.challengee_id == current_user.id
+
+    opponent_fields = {"opponent_score", "opponent_percentage", "opponent_time_seconds", "winner_email"}
+    challenger_fields = {"challenger_score", "challenger_percentage", "challenger_time_seconds"}
+
     for k, v in patch.items():
+        if k in opponent_fields and not is_challengee:
+            raise HTTPException(status_code=403, detail="Only the opponent can submit quiz results.")
+        if k in challenger_fields and not is_challenger:
+            raise HTTPException(status_code=403, detail="Challenger scores are set when the challenge is sent.")
         rd[k] = v
-    ch.result_data = rd
-    flag_modified(ch, "result_data")
+
     if status_val == "completed":
+        if not is_challengee:
+            raise HTTPException(status_code=403, detail="Only the opponent can complete the challenge.")
+        if ch.status != QuizChallengeStatus.pending:
+            raise HTTPException(status_code=400, detail="Challenge is no longer pending.")
+        opp_pct = int(rd.get("opponent_percentage") or patch.get("opponent_percentage") or 0)
+        opp_time = int(rd.get("opponent_time_seconds") or patch.get("opponent_time_seconds") or 9999)
+        ch_pct = int(rd.get("challenger_percentage") or 0)
+        ch_time = int(rd.get("challenger_time_seconds") or 9999)
+        cu = await db.get(User, ch.challenger_id)
+        ce = await db.get(User, ch.challengee_id)
+        if cu and ce:
+            rd["winner_email"] = _winner_email_from_scores(
+                challenger_email=cu.email,
+                opponent_email=ce.email,
+                challenger_percentage=ch_pct,
+                challenger_time_seconds=ch_time,
+                opponent_percentage=opp_pct,
+                opponent_time_seconds=opp_time,
+            )
         ch.status = QuizChallengeStatus.completed
     elif status_val == "pending":
         ch.status = QuizChallengeStatus.pending
@@ -159,6 +215,9 @@ async def patch_challenge(
         ch.status = QuizChallengeStatus.active
     elif status_val == "expired":
         ch.status = QuizChallengeStatus.expired
+
+    ch.result_data = rd
+    flag_modified(ch, "result_data")
     await db.commit()
     await db.refresh(ch)
     cu = await db.get(User, ch.challenger_id)

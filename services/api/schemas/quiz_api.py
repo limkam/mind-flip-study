@@ -133,7 +133,9 @@ class QuizChallengeCreate(BaseModel):
     opponent_email: str = Field(..., min_length=3, max_length=255)
     set_title: str | None = None
     book_title: str | None = None
-    challenger_percentage: int | None = Field(None, ge=0, le=100)
+    challenger_score: int = Field(..., ge=0, description="Correct answers on the qualifying quiz")
+    challenger_percentage: int = Field(..., ge=0, le=100)
+    challenger_time_seconds: int = Field(..., ge=0)
 
 
 QuizResultPage.model_rebuild()

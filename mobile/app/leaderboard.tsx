@@ -71,7 +71,7 @@ export default function LeaderboardScreen() {
   return (
     <Screen>
       {header}
-      <PageHeader title="Leaderboard" subtitle="See how you rank against other learners" />
+      <PageHeader title="Leaderboard" subtitle="Rankings among people you challenge or study with" />
 
       <View style={styles.tabs}>
         {TABS.map((tab) => (

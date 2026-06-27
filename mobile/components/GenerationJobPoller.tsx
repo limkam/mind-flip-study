@@ -41,6 +41,7 @@ function ActiveJobPoller({
 
       if (body.status === "complete" && setId) {
         void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
+        void queryClient.invalidateQueries({ queryKey: ["book", bookId] });
         removeJob(jobId);
         router.push(`/study/${setId}`);
         return;

@@ -79,6 +79,9 @@ export function GenerationJobProvider({ children }) {
 
     if (data.status === 'complete' && setId) {
       queryClient.invalidateQueries({ queryKey: ['flashcard-sets'] });
+      if (job?.bookId) {
+        queryClient.invalidateQueries({ queryKey: ['book', job.bookId] });
+      }
       toast({
         title: data?.result?.recovered ? 'Flashcards ready' : 'Study content generated!',
         description: job?.bookTitle

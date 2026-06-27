@@ -18,6 +18,8 @@ from models.flashcard import FlashcardSet
 from models.quiz import QuizChallenge, QuizResult
 from models.user import User
 from schemas.pagination import total_pages
+from services.connected_users import connected_user_ids
+from services.achievement_sync import sync_user_achievements
 from user_identity import resolve_display_name
 
 router = APIRouter(tags=["challenge-leaderboard"])
@@ -87,13 +89,24 @@ def _badge_category(achievement_type: str) -> str:
 
 @router.get("/overall", response_model=ChallengeLeaderboardPage)
 async def challenge_leaderboard_overall(
+    current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=100),
 ) -> ChallengeLeaderboardPage:
-    """Global challenge ranking: points from wins, accuracy, and quiz activity."""
+    """Challenge ranking among users you have challenged or study with."""
     size = max(1, min(size, 100))
     offset = (page - 1) * size
+    allowed_ids = await connected_user_ids(db, current_user.id)
+    if not allowed_ids:
+        return ChallengeLeaderboardPage(
+            items=[],
+            total=0,
+            page=page,
+            size=size,
+            has_more=False,
+            total_pages=0,
+        )
 
     pct = _avg_score_expr()
     quiz_stats = (
@@ -135,7 +148,7 @@ async def challenge_leaderboard_overall(
             func.coalesce(quiz_stats.c.avg_accuracy, 0).label("accuracy"),
         )
         .outerjoin(quiz_stats, quiz_stats.c.user_id == User.id)
-        .where(User.is_banned.is_(False))
+        .where(User.is_banned.is_(False), User.id.in_(allowed_ids))
     )
     rows = (await db.execute(stmt)).all()
 
@@ -263,6 +276,7 @@ async def my_challenge_badges(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[BadgeOut]:
+    await sync_user_achievements(db, current_user.id)
     r = await db.execute(
         select(Achievement)
         .where(Achievement.user_id == current_user.id)

@@ -65,8 +65,8 @@ export default function StudySession() {
 
   const { data: flashcardSet, isLoading } = useQuery({
     queryKey: ["flashcard-set", id],
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       try {
         const { data } = await client.get(`/flashcard-sets/${id}`);
@@ -200,6 +200,7 @@ export default function StudySession() {
         });
         queryClient.invalidateQueries({ queryKey: ['quiz-results'] });
         queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
+        queryClient.invalidateQueries({ queryKey: ['achievements'] });
         toast({ title: `Quiz saved! You scored ${result.percentage}%` });
         if (result.answers) {
           const wrong = result.answers
@@ -239,6 +240,7 @@ export default function StudySession() {
         });
         queryClient.invalidateQueries({ queryKey: ['quiz-results'] });
         queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
+        queryClient.invalidateQueries({ queryKey: ['achievements'] });
         toast({ title: `Game over! ${result.playerScore} / ${totalRounds} rounds won` });
       } catch (err) {
         logGameEvent("save_error", { game, set_id: id, message: String(err) });
