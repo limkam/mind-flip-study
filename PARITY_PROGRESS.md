@@ -5,22 +5,22 @@
 - **Mobile application:** `mobile/`
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
-- **Current parity phase:** Foundation integrated, reproducible, and committed; Phase A is next.
-- **Next recommended action:** `PAR-009` — Study-group public search parity
+- **Current parity phase:** Phase A — Finish study-group functionality.
+- **Next recommended action:** `PAR-010` — Study-group material attachment
 
-Status is evidence-based. PAR-001–PAR-008, PAR-057, and PAR-058 are `Merged`: commit `917c723` restored the project-wide mobile build gate, and isolated committed-HEAD typecheck, Android export, diff check, and clean status all passed. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-009, PAR-057, and PAR-058 are `Merged`: PAR-009 commit `6a5f95f` passed mobile typecheck, independent Android and iOS exports, scoped diff check, and focused backend validation before commit. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 10 |
+| Merged | 11 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
-| In progress | 0 |
+| In progress | 1 |
 | Needs refinement | 0 |
-| Not started | 37 |
+| Not started | 35 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -29,10 +29,10 @@ All status rows sum to 58. Decision records and technical-debt records are not t
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 24.5% (23 / 94 effort points) |
+| Executable roadmap progress | 27.1% (25.5 / 94 effort points) |
 | Critical-ticket executable progress | 47.4% (9 / 19 effort points) |
-| High-priority executable progress | 27.5% (14 / 51 effort points) |
-| Disposition progress | 27.6% (16 / 58 tickets) |
+| High-priority executable progress | 32.4% (16.5 / 51 effort points) |
+| Disposition progress | 29.3% (17 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -70,8 +70,8 @@ Integration evidence: `93954a0` contains the coherent 30-file PAR-001–PAR-008 
 
 | ID | Ticket | Priority | Effort | Status | Expected area / acceptance boundary | Relationship |
 | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
-| PAR-009 | Study-group public search parity | High | M | Not started | `mobile/app/study-groups.tsx`, study-group components/types; debounced `GET /study-groups/search`, loading/error/empty/result and join flow | Technical dependencies PAR-008, PAR-057, and PAR-058 are complete. |
-| PAR-010 | Study-group material attachment | High | M | Not started | `mobile/app/study-groups/[id].tsx`, book picker/types; owner-authorized `POST /study-groups/{id}/materials`, invalidation and errors | Technical dependency: existing group-detail and books APIs only. Recommended sequence: PAR-009 first; search is not technical coupling. |
+| PAR-009 | Study-group public search parity | High | M | Merged | Debounced, normalized, authenticated public search with user/query-scoped caching; validated public/deduplicated rows; truthful invite-code joining; member-only detail navigation; precise membership refresh | Commit `6a5f95f`; engineering review corrections included scroll ownership, Strict Mode lifecycle, identity transition, and invite-code guidance. Mobile typecheck, Android export, iOS export, scoped diff check, and 29 focused backend tests passed. |
+| PAR-010 | Study-group material attachment | High | M | In progress | `mobile/app/study-groups/[id].tsx`, book picker/types; backend-authorized `POST /study-groups/{id}/materials`, exact detail invalidation and errors | Active ticket. Technical dependency: existing group-detail and books APIs only; PAR-009 is merged. |
 | PAR-011 | Study-group detail permission and state review | High | M | Not started | Detail route/components/types; verify owner/member/non-member states, direct routes, loading/error/empty and invalidation | Recommended sequence: review after PAR-010 so attachment states are included; no technical dependency on search. |
 
 ### Phase B — Book and content lifecycle
@@ -230,9 +230,9 @@ A parity ticket is complete only when:
 
 ## 8. Next Ticket
 
-The next implementation ticket is **PAR-009 — Study-group public search parity**.
+The active implementation ticket is **PAR-010 — Study-group material attachment**.
 
-PAR-057 and PAR-058 are merged with clean committed-worktree proof. Study-group creation is merged; public search is a separate supported backend/web flow with no unresolved product decision. Search should precede material attachment as a recommended sequence, not because material attachment technically depends on it.
+PAR-009 is merged as commit `6a5f95f` after passing independent Android and iOS exports, mobile typecheck, scoped diff check, and focused backend validation. PAR-010 now adds only the existing backend/web material-attachment capability; PAR-011 remains separate.
 
 ## Audit Reconciliation
 
@@ -253,7 +253,7 @@ PAR-057 and PAR-058 are merged with clean committed-worktree proof. Study-group 
 | 4.13 Games/quiz persistence | PAR-007 merged; celebrations remain PAR-029. |
 | 4.14 Daily review | Core persistence/invalidation PAR-005/PAR-006; UX residue PAR-027. |
 | 4.15 Quiz challenges | PAR-004 merged. |
-| 4.16 Study groups | PAR-008, PAR-057, and PAR-058 merged; PAR-009–PAR-011 remain. |
+| 4.16 Study groups | PAR-008, PAR-009, PAR-057, and PAR-058 merged; PAR-010 active; PAR-011 remains. |
 | 4.17 Folders | PAR-056 `Not required`; optional metadata PAR-016/DEC-005. |
 | 4.18 Achievements | PAR-003 merged; server ownership established. |
 | 4.19 Analytics | PAR-051 `Not required`. |
