@@ -6,10 +6,12 @@ export function logGameEvent(event: string, metadata: Record<string, unknown> = 
   if (__DEV__) {
     console.info("[game]", event, metadata);
   }
+  const { set_id: setId, ...eventMetadata } = metadata;
   void api
     .post("/study/events", {
       event_type: `game_${event}`,
-      metadata,
+      set_id: typeof setId === "string" ? setId : undefined,
+      metadata: eventMetadata,
     })
     .catch(() => undefined);
 }

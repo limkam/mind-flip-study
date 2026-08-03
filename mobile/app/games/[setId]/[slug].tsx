@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EmptyState } from "../../../components/EmptyState";
 import { GAME_COMPONENTS, GAMES } from "../../../components/games";
@@ -9,15 +10,52 @@ import { api } from "../../../api/client";
 import { cacheStudySet, getCachedStudySet } from "../../../lib/offlineStudy";
 import { MIN_GAME_CARDS, toGameCards } from "../../../lib/gameUtils";
 import { logGameEvent } from "../../../lib/gameLifecycle";
+import { submitQuizResult } from "../../../lib/quizResults";
+import { invalidateAfterQuizResult } from "../../../lib/quizResultInvalidation";
+import { useAuthStore } from "../../../store/authStore";
 import type { GameSlug } from "../../../components/games/types";
-import type { FlashcardSetOut } from "../../../types/api";
+import type { GameRoundResult } from "../../../components/games/types";
+import type { FlashcardSetOut, QuizResultInput } from "../../../types/api";
+import { fetchEntitlementsSnapshot } from "../../../lib/billing";
 
 export default function GamePlayScreen() {
   const { setId, slug } = useLocalSearchParams<{ setId: string; slug: string }>();
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const userId = useAuthStore((state) => state.user?.id);
   const gameSlug = slug as GameSlug;
   const meta = GAMES.find((g) => g.slug === gameSlug);
   const GameComponent = GAME_COMPONENTS[gameSlug];
+  const startedAt = useRef(Date.now());
+  const submissionInFlight = useRef(false);
+  const submittedResultId = useRef<string | null>(null);
+  const routeGeneration = useRef(0);
+  const [pendingResult, setPendingResult] = useState<GameRoundResult | null>(null);
+  const [saveError, setSaveError] = useState<{ message: string; retryable: boolean } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [navigationError, setNavigationError] = useState(false);
+
+  useEffect(() => {
+    routeGeneration.current += 1;
+    startedAt.current = Date.now();
+    submissionInFlight.current = false;
+    submittedResultId.current = null;
+    setPendingResult(null);
+    setSaveError(null);
+    setIsSaving(false);
+    setNavigationError(false);
+    return () => {
+      routeGeneration.current += 1;
+    };
+  }, [gameSlug, setId]);
+
+  const { data: entitlements, isLoading: entitlementsLoading } = useQuery({
+    queryKey: ["billing-entitlements"],
+    queryFn: fetchEntitlementsSnapshot,
+  });
+  const gameLimit = entitlements?.features?.games_limit ?? 2;
+  const gameIndex = GAMES.findIndex((game) => game.slug === gameSlug);
+  const isLocked = gameIndex >= gameLimit;
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["game-set", setId, "play"],
@@ -58,6 +96,61 @@ export default function GamePlayScreen() {
 
   const cards = toGameCards(data?.cards ?? []);
 
+  const persistCompletion = useCallback(async (result: GameRoundResult) => {
+    const resolvedSetId = Array.isArray(setId) ? setId[0] : setId;
+    if (!resolvedSetId || !data || !userId || submissionInFlight.current || submittedResultId.current) return;
+
+    submissionInFlight.current = true;
+    const generation = routeGeneration.current;
+    setPendingResult(result);
+    setSaveError(null);
+    setIsSaving(true);
+    const totalQuestions = Math.max(Math.trunc(result.totalRounds || 0), 1);
+    const score = Math.max(Math.trunc(result.playerScore || 0), 0);
+    const percentage = result.percentage ?? Math.round((score / totalQuestions) * 100);
+    const elapsedSeconds = Math.max(0, Math.round((Date.now() - startedAt.current) / 1000));
+    const input: QuizResultInput = {
+      set_id: resolvedSetId,
+      score,
+      total_questions: totalQuestions,
+      time_taken_seconds: Math.max(Math.trunc(result.timeTakenSeconds ?? elapsedSeconds), 0),
+      extras: {
+        set_title: data.title,
+        book_title: data.book_title,
+        percentage,
+        game_type: gameSlug,
+        mode: "game",
+      },
+    };
+
+    const submission = await submitQuizResult(input);
+    if (generation !== routeGeneration.current) return;
+    setIsSaving(false);
+    if (submission.status !== "submitted") {
+      submissionInFlight.current = false;
+      setSaveError({
+        message: submission.reason,
+        retryable: submission.status === "rejected" && submission.retryable,
+      });
+      return;
+    }
+
+    submittedResultId.current = submission.result.id;
+    if (useAuthStore.getState().user?.id !== userId) return;
+    logGameEvent("continue", {
+      game: gameSlug,
+      set_id: resolvedSetId,
+      score: submission.result.score,
+      quiz_result_id: submission.result.id,
+    });
+    await invalidateAfterQuizResult(queryClient, userId, submission.result);
+    try {
+      router.replace(`/quiz-results/${submission.result.id}`);
+    } catch {
+      setNavigationError(true);
+    }
+  }, [data, gameSlug, queryClient, router, setId, userId]);
+
   return (
     <GameShell
       title={`${meta.emoji} ${meta.title}`}
@@ -65,8 +158,16 @@ export default function GamePlayScreen() {
       onBack={() => router.replace(`/games/${setId}`)}
     >
       <Stack.Screen options={{ title: meta.title, headerShown: false }} />
-      {isLoading ? (
+      {isLoading || entitlementsLoading ? (
         <StudySkeleton />
+      ) : isLocked ? (
+        <EmptyState
+          icon="🔒"
+          title="Game locked"
+          message={`Your current plan includes ${gameLimit} of 8 games. Upgrade to unlock this game.`}
+          actionLabel="View games"
+          onAction={() => router.replace(`/games/${setId}`)}
+        />
       ) : isError ? (
         <EmptyState
           icon="⚠️"
@@ -74,6 +175,37 @@ export default function GamePlayScreen() {
           message="Try again when you are back online."
           actionLabel="Retry"
           onAction={() => refetch()}
+        />
+      ) : navigationError && submittedResultId.current ? (
+        <EmptyState
+          icon="✅"
+          title="Result saved"
+          message="Your score was saved, but the result page could not be opened."
+          actionLabel="Open saved result"
+          onAction={() => {
+            try {
+              router.replace(`/quiz-results/${submittedResultId.current}`);
+            } catch {
+              setNavigationError(true);
+            }
+          }}
+        />
+      ) : saveError && pendingResult ? (
+        <EmptyState
+          icon="⚠️"
+          title="Result not saved"
+          message={saveError.message}
+          actionLabel={saveError.retryable ? "Retry saving" : "Back to games"}
+          onAction={() => {
+            if (saveError.retryable) void persistCompletion(pendingResult);
+            else router.replace(`/games/${setId}`);
+          }}
+        />
+      ) : isSaving ? (
+        <EmptyState
+          icon="☁️"
+          title="Saving your result"
+          message="Please wait while your score is confirmed."
         />
       ) : cards.length < MIN_GAME_CARDS ? (
         <EmptyState
@@ -87,32 +219,7 @@ export default function GamePlayScreen() {
         <GameComponent
           cards={cards}
           generationSeed={data?.generation_seed ?? 0}
-          onComplete={(result) => {
-            const resolvedSetId = Array.isArray(setId) ? setId[0] : setId;
-            logGameEvent("continue", { game: gameSlug, set_id: resolvedSetId, result });
-            if (!resolvedSetId) {
-              router.back();
-              return;
-            }
-            router.replace(`/games/${resolvedSetId}`);
-            const totalRounds = Math.max(result.totalRounds || 0, 1);
-            void api.post("/study/events", {
-              event_type: "game_continue",
-              set_id: resolvedSetId,
-              metadata: { game: gameSlug, score: result.playerScore },
-            }).catch((err) => {
-              logGameEvent("event_error", { message: String(err) });
-            });
-            void api.post("/quiz-results/", {
-              set_id: resolvedSetId,
-              score: result.playerScore,
-              total_questions: totalRounds,
-              time_taken_seconds: 0,
-              extras: { percentage: Math.round((result.playerScore / totalRounds) * 100) },
-            }).catch((err) => {
-              logGameEvent("save_error", { message: String(err) });
-            });
-          }}
+          onComplete={(result) => void persistCompletion(result)}
         />
       )}
     </GameShell>

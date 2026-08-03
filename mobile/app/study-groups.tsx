@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -13,30 +13,43 @@ import {
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { Screen } from "../components/Screen";
+import { CreateStudyGroupModal } from "../components/studyGroups/CreateStudyGroupModal";
 import { api } from "../api/client";
 import { useScreenHeader } from "../hooks/useScreenHeader";
 import { useTheme } from "../hooks/useTheme";
 import { hapticImpact } from "../lib/haptics";
+import { fetchEntitlementsSnapshot } from "../lib/billing";
+import { emitUpgradeLimit } from "../lib/upgradeLimitEvents";
+import type { StudyGroupOut } from "../types/api";
+import { useAuthStore } from "../store/authStore";
 
-type StudyGroup = {
-  id: string;
-  name: string;
-  description?: string | null;
-  code?: string | null;
-  member_count: number;
-  progress_pct?: number;
-  is_member?: boolean;
-};
+type StudyGroup = StudyGroupOut;
 
 export default function StudyGroupsScreen() {
   const { colors } = useTheme();
   const header = useScreenHeader("Study Groups");
   const router = useRouter();
   const queryClient = useQueryClient();
+  const userId = useAuthStore((state) => state.user?.id);
   const [joinCode, setJoinCode] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
+  const [savedGroup, setSavedGroup] = useState<StudyGroupOut | null>(null);
+  const [savedNavigationError, setSavedNavigationError] = useState(false);
+  const [createdWithoutDetail, setCreatedWithoutDetail] = useState(false);
+
+  useEffect(() => {
+    setShowCreate(false);
+    setSavedGroup(null);
+    setSavedNavigationError(false);
+    setCreatedWithoutDetail(false);
+  }, [userId]);
+  const entitlements = useQuery({
+    queryKey: ["billing-entitlements"],
+    queryFn: fetchEntitlementsSnapshot,
+  });
+  const canCreate = !entitlements.isError
+    && !entitlements.isFetching
+    && entitlements.data?.features.study_group_creation === true;
 
   const { data: groups = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["study-groups", "mine"],
@@ -57,28 +70,8 @@ export default function StudyGroupsScreen() {
     },
   });
 
-  const createMutation = useMutation({
-    mutationFn: async () => {
-      const { data } = await api.post<StudyGroup>("/study-groups/", {
-        name: name.trim(),
-        description: description.trim() || null,
-        privacy: "public",
-        weekly_card_goal: 20,
-        book_ids: [],
-      });
-      return data;
-    },
-    onSuccess: async (group) => {
-      setShowCreate(false);
-      setName("");
-      setDescription("");
-      await queryClient.invalidateQueries({ queryKey: ["study-groups"] });
-      router.push(`/study-groups/${group.id}`);
-    },
-  });
-
   return (
-    <Screen keyboard={showCreate}>
+    <Screen>
       {header}
       <PageHeader title="Study Groups" subtitle="Learn together with shared materials" />
 
@@ -101,37 +94,73 @@ export default function StudyGroupsScreen() {
         </Pressable>
       </View>
 
-      <Pressable
-        style={[styles.createToggle, { borderColor: colors.border }]}
-        onPress={() => setShowCreate((v) => !v)}
-      >
-        <Text style={{ color: colors.primary, fontWeight: "700" }}>
-          {showCreate ? "Cancel create" : "+ Create new group"}
-        </Text>
-      </Pressable>
+      {entitlements.isPending || entitlements.isFetching ? (
+        <Text style={[styles.creationStatus, { color: colors.muted }]}>Checking group creation access…</Text>
+      ) : entitlements.isError ? (
+        <Pressable style={[styles.createToggle, { borderColor: colors.border }]} onPress={() => void entitlements.refetch()}>
+          <Text style={{ color: colors.danger, fontWeight: "700" }}>Could not verify creation access · Retry</Text>
+        </Pressable>
+      ) : canCreate ? (
+        <Pressable style={[styles.createToggle, { borderColor: colors.border }]} onPress={() => setShowCreate(true)}>
+          <Text style={{ color: colors.primary, fontWeight: "700" }}>+ Create new group</Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          style={[styles.createToggle, { borderColor: colors.border }]}
+          onPress={() => emitUpgradeLimit({ reason: "Upgrade to create your own study groups." })}
+        >
+          <Text style={{ color: colors.muted, fontWeight: "700" }}>🔒 Group creation unavailable on this plan</Text>
+        </Pressable>
+      )}
 
-      {showCreate ? (
+      <CreateStudyGroupModal
+        visible={showCreate && canCreate}
+        creationAllowed={canCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={async (group) => {
+          setShowCreate(false);
+          setCreatedWithoutDetail(false);
+          setSavedGroup(group);
+          await queryClient.invalidateQueries({ queryKey: ["study-groups"] }).catch(() => {
+            console.warn("[studyGroups] Group created, but the group list could not be invalidated.");
+          });
+          try {
+            router.push(`/study-groups/${group.id}`);
+          } catch {
+            setSavedNavigationError(true);
+          }
+        }}
+        onCreatedWithoutDetail={async () => {
+          setShowCreate(false);
+          setCreatedWithoutDetail(true);
+          await queryClient.invalidateQueries({ queryKey: ["study-groups"] }).catch(() => {
+            console.warn("[studyGroups] Group created, but the group list could not be invalidated.");
+          });
+        }}
+      />
+
+      {createdWithoutDetail ? (
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="Group name"
-            placeholderTextColor={colors.muted}
-            style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
-          />
-          <TextInput
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Description (optional)"
-            placeholderTextColor={colors.muted}
-            style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
-          />
-          <Pressable
-            style={[styles.btn, { backgroundColor: colors.primary }, name.trim().length < 2 && { opacity: 0.5 }]}
-            disabled={name.trim().length < 2 || createMutation.isPending}
-            onPress={() => createMutation.mutate()}
-          >
-            <Text style={styles.btnText}>{createMutation.isPending ? "Creating…" : "Create group"}</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Group creation accepted</Text>
+          <Text style={{ color: colors.muted }}>The group was saved, but its details were unavailable. Check My Groups before trying again.</Text>
+          <Pressable style={[styles.btn, { backgroundColor: colors.primary }]} onPress={() => void refetch()}>
+            <Text style={styles.btnText}>Refresh My Groups</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {savedNavigationError && savedGroup ? (
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Group created</Text>
+          <Text style={{ color: colors.muted }}>Your group was saved, but its page could not be opened.</Text>
+          <Pressable style={[styles.btn, { backgroundColor: colors.primary }]} onPress={() => {
+            try {
+              router.push(`/study-groups/${savedGroup.id}`);
+            } catch {
+              setSavedNavigationError(true);
+            }
+          }}>
+            <Text style={styles.btnText}>Open saved group</Text>
           </Pressable>
         </View>
       ) : null}
@@ -178,6 +207,7 @@ const styles = StyleSheet.create({
   btn: { borderRadius: 10, paddingVertical: 12, alignItems: "center", minHeight: 44, justifyContent: "center" },
   btnText: { color: "#fff", fontWeight: "700" },
   createToggle: { marginHorizontal: 16, marginBottom: 12, padding: 12, borderWidth: 1, borderRadius: 10, alignItems: "center" },
+  creationStatus: { marginHorizontal: 16, marginBottom: 12, textAlign: "center", fontSize: 13 },
   list: { paddingHorizontal: 16, paddingBottom: 32 },
   center: { textAlign: "center", marginTop: 24 },
   groupCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },

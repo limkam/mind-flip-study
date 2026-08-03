@@ -1,6 +1,6 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { api } from "../api/client";
 import { ALL_ACHIEVEMENTS, type AchievementStats } from "../lib/achievements";
@@ -13,9 +13,7 @@ type Props = {
 };
 
 export function AchievementsPanel({ userEmail, stats }: Props) {
-  const queryClient = useQueryClient();
-
-  const { data: earned = [], isFetched } = useQuery({
+  const { data: earned = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["achievements", userEmail],
     queryFn: async () => {
       const { data } = await api.get<Earned[]>("/achievements/");
@@ -27,40 +25,9 @@ export function AchievementsPanel({ userEmail, stats }: Props) {
   });
 
   const earnedIds = useMemo(() => new Set(earned.map((a) => a.achievement_type)), [earned]);
-  const earnedKey = useMemo(() => [...earnedIds].sort().join(","), [earnedIds]);
-  const statsKey = JSON.stringify(stats);
 
-  const isUnlocked = (ach: (typeof ALL_ACHIEVEMENTS)[number]) =>
-    earnedIds.has(ach.id) || ach.check(stats);
-
-  useEffect(() => {
-    if (!isFetched || !userEmail) return;
-    const missing = ALL_ACHIEVEMENTS.filter((a) => !earnedIds.has(a.id) && a.check(stats));
-    if (missing.length === 0) return;
-    let cancelled = false;
-    (async () => {
-      for (const ach of missing) {
-        if (cancelled) return;
-        try {
-          await api.post("/achievements/", {
-            achievement_type: ach.id,
-            metadata: { title: ach.title, description: ach.description, icon: ach.icon },
-          });
-        } catch {
-          /* ignore duplicate / race */
-        }
-      }
-      if (!cancelled) {
-        await queryClient.invalidateQueries({ queryKey: ["achievements"] });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isFetched, userEmail, earnedKey, statsKey, earnedIds, queryClient]);
-
-  const unlocked = ALL_ACHIEVEMENTS.filter((a) => isUnlocked(a));
-  const locked = ALL_ACHIEVEMENTS.filter((a) => !isUnlocked(a));
+  const unlocked = ALL_ACHIEVEMENTS.filter((achievement) => earnedIds.has(achievement.id));
+  const locked = ALL_ACHIEVEMENTS.filter((achievement) => !earnedIds.has(achievement.id));
 
   return (
     <View style={styles.card}>
@@ -70,6 +37,17 @@ export function AchievementsPanel({ userEmail, stats }: Props) {
           {unlocked.length} / {ALL_ACHIEVEMENTS.length}
         </Text>
       </View>
+      {isLoading && userEmail ? (
+        <Text style={styles.statusText}>Checking your achievements…</Text>
+      ) : null}
+      {isError ? (
+        <View style={styles.errorRow}>
+          <Text style={styles.errorText}>Achievements could not be loaded.</Text>
+          <Pressable style={styles.retryButton} onPress={() => void refetch()}>
+            <Text style={styles.retryText}>Try again</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {unlocked.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.unlockedRow}>
           {unlocked.map((ach) => (
@@ -93,6 +71,11 @@ export function AchievementsPanel({ userEmail, stats }: Props) {
                 <Text style={[styles.achTitle, styles.dim]} numberOfLines={1}>
                   {ach.title}
                 </Text>
+                {ach.check(stats) ? (
+                  <Text style={styles.progressComplete} numberOfLines={2}>
+                    Goal reached · awaiting server confirmation
+                  </Text>
+                ) : null}
               </View>
             ))}
           </View>
@@ -113,6 +96,11 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
   title: { fontSize: 17, fontWeight: "700", color: "#0f172a" },
   count: { fontSize: 13, color: "#64748b", fontWeight: "600" },
+  statusText: { color: "#64748b", fontSize: 13, marginBottom: 10 },
+  errorRow: { marginBottom: 10, padding: 10, borderRadius: 10, backgroundColor: "#fef2f2" },
+  errorText: { color: "#b91c1c", fontSize: 12, fontWeight: "600" },
+  retryButton: { alignSelf: "flex-start", marginTop: 8, paddingVertical: 6, paddingHorizontal: 10 },
+  retryText: { color: "#b91c1c", fontSize: 12, fontWeight: "800" },
   unlockedRow: { gap: 8, paddingVertical: 4 },
   unlocked: {
     width: 112,
@@ -138,4 +126,5 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   dim: { opacity: 0.55 },
+  progressComplete: { marginTop: 4, color: "#92400e", fontSize: 9, lineHeight: 12 },
 });

@@ -2,6 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import { clearMobileQueryCache } from "../lib/queryClient";
+
 export type User = {
   id: string;
   email: string;
@@ -21,13 +23,28 @@ export type User = {
   updated_at?: string;
 };
 
+export type AuthBootstrapStatus =
+  | "hydrating"
+  | "validating"
+  | "authenticated"
+  | "signed_out"
+  | "terminated"
+  | "error";
+
 type AuthState = {
   user: User | null;
   accessToken: string | null;
   keepSignedIn: boolean;
+  bootstrapStatus: AuthBootstrapStatus;
+  bootstrapError: string | null;
   setKeepSignedIn: (value: boolean) => void;
   setAuth: (user: User, token: string) => void;
   setAccessToken: (token: string) => void;
+  finishAuthStorageHydration: () => void;
+  setValidatedUser: (user: User) => void;
+  setBootstrapError: (message: string) => void;
+  retryAuthBootstrap: () => void;
+  terminateAuthSession: () => void;
   logout: () => void;
 };
 
@@ -50,10 +67,62 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       accessToken: null,
       keepSignedIn: true,
+      bootstrapStatus: "hydrating",
+      bootstrapError: null,
       setKeepSignedIn: (value) => set({ keepSignedIn: value }),
-      setAuth: (user, token) => set({ user, accessToken: token }),
+      setAuth: (user, token) =>
+        set((state) => {
+          if (state.user?.id && state.user.id !== user.id) {
+            clearMobileQueryCache();
+          }
+          return {
+            user,
+            accessToken: token,
+            bootstrapStatus: "authenticated",
+            bootstrapError: null,
+          };
+        }),
       setAccessToken: (token) => set({ accessToken: token }),
-      logout: () => set({ user: null, accessToken: null }),
+      finishAuthStorageHydration: () =>
+        set((state) =>
+          state.accessToken
+            ? { bootstrapStatus: "validating", bootstrapError: null }
+            : { user: null, bootstrapStatus: "signed_out", bootstrapError: null },
+        ),
+      setValidatedUser: (user) =>
+        set((state) => {
+          if (!state.accessToken) return state;
+          if (state.user?.id && state.user.id !== user.id) {
+            clearMobileQueryCache();
+          }
+          return {
+            user,
+            bootstrapStatus: "authenticated",
+            bootstrapError: null,
+          };
+        }),
+      setBootstrapError: (message) =>
+        set({ bootstrapStatus: "error", bootstrapError: message }),
+      retryAuthBootstrap: () =>
+        set((state) =>
+          state.accessToken
+            ? { bootstrapStatus: "validating", bootstrapError: null }
+            : { user: null, bootstrapStatus: "signed_out", bootstrapError: null },
+        ),
+      terminateAuthSession: () =>
+        set({
+          user: null,
+          accessToken: null,
+          bootstrapStatus: "terminated",
+          bootstrapError: null,
+        }),
+      logout: () =>
+        set({
+          user: null,
+          accessToken: null,
+          bootstrapStatus: "signed_out",
+          bootstrapError: null,
+        }),
     }),
     {
       name: "mindflip-auth",
@@ -62,6 +131,13 @@ export const useAuthStore = create<AuthState>()(
         s.keepSignedIn
           ? { user: s.user, accessToken: s.accessToken, keepSignedIn: s.keepSignedIn }
           : { keepSignedIn: false },
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          state?.setBootstrapError("Could not read the saved session on this device.");
+          return;
+        }
+        state?.finishAuthStorageHydration();
+      },
     },
   ),
 );

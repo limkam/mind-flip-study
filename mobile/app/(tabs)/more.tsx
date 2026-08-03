@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
@@ -8,6 +9,7 @@ import { useLogout } from "../../hooks/useLogout";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
 import { APP_NAV_ITEMS } from "../../lib/navigation";
+import { fetchEntitlementsSnapshot } from "../../lib/billing";
 
 function isNavActive(pathname: string, href: string) {
   if (href === "/(tabs)") {
@@ -21,12 +23,16 @@ export default function MoreTab() {
   const pathname = usePathname();
   const { colors } = useTheme();
   const { confirmLogout } = useLogout();
+  const { data: entitlements, isError: entitlementsError } = useQuery({ queryKey: ["billing-entitlements"], queryFn: fetchEntitlementsSnapshot });
+  const visibleNavItems = APP_NAV_ITEMS.filter(
+    (item) => !item.feature || (!entitlementsError && entitlements?.features[item.feature] === true),
+  );
 
   return (
     <Screen>
       <PageHeader title="Menu" subtitle="Same sections as the web app" />
       <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-        {APP_NAV_ITEMS.map((item) => {
+        {visibleNavItems.map((item) => {
           const href = typeof item.href === "string" ? item.href : String(item.href);
 
           return (

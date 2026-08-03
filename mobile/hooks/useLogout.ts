@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { Alert } from "react-native";
 
 import { api } from "../api/client";
+import { clearMobileQueryCache } from "../lib/queryClient";
 import { useAuthStore } from "../store/authStore";
 
 export function useLogout() {
@@ -14,8 +15,14 @@ export function useLogout() {
     } catch {
       /* refresh cookie may be absent on native */
     }
+    const sessionAlreadyTerminated =
+      useAuthStore.getState().user === null
+      && useAuthStore.getState().accessToken === null;
+    clearMobileQueryCache();
     logout();
-    router.replace("/(auth)/login");
+    if (!sessionAlreadyTerminated) {
+      router.replace("/(auth)/login");
+    }
   };
 
   const confirmLogout = () => {

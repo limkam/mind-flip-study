@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 
 import { FlashCard } from "../components/FlashCard";
@@ -10,13 +10,17 @@ import { api } from "../api/client";
 import { useScreenHeader } from "../hooks/useScreenHeader";
 import { useTheme } from "../hooks/useTheme";
 import { hapticImpact, hapticSuccess } from "../lib/haptics";
+import { queueProgressSync } from "../lib/offlineStudy";
+import { submitStudyProgress } from "../lib/studyProgress";
+import { invalidateAfterStudyProgress } from "../lib/studyInvalidation";
 import { useAuthStore } from "../store/authStore";
-import type { BookOut, DueFlashcardOut, Paginated } from "../types/api";
+import type { BookOut, DueFlashcardOut, Paginated, StudyProgressOut } from "../types/api";
 
 const RATING_TO_QUALITY = { hard: 2, medium: 3, easy: 5 } as const;
 
 type ReviewItem = {
   card: { id: string; front: string; back: string; chapter?: string | null };
+  setId: string;
   setTitle: string;
   bookTitle?: string | null;
   bookId?: string | null;
@@ -25,6 +29,7 @@ type ReviewItem = {
 function mapReviewRows(rows: DueFlashcardOut[]): ReviewItem[] {
   return rows.map((row) => ({
     card: { id: row.id, front: row.front, back: row.back, chapter: row.chapter },
+    setId: row.set_id,
     setTitle: row.set_title,
     bookTitle: row.book_title,
     bookId: row.book_id ? String(row.book_id) : null,
@@ -48,6 +53,8 @@ export default function DailyReviewScreen() {
   const [hardReviewItems, setHardReviewItems] = useState<ReviewItem[]>([]);
   const [sessionStats, setSessionStats] = useState({ hard: 0, medium: 0, easy: 0, total: 0 });
   const sessionStart = useRef(Date.now());
+  const ratingInFlight = useRef(false);
+  const serverProgress = useRef<Record<string, StudyProgressOut>>({});
 
   const { data: books = [] } = useQuery({
     queryKey: ["books-daily-review"],
@@ -154,6 +161,7 @@ export default function DailyReviewScreen() {
 
   useEffect(() => {
     setPendingRating(null);
+    ratingInFlight.current = false;
   }, [currentIdx]);
 
   useEffect(() => {
@@ -164,7 +172,8 @@ export default function DailyReviewScreen() {
 
   const rate = useCallback(
     async (rating: keyof typeof RATING_TO_QUALITY) => {
-      if (!item || pendingRating) return;
+      if (!item || ratingInFlight.current) return;
+      ratingInFlight.current = true;
       setPendingRating(rating);
       const quality = RATING_TO_QUALITY[rating];
       setSessionStats((s) => ({
@@ -172,14 +181,26 @@ export default function DailyReviewScreen() {
         total: s.total + 1,
         [rating]: (s[rating as keyof typeof s] as number) + 1,
       }));
-      if (rating === "hard" && !hardReviewMode) {
-        setHardReviewItems((items) =>
-          items.some((i) => i.card.id === item.card.id) ? items : [...items, item],
-        );
-      }
-      try {
-        await api.post("/study/progress", { card_id: item.card.id, quality });
-        await queryClient.invalidateQueries({ queryKey: ["daily-review-queue"] });
+      const result = await submitStudyProgress(
+        { card_id: item.card.id, quality },
+        queueProgressSync,
+      );
+      if (result.status === "submitted" || result.status === "queued") {
+        if (result.status === "submitted") {
+          serverProgress.current[result.progress.card_id] = result.progress;
+          if (user?.id) {
+            await invalidateAfterStudyProgress(queryClient, {
+              expectedUserId: user.id,
+              setIds: [item.setId],
+              cardIds: [result.progress.card_id],
+            });
+          }
+        }
+        if (rating === "hard" && !hardReviewMode) {
+          setHardReviewItems((items) =>
+            items.some((i) => i.card.id === item.card.id) ? items : [...items, item],
+          );
+        }
         if (rating === "easy") void hapticSuccess();
         else void hapticImpact("medium");
         if (currentIdx >= count - 1) {
@@ -188,16 +209,18 @@ export default function DailyReviewScreen() {
         }
         setCurrentIdx((i) => i + 1);
         setFlipped(false);
-      } catch {
-        setPendingRating(null);
-        setSessionStats((s) => ({
-          ...s,
-          total: Math.max(0, s.total - 1),
-          [rating]: Math.max(0, (s[rating as keyof typeof s] as number) - 1),
-        }));
+        return;
       }
+      ratingInFlight.current = false;
+      setPendingRating(null);
+      setSessionStats((s) => ({
+        ...s,
+        total: Math.max(0, s.total - 1),
+        [rating]: Math.max(0, (s[rating as keyof typeof s] as number) - 1),
+      }));
+      Alert.alert("Progress not saved", result.reason);
     },
-    [item, currentIdx, count, queryClient, pendingRating, hardReviewMode],
+    [item, currentIdx, count, queryClient, hardReviewMode, user?.id],
   );
 
   const restartHardSession = () => {

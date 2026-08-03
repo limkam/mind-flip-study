@@ -14,6 +14,7 @@ import {
 } from "react-native";
 
 import { EmptyState } from "../../components/EmptyState";
+import { ChallengeEntitlementGuard } from "../../components/ChallengeEntitlementGuard";
 import { QuizGame } from "../../components/games/QuizGame";
 import { PageHeader } from "../../components/PageHeader";
 import { Screen } from "../../components/Screen";
@@ -37,6 +38,14 @@ type ActiveChallengeState = {
 };
 
 export default function ChallengesTab() {
+  return (
+    <ChallengeEntitlementGuard>
+      <ChallengesContent />
+    </ChallengeEntitlementGuard>
+  );
+}
+
+function ChallengesContent() {
   const { colors } = useTheme();
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();

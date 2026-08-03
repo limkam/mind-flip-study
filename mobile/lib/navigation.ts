@@ -6,6 +6,7 @@ export type AppNavItem = {
   href: Href;
   /** Shown in bottom tab bar (max ~5). */
   tab?: boolean;
+  feature?: "challenges";
 };
 
 /** Mirrors web `Sidebar.jsx` nav order and labels. */
@@ -15,9 +16,9 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { label: "My Flashcards", icon: "school-outline", href: "/(tabs)/flashcards", tab: true },
   { label: "Achievements", icon: "medal-outline", href: "/achievements" },
   { label: "Quiz Results", icon: "trophy-outline", href: "/quiz-history" },
-  { label: "Challenges", icon: "flash-outline", href: "/(tabs)/challenges", tab: true },
+  { label: "Challenges", icon: "flash-outline", href: "/(tabs)/challenges", tab: true, feature: "challenges" },
   { label: "Study Groups", icon: "people-outline", href: "/study-groups" },
-  { label: "Challenge Board", icon: "ribbon-outline", href: "/challenge-leaderboard" },
+  { label: "Challenge Board", icon: "ribbon-outline", href: "/challenge-leaderboard", feature: "challenges" },
   { label: "Daily Review", icon: "bulb-outline", href: "/daily-review" },
   { label: "Analytics", icon: "bar-chart-outline", href: "/analytics" },
   { label: "Leaderboard", icon: "flame-outline", href: "/leaderboard" },

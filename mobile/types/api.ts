@@ -39,29 +39,46 @@ export type AnalyticsSummaryOut = {
   rating_breakdown?: RatingBreakdownOut;
 };
 
-export type QuizResultOut = {
-  id: string;
+export type QuizResultInput = {
   set_id: string;
   score: number;
   total_questions: number;
   time_taken_seconds: number;
+  extras: Record<string, unknown> | null;
+};
+
+export type QuizResultExtras = Record<string, unknown> & {
+  set_title?: string | null;
+  book_title?: string | null;
+  percentage?: number;
+  answers?: Array<{
+    question?: string;
+    user_answer?: string;
+    correct_answer?: string;
+    is_correct?: boolean;
+    explanation?: string;
+    chapter?: string;
+  }>;
+  game_type?: string;
+  mode?: string;
+};
+
+export type QuizResultOut = {
+  id: string;
+  user_id: string;
+  set_id: string;
+  score: number;
+  total_questions: number;
+  time_taken_seconds: number;
+  completed_at: string;
+  extras: QuizResultExtras;
+  flashcard_set_id: string | null;
   percentage: number | null;
+  player_email: string | null;
+  player_name: string | null;
   set_title: string | null;
   book_title: string | null;
-  completed_at: string;
-  extras?: {
-    set_title?: string;
-    book_title?: string;
-    answers?: Array<{
-      question?: string;
-      user_answer?: string;
-      correct_answer?: string;
-      is_correct?: boolean;
-      explanation?: string;
-      chapter?: string;
-    }>;
-    [key: string]: unknown;
-  };
+  celebration_events: CelebrationEventOut[];
 };
 
 export type LeaderboardItemOut = {
@@ -134,6 +151,31 @@ export type BookOut = {
   extras?: { processing?: { job_id?: string; phase?: string; error?: string } };
 };
 
+export type StudyGroupPrivacy = "public" | "private";
+
+export type StudyGroupCreateInput = {
+  name: string;
+  description: string | null;
+  privacy: StudyGroupPrivacy;
+  weekly_card_goal: number;
+  book_ids: string[];
+};
+
+export type StudyGroupOut = {
+  id: string;
+  name: string;
+  description: string | null;
+  code: string | null;
+  privacy: StudyGroupPrivacy;
+  weekly_card_goal: number;
+  member_count: number;
+  cards_this_week: number;
+  progress_pct: number;
+  activity_status: string;
+  created_at: string | null;
+  is_member?: boolean;
+};
+
 export type FlashcardOut = {
   id: string;
   set_id: string;
@@ -153,6 +195,34 @@ export type DueFlashcardOut = FlashcardOut & {
   interval_days: number | null;
   next_review_date: string | null;
   repetitions: number | null;
+};
+
+export type StudyProgressInput = {
+  card_id: string;
+  quality: number;
+};
+
+export type CelebrationEventOut = {
+  event_id: string;
+  event_type: string;
+  occurred_at: string;
+  entity_id: string | null;
+  title: string | null;
+  message: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type StudyProgressOut = {
+  id: string;
+  card_id: string;
+  ease_factor: number;
+  interval_days: number;
+  repetitions: number;
+  next_review_date: string | null;
+  last_reviewed_at: string | null;
+  times_correct: number;
+  times_incorrect: number;
+  celebration_events: CelebrationEventOut[];
 };
 
 export type ScenarioOut = {

@@ -46,6 +46,12 @@ export const storage = {
     void AsyncStorage.setItem(PREFIX + key, serialized);
   },
 
+  async setAsync(key: string, value: string | boolean): Promise<void> {
+    const serialized = typeof value === "boolean" ? String(value) : value;
+    await AsyncStorage.setItem(PREFIX + key, serialized);
+    cache.set(key, serialized);
+  },
+
   remove(key: string): void {
     cache.delete(key);
     void AsyncStorage.removeItem(PREFIX + key);

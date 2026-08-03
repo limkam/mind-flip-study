@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { EmptyState } from "../components/EmptyState";
+import { ChallengeEntitlementGuard } from "../components/ChallengeEntitlementGuard";
 import { PageHeader } from "../components/PageHeader";
 import { Screen } from "../components/Screen";
 import { api } from "../api/client";
@@ -30,6 +31,14 @@ const TABS = [
 ] as const;
 
 export default function ChallengeLeaderboardScreen() {
+  return (
+    <ChallengeEntitlementGuard>
+      <ChallengeLeaderboardContent />
+    </ChallengeEntitlementGuard>
+  );
+}
+
+function ChallengeLeaderboardContent() {
   const { colors } = useTheme();
   const header = useScreenHeader("Challenge Board");
   const userId = useAuthStore((s) => s.user?.id);

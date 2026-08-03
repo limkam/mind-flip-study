@@ -1,8 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,16 +29,18 @@ import { StudySkeleton } from "../../components/skeletons/StudySkeleton";
 import { api } from "../../api/client";
 import { useTheme } from "../../hooks/useTheme";
 import { MIN_GAME_CARDS } from "../../lib/gameUtils";
+import { fetchEntitlementsSnapshot } from "../../lib/billing";
 import {
   cacheStudySet,
   getCachedStudySet,
-  isOnline,
   queueProgressSync,
 } from "../../lib/offlineStudy";
+import { submitStudyProgress } from "../../lib/studyProgress";
+import { invalidateAfterStudyProgress } from "../../lib/studyInvalidation";
 import { maybeRegisterPushAfterStudy } from "../../hooks/usePushNotifications";
 import { hapticImpact, hapticSuccess } from "../../lib/haptics";
 import { useAuthStore } from "../../store/authStore";
-import type { DueFlashcardOut, FlashcardSetOut, ScenarioOut } from "../../types/api";
+import type { DueFlashcardOut, FlashcardSetOut, ScenarioOut, StudyProgressOut } from "../../types/api";
 import { parseStudySetDisplay } from "../../lib/studySetDisplay";
 import type { GameSlug } from "../../components/games/types";
 
@@ -56,8 +59,10 @@ export default function StudyByIdScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const user = useAuthStore((s) => s.user);
-  const autoAdvance = user?.preferences?.settings?.auto_advance_cards ?? true;
-  const autoAdvanceDelay = user?.preferences?.settings?.auto_advance_delay_ms ?? 2000;
+  const queryClient = useQueryClient();
+  const studySettings = user?.preferences?.settings as { auto_advance_cards?: boolean; auto_advance_delay_ms?: number } | undefined;
+  const autoAdvance = studySettings?.auto_advance_cards ?? true;
+  const autoAdvanceDelay = studySettings?.auto_advance_delay_ms ?? 2000;
 
   const [idx, setIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -68,8 +73,16 @@ export default function StudyByIdScreen() {
   const [offlineNote, setOfflineNote] = useState(false);
   const [localScenarios, setLocalScenarios] = useState<ScenarioOut[] | null>(null);
   const sessionStart = useRef(Date.now());
+  const ratingInFlight = useRef(false);
+  const serverProgress = useRef<Record<string, StudyProgressOut>>({});
 
   const progress = useSharedValue(0);
+
+  const { data: entitlements } = useQuery({
+    queryKey: ["billing-entitlements"],
+    queryFn: fetchEntitlementsSnapshot,
+  });
+  const gameLimit = entitlements?.features?.games_limit ?? 2;
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["study-session", id],
@@ -168,6 +181,10 @@ export default function StudyByIdScreen() {
   }, [id, progress]);
 
   useEffect(() => {
+    ratingInFlight.current = false;
+  }, [idx, hardReviewMode]);
+
+  useEffect(() => {
     if (total > 0) {
       progress.value = withTiming((sessionComplete ? total : idx) / total, { duration: 300 });
     }
@@ -200,32 +217,40 @@ export default function StudyByIdScreen() {
 
   const submitProgress = useCallback(
     async (cardId: string, quality: number) => {
-      const online = await isOnline();
-      if (online) {
-        try {
-          await api.post("/study/progress", { card_id: cardId, quality });
-          return;
-        } catch {
-          /* queue below */
+      const result = await submitStudyProgress(
+        { card_id: cardId, quality },
+        queueProgressSync,
+      );
+      if (result.status === "submitted") {
+        serverProgress.current[result.progress.card_id] = result.progress;
+        setOfflineNote(false);
+        if (user?.id) {
+          await invalidateAfterStudyProgress(queryClient, {
+            expectedUserId: user.id,
+            setIds: id ? [id] : [],
+            cardIds: [result.progress.card_id],
+          });
         }
+      } else if (result.status === "queued") {
+        setOfflineNote(true);
       }
-      queueProgressSync({ card_id: cardId, quality });
-      setOfflineNote(true);
+      return result;
     },
-    [],
+    [id, queryClient, user?.id],
   );
 
   const rateAndAdvance = useCallback(
     async (quality: number) => {
-      if (sessionComplete || !card) return;
-      setRatings((prev) => ({ ...prev, [card.id]: quality }));
-      void submitProgress(card.id, quality).catch(() => {
-        setRatings((prev) => {
-          const next = { ...prev };
-          delete next[card.id];
-          return next;
-        });
-      });
+      if (sessionComplete || !card || ratingInFlight.current) return;
+      ratingInFlight.current = true;
+      const ratedCard = card;
+      const result = await submitProgress(ratedCard.id, quality);
+      if (result.status === "rejected" || result.status === "authentication") {
+        ratingInFlight.current = false;
+        Alert.alert("Progress not saved", result.reason);
+        return;
+      }
+      setRatings((prev) => ({ ...prev, [ratedCard.id]: quality }));
 
       if (quality <= 2) void hapticImpact("heavy");
       else if (quality >= 4) void hapticSuccess();
@@ -378,6 +403,7 @@ export default function StudyByIdScreen() {
             />
           ) : (
             <GameSelector
+              maxGames={gameLimit}
               onSelect={(slug: GameSlug) => {
                 router.push(`/games/${id}/${slug}`);
               }}

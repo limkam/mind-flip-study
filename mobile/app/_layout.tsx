@@ -2,18 +2,27 @@ import "react-native-gesture-handler";
 import "react-native-reanimated";
 
 import * as Sentry from "@sentry/react-native";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
 import { GenerationJobPoller } from "../components/GenerationJobPoller";
-import { flushPendingProgress, subscribeConnectivity } from "../lib/offlineStudy";
+import { UpgradeLimitModal } from "../components/UpgradeLimitModal";
+import {
+  discardLegacyPendingProgress,
+  flushPendingProgress,
+  subscribeConnectivity,
+} from "../lib/offlineStudy";
+import { mobileQueryClient } from "../lib/queryClient";
 import { setupNotificationHandlers } from "../hooks/usePushNotifications";
 import { useTheme } from "../hooks/useTheme";
+import { useAuthBootstrap } from "../hooks/useAuthBootstrap";
 import { ensureStorageReady } from "../store/storage";
+import { useAuthStore } from "../store/authStore";
 
 const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
 if (typeof sentryDsn === "string" && sentryDsn.length > 0) {
@@ -24,31 +33,28 @@ if (typeof sentryDsn === "string" && sentryDsn.length > 0) {
   });
 }
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000,
-      gcTime: 30 * 60 * 1000,
-      retry: 1,
-    },
-  },
-});
-
 function RootNavigator() {
   const { isDark, colors } = useTheme();
   const router = useRouter();
+  const userId = useAuthStore((state) => state.user?.id);
+  const accessToken = useAuthStore((state) => state.accessToken);
+  const bootstrapStatus = useAuthStore((state) => state.bootstrapStatus);
 
   useEffect(() => {
-    void flushPendingProgress();
-    const unsubNet = subscribeConnectivity(() => {
+    if (bootstrapStatus === "authenticated" && userId && accessToken) {
       void flushPendingProgress();
+    }
+    const unsubNet = subscribeConnectivity(() => {
+      if (bootstrapStatus === "authenticated" && userId && accessToken) {
+        void flushPendingProgress();
+      }
     });
     const unsubPush = setupNotificationHandlers(router);
     return () => {
       unsubNet();
       unsubPush();
     };
-  }, [router]);
+  }, [accessToken, bootstrapStatus, router, userId]);
 
   return (
     <>
@@ -84,11 +90,50 @@ function RootNavigator() {
   );
 }
 
+function BootstrapGate() {
+  useAuthBootstrap();
+  const { colors } = useTheme();
+  const status = useAuthStore((state) => state.bootstrapStatus);
+  const error = useAuthStore((state) => state.bootstrapError);
+  const retry = useAuthStore((state) => state.retryAuthBootstrap);
+
+  if (status === "hydrating" || status === "validating") {
+    return (
+      <View style={[styles.bootstrap, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={[styles.bootstrapText, { color: colors.muted }]}>Verifying your session…</Text>
+      </View>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <View style={[styles.bootstrap, { backgroundColor: colors.background }]}>
+        <Text style={[styles.bootstrapTitle, { color: colors.text }]}>Unable to verify your session</Text>
+        <Text style={[styles.bootstrapText, { color: colors.muted }]}>{error}</Text>
+        <Pressable style={[styles.retryButton, { backgroundColor: colors.primary }]} onPress={retry}>
+          <Text style={styles.retryText}>Try again</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return <RootNavigator />;
+}
+
+function AuthenticatedServices() {
+  const status = useAuthStore((state) => state.bootstrapStatus);
+  return status === "authenticated" ? <GenerationJobPoller /> : null;
+}
+
 export default function RootLayout() {
   const [storageReady, setStorageReady] = useState(false);
 
   useEffect(() => {
-    void ensureStorageReady().then(() => setStorageReady(true));
+    void ensureStorageReady().then(() => {
+      discardLegacyPendingProgress();
+      setStorageReady(true);
+    });
   }, []);
 
   if (!storageReady) {
@@ -98,11 +143,20 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <QueryClientProvider client={queryClient}>
-          <GenerationJobPoller />
-          <RootNavigator />
+        <QueryClientProvider client={mobileQueryClient}>
+          <AuthenticatedServices />
+          <BootstrapGate />
+          <UpgradeLimitModal />
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  bootstrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28 },
+  bootstrapTitle: { fontSize: 21, fontWeight: "800", textAlign: "center" },
+  bootstrapText: { marginTop: 12, fontSize: 15, lineHeight: 22, textAlign: "center" },
+  retryButton: { marginTop: 22, borderRadius: 14, paddingHorizontal: 24, paddingVertical: 13 },
+  retryText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+});
