@@ -169,7 +169,7 @@ function ChallengeLeaderboardContent() {
           data={contentQuery.data ?? []}
           keyExtractor={(row, i) => `${row.full_name}-${row.content_label}-${i}`}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<EmptyState icon="📚" title="No content rankings" />}
+          ListEmptyComponent={<EmptyState icon="📚" title="No content rankings" message="Complete challenges for a flashcard set to appear in content rankings." />}
           renderItem={({ item }) => (
             <View style={[styles.row, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <View style={styles.rowBody}>

@@ -42,7 +42,7 @@ export default function StudyGroupDetailScreen() {
       {isLoading ? (
         <Text style={[styles.center, { color: colors.muted }]}>Loading…</Text>
       ) : isError || !data ? (
-        <EmptyState icon="⚠️" title="Could not load group" actionLabel="Retry" onAction={() => refetch()} />
+        <EmptyState icon="⚠️" title="Could not load group" message="This group may be unavailable, or your connection may have failed." actionLabel="Retry" onAction={() => refetch()} />
       ) : (
         <ScrollView contentContainerStyle={styles.scroll}>
           <Text style={[styles.title, { color: colors.text }]}>{data.name}</Text>

@@ -123,7 +123,7 @@ export default function FlashcardsTab() {
                 }}
                 accessibilityLabel={`Delete ${item.title}`}
               >
-                <Text style={[styles.deleteBtnText, { color: colors.destructive ?? "#ef4444" }]}>
+                <Text style={[styles.deleteBtnText, { color: colors.danger }]}>
                   {deletingId === item.id ? "…" : "Delete"}
                 </Text>
               </Pressable>
