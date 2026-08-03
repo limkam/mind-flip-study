@@ -8,7 +8,7 @@
 - **Current parity phase:** Foundation integrated and committed; Phase A is next.
 - **Next recommended action:** `PAR-009` — Study-group public search parity
 
-Status is evidence-based. PAR-001–PAR-008 and PAR-057 are `Merged` because local `main` history proves acceptance in commits `93954a0` and the documentation commit recorded below. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-008 and PAR-057 are `Merged` because local `main` history proves acceptance in implementation commit `93954a0` and documentation commit `0bf2436`. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
@@ -60,7 +60,7 @@ Relationship labels mean: **Technical dependency** is required for correctness o
 
 | ID | Ticket | Priority | Effort | Status | Acceptance boundary | Relationship |
 | -- | ------ | -------- | ------ | ------ | ------------------- | ------------ |
-| PAR-057 | Combined foundation integration and commit review | High | L | Merged | Aggregate overlap, routes, imports, transports and query keys reviewed; mobile typecheck/export passed; 77 targeted backend tests passed; scoped diff checks passed; known unrelated repository whitespace failures retained; accepted foundation committed as `93954a0`; documentation committed separately. | Completed prerequisite for PAR-009. |
+| PAR-057 | Combined foundation integration and commit review | High | L | Merged | Aggregate overlap, routes, imports, transports and query keys reviewed; mobile typecheck/export passed; 77 targeted backend tests passed; scoped diff checks passed; known unrelated repository whitespace failures retained; accepted foundation committed as `93954a0`; audit/tracker committed as `0bf2436`. | Completed prerequisite for PAR-009. |
 
 Integration evidence: `93954a0` contains the coherent 30-file PAR-001–PAR-008 mobile foundation. Validation ran `npm run typecheck`, Android Expo export, and bounded backend groups totaling 77 passes with no skips/failures. No dedicated study-group or quiz-result backend test module exists. Scoped/staged diff checks passed. Repository-wide `git diff --check` retained four unrelated pre-existing failures in login, flashcards, and `mobile/tsconfig.json`. Manual/device lifecycle behavior remains a recorded risk rather than automated proof.
 
