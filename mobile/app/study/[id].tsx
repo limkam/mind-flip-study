@@ -403,7 +403,6 @@ export default function StudyByIdScreen() {
             />
           ) : (
             <GameSelector
-              maxGames={gameLimit}
               onSelect={(slug: GameSlug) => {
                 router.push(`/games/${id}/${slug}`);
               }}
