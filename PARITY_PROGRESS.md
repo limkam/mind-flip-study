@@ -5,33 +5,34 @@
 - **Mobile application:** `mobile/`
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
-- **Current parity phase:** Foundation integrated and committed; Phase A is next.
-- **Next recommended action:** `PAR-009` — Study-group public search parity
+- **Current parity phase:** Foundation implementation committed; reproducible clean-HEAD build gate needs refinement.
+- **Next recommended action:** `PAR-058` — Restore clean committed mobile typecheck baseline
 
-Status is evidence-based. PAR-001–PAR-008 and PAR-057 are `Merged` because local `main` history proves acceptance in implementation commit `93954a0`, integration-boundary correction `ae0f44c`, and documentation commits `0bf2436`/`d0f74fd`. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-008 remain `Merged` because local `main` contains their accepted implementation. PAR-057 is `Needs refinement`: isolated committed-HEAD validation proved Android export and diff checks pass, but project-wide mobile typecheck fails on three pre-existing errors masked in the dirty working tree. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
-| Total tracked tickets | 57 |
-| Merged | 9 |
+| Total tracked tickets | 58 |
+| Merged | 8 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
-| Not started | 37 |
+| Needs refinement | 1 |
+| Not started | 38 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
 
-All status rows sum to 57. Decision records and technical-debt records are not tickets and are excluded. No ticket is counted twice.
+All status rows sum to 58. Decision records and technical-debt records are not tickets and are excluded. No ticket is counted twice.
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 23.7% (22 / 93 effort points) |
-| Critical-ticket executable progress | 44.4% (8 / 18 effort points) |
-| High-priority executable progress | 27.5% (14 / 51 effort points) |
-| Disposition progress | 26.3% (15 / 57 tickets) |
+| Executable roadmap progress | 22.6% (21.25 / 94 effort points) |
+| Critical-ticket executable progress | 42.1% (8 / 19 effort points) |
+| High-priority executable progress | 26.0% (13.25 / 51 effort points) |
+| Disposition progress | 24.1% (14 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -48,7 +49,7 @@ Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not starte
 | PAR-007 | Authoritative quiz/game result persistence | 4.13, 4.28, 10.7 | High | L | Merged | Central transport; exact DTOs; runtime/semantic validation; duplicate-submit protection; retry state; saved-result navigation recovery; precise invalidation; corrected study-event payload | Five-perspective review completed; semantic validation, retries, navigation recovery, and duplicate taps corrected | Implementation/review evidence records passing mobile typecheck/export and scoped backend validation; exact backend count/command chronology is not preserved in repository artifacts. Tracker creation reran only mobile typecheck/export; both passed. | PAR-006 | Proven changed files: `mobile/lib/quizResults.ts`, `mobile/lib/quizResultInvalidation.ts`, `mobile/app/games/[setId]/[slug].tsx`. Shared working-tree file; exact per-ticket provenance not provable: `mobile/types/api.ts`. Residual risk: backend idempotency and best-effort event delivery. Merge proof: commit `93954a0` on local `main`. |
 | PAR-008 | Study-group creation parity | 4.16, 10.8 | High | L | Merged | Entitlement gate; native description/privacy/weekly-goal form; paginated multi-book selection; validation; user-isolated form reset; response validation; saved-group navigation recovery | Five-perspective review completed; identity reset, pagination, fail-closed entitlement, and recovery corrected | Implementation/review evidence records passing mobile typecheck/export and scoped backend validation; exact backend count/command chronology is not preserved in repository artifacts. Tracker creation reran only mobile typecheck/export; both passed. | Existing entitlements and group APIs | Proven changed files: `mobile/app/study-groups.tsx`, `mobile/components/studyGroups/CreateStudyGroupModal.tsx`. Shared working-tree files; exact per-ticket provenance not provable: `mobile/lib/billing.ts`, `mobile/types/api.ts`. Three prior nonexistent component/storage paths were removed. Residual risk: backend create idempotency, strict response schema, and duplicate `book_ids`. Merge proof: commit `93954a0` on local `main`. |
 
-Tracker creation validation on 2026-08-03 reran only `cd mobile && npm run typecheck` and `cd mobile && npx expo export --platform android --output-dir /tmp/mindflip-parity-progress-export`; both passed, with the known Sentry organization/project warning. PAR-057 subsequently reran both aggregate mobile commands and 77 targeted backend tests before commit `93954a0` established local-history proof.
+Tracker creation and initial PAR-057 validation ran against the dirty aggregate working tree: mobile typecheck/export passed there, with the known Sentry warning, and 77 targeted backend tests passed. Those mobile pass statements are not clean-HEAD proof. The isolated reproducibility result in PAR-057/PAR-058 and the validation baseline below supersedes any unqualified wording in individual ticket rows.
 
 ## 3. Remaining Implementation Roadmap
 
@@ -60,15 +61,16 @@ Relationship labels mean: **Technical dependency** is required for correctness o
 
 | ID | Ticket | Priority | Effort | Status | Acceptance boundary | Relationship |
 | -- | ------ | -------- | ------ | ------ | ------------------- | ------------ |
-| PAR-057 | Combined foundation integration and commit review | High | L | Merged | Aggregate overlap, routes, imports, transports and query keys reviewed; mobile typecheck/export passed; 77 targeted backend tests passed; scoped diff checks passed; known unrelated repository whitespace failures retained; foundation committed as `93954a0`; one accidentally staged unrelated prop removed in `ae0f44c`; audit/tracker committed as `0bf2436` and proof as `d0f74fd`. | Completed prerequisite for PAR-009. |
+| PAR-057 | Combined foundation integration and commit review | High | L | Needs refinement | Aggregate overlap, routes, imports, transports and query keys reviewed; 77 targeted backend tests passed; foundation committed as `93954a0`; integration boundary corrected in `ae0f44c`. Dirty-tree mobile typecheck/export passed, but isolated HEAD `404e99c` typecheck exited 2 on three pre-existing errors; isolated Android export and `git diff --check` passed. | Blocked from completion by PAR-058; do not begin PAR-009. |
+| PAR-058 | Restore clean committed mobile typecheck baseline | Critical | S | Not started | In a separate bounded build-health change, resolve the three pre-existing committed errors without absorbing unrelated dirty-tree behavior: invalid `ThemeColors.destructive` use and two missing required `EmptyState.message` props. Recreate a clean worktree and require typecheck, Android export, diff check, and clean status. | Technical dependency for completing PAR-057 and beginning PAR-009. |
 
-Integration evidence: `93954a0` contains the coherent 30-file PAR-001–PAR-008 mobile foundation. Validation ran `npm run typecheck`, Android Expo export, and bounded backend groups totaling 77 passes with no skips/failures. No dedicated study-group or quiz-result backend test module exists. Scoped/staged diff checks passed. Repository-wide `git diff --check` retained four unrelated pre-existing failures in login, flashcards, and `mobile/tsconfig.json`. Manual/device lifecycle behavior remains a recorded risk rather than automated proof.
+Integration evidence: `93954a0` contains the coherent 30-file PAR-001–PAR-008 mobile foundation. Dirty-tree validation ran `npm run typecheck`, Android Expo export, and bounded backend groups totaling 77 passes with no skips/failures. Reproducibility review at isolated HEAD `404e99c` proved `npm run typecheck` fails with three pre-existing errors, Android export passes, and committed `git diff --check` passes. No dedicated study-group or quiz-result backend test module exists. Manual/device lifecycle behavior remains a recorded risk rather than automated proof.
 
 ### Phase A — Finish study-group functionality
 
 | ID | Ticket | Priority | Effort | Status | Expected area / acceptance boundary | Relationship |
 | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
-| PAR-009 | Study-group public search parity | High | M | Not started | `mobile/app/study-groups.tsx`, study-group components/types; debounced `GET /study-groups/search`, loading/error/empty/result and join flow | Technical dependency: PAR-008 group types/create integration. Recommended sequence: PAR-057 first. |
+| PAR-009 | Study-group public search parity | High | M | Not started | `mobile/app/study-groups.tsx`, study-group components/types; debounced `GET /study-groups/search`, loading/error/empty/result and join flow | Technical dependency: PAR-008 group types/create integration and PAR-058 clean build gate. Recommended sequence: complete PAR-057 first. |
 | PAR-010 | Study-group material attachment | High | M | Not started | `mobile/app/study-groups/[id].tsx`, book picker/types; owner-authorized `POST /study-groups/{id}/materials`, invalidation and errors | Technical dependency: existing group-detail and books APIs only. Recommended sequence: PAR-009 first; search is not technical coupling. |
 | PAR-011 | Study-group detail permission and state review | High | M | Not started | Detail route/components/types; verify owner/member/non-member states, direct routes, loading/error/empty and invalidation | Recommended sequence: review after PAR-010 so attachment states are included; no technical dependency on search. |
 
@@ -198,8 +200,8 @@ Technical debt is not included in feature-parity completion or ticket status cou
 
 | Area | Command / situation | Known outcome |
 | --- | --- | --- |
-| Mobile typecheck | `cd mobile && npm run typecheck` | Pass on 2026-08-03 (`tsc --noEmit`). |
-| Android Expo export | `cd mobile && npx expo export --platform android --output-dir /tmp/mindflip-parity-progress-export` | Pass on 2026-08-03. |
+| Mobile typecheck | `cd mobile && npm run typecheck` | Dirty working tree passes. Isolated committed HEAD `404e99c` exits 2 on three pre-existing errors: invalid `colors.destructive` and two missing required `EmptyState.message` props. PAR-058 is the build-health gate. |
+| Android Expo export | `cd mobile && npx expo export --platform android --output-dir /tmp/mindflip-parity-head-export` | Isolated committed HEAD passes with the known Sentry warning. |
 | Mobile tests | No script/runner in `mobile/package.json` | Absent; typecheck/export do not replace unit, integration or lifecycle tests. |
 | Sentry | Export warning | Existing warning: missing Sentry organization/project configuration; environment fallback is used. |
 | Backend units | `services/api/.venv/bin/pytest services/api/tests/unit -q -x` | Audit baseline: failed after 38 passes at the pre-existing book-deletion fixture issue. Scoped commands may pass independently. |
@@ -207,7 +209,7 @@ Technical debt is not included in feature-parity completion or ticket status cou
 | Whitespace | Repository-wide `git diff --check` | Known unrelated/pre-existing failures; use scoped checks per ticket. |
 | Book deletion | Targeted unit coverage | Pre-existing `test_collects_linked_and_resource_and_orphan_sets` failure because the fixture lacks `book.title`. |
 
-The repository is not claimed to pass globally. Completed mobile tickets have current typecheck/export evidence; backend and repository-wide baselines remain qualified as above.
+The repository is not claimed to pass globally. PAR-001–PAR-008 implementation is committed, but PAR-057 cannot claim its project-wide mobile typecheck acceptance until PAR-058 produces clean-HEAD proof. Backend and repository-wide baselines remain qualified as above.
 
 ## 7. Definition of Done
 
@@ -228,9 +230,9 @@ A parity ticket is complete only when:
 
 ## 8. Next Ticket
 
-The next implementation ticket is **PAR-009 — Study-group public search parity**.
+The next action is **PAR-058 — Restore clean committed mobile typecheck baseline**.
 
-PAR-057 integrated and committed the foundation without beginning search. Study-group creation is merged; public search is a separate supported backend/web flow with no unresolved product decision. Search should precede material attachment as a recommended sequence, not because material attachment technically depends on it.
+PAR-057 integrated and committed the foundation without beginning search, but isolated committed-HEAD validation failed the project-wide mobile typecheck on three pre-existing errors. PAR-009 remains the next feature ticket only after PAR-058 restores the accepted build gate and PAR-057 returns to `Merged` with clean-worktree evidence.
 
 ## Audit Reconciliation
 
@@ -251,7 +253,7 @@ PAR-057 integrated and committed the foundation without beginning search. Study-
 | 4.13 Games/quiz persistence | PAR-007 merged; celebrations remain PAR-029. |
 | 4.14 Daily review | Core persistence/invalidation PAR-005/PAR-006; UX residue PAR-027. |
 | 4.15 Quiz challenges | PAR-004 merged. |
-| 4.16 Study groups | PAR-008/PAR-057 merged; PAR-009–PAR-011 remain. |
+| 4.16 Study groups | PAR-008 merged; PAR-057 needs build-gate refinement through PAR-058 before PAR-009–PAR-011. |
 | 4.17 Folders | PAR-056 `Not required`; optional metadata PAR-016/DEC-005. |
 | 4.18 Achievements | PAR-003 merged; server ownership established. |
 | 4.19 Analytics | PAR-051 `Not required`. |
