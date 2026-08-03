@@ -176,6 +176,32 @@ export type StudyGroupOut = {
   is_member?: boolean;
 };
 
+export type StudyGroupMaterialInput = {
+  book_id: string;
+};
+
+export type StudyGroupMaterialOut = {
+  id: string;
+  book_id: string;
+  title: string;
+  author: string;
+  added_by_name: string;
+  added_at: string | null;
+};
+
+export type StudyGroupMemberOut = {
+  user_id: string;
+  full_name: string;
+  cards_this_week: number;
+  role: string;
+};
+
+export type StudyGroupDetailOut = StudyGroupOut & {
+  is_member: true;
+  members: StudyGroupMemberOut[];
+  materials: StudyGroupMaterialOut[];
+};
+
 export type FlashcardOut = {
   id: string;
   set_id: string;
