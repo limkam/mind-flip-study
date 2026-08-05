@@ -6,21 +6,21 @@
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
 - **Current parity phase:** Phase B — Book and content lifecycle.
-- **Next recommended action:** Integrate isolated PAR-012 commit `0f20e17` after the overlapping dirty book-detail work is committed
+- **Next recommended action:** Execute PAR-015 (Flashcard tag editing).
 
-Status is evidence-based. PAR-001–PAR-011, PAR-057, and PAR-058 are `Merged`: PAR-011 code commit `f468fc5` passed mobile typecheck, independent Android and iOS exports, and scoped diff check before commit. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-014, PAR-057, and PAR-058 are `Merged`: PAR-013 & PAR-014 code commit `320b6de` reached local `main` via hunk isolation while preserving unrelated dirty edits as unstaged changes; mobile typecheck, Android export, iOS export, 7 unit backend tests, and scoped diff check passed. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 13 |
-| Ready to merge | 1 |
+| Merged | 16 |
+| Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
-| Not started | 33 |
+| Not started | 31 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -29,10 +29,10 @@ All status rows sum to 58. Decision records and technical-debt records are not t
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 32.8% (30.8 / 94 effort points) |
+| Executable roadmap progress | 37.2% (35 / 94 effort points) |
 | Critical-ticket executable progress | 47.4% (9 / 19 effort points) |
-| High-priority executable progress | 42.7% (21.8 / 51 effort points) |
-| Disposition progress | 34.5% (20 / 58 tickets) |
+| High-priority executable progress | 49.0% (25 / 51 effort points) |
+| Disposition progress | 37.9% (22 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -78,9 +78,9 @@ Integration evidence: `93954a0` contains the coherent 30-file PAR-001–PAR-008 
 
 | ID | Ticket | Priority | Effort | Status | Expected area / acceptance boundary | Relationship |
 | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
-| PAR-012 | Book deletion and cache invalidation | High | M | Ready to merge | `mobile/app/book/[id].tsx`; native confirmation, guarded 204 handling, exact detail/job cleanup, proven dependent invalidation and replacement navigation | Isolated code commit `0f20e17` at base `f086257`; prerequisite commit `1d40eb1`. Isolated mobile typecheck, Android export, iOS export, scoped diff check, and targeted backend deletion test passed. Applying to local `main` is blocked because overlapping reviewed and unrelated edits remain uncommitted in the primary book-detail file; PAR-013 must not start until the integration boundary is resolved. |
-| PAR-013 | Reused flashcard-generation response handling | High | S | Not started | Book generation DTO/route; honor `reused` and `set_id`, navigate without polling | None |
-| PAR-014 | Book processing and generation completion behavior | High | M | Not started | Book detail/generation phases; polling, recovery, plan messages and final navigation | Technical dependency: PAR-013 response handling. |
+| PAR-012 | Book deletion and cache invalidation | High | M | Merged | `mobile/app/book/[id].tsx`; native confirmation, guarded 204 handling, exact detail/job cleanup, proven dependent invalidation and replacement navigation | Commit `336a035` on local `main` via cherry-pick `0f20e17`; overlapping uncommitted edits preserved as unstaged patch. Mobile typecheck, Android export, iOS export, scoped diff check, and targeted deletion test passed. |
+| PAR-013 | Reused flashcard-generation response handling | High | S | Merged | Book generation DTO/route; honor `reused` and `set_id`, navigate directly without starting background poller | Commit `320b6de`; runtime response validation of reused set_id, user/book scoping, query invalidation, and direct navigation without poller mount. Typecheck, Android export, iOS export, 7 backend unit tests, and diff check passed. |
+| PAR-014 | Book processing and generation completion behavior | High | M | Merged | Book detail/generation phases; polling, recovery, defensive observation bound, atomic completion claim, and invalidation | Commit `320b6de`; 10-min defensive observation window (unsupported process/restart recovery documented gap), 15-error threshold, 401/403/404 handling, atomic claimCompletedJob, invalidates flashcard-sets/book/billing-entitlements/credit-usage. Typecheck, Android export, iOS export, 7 backend unit tests, and diff check passed. |
 | PAR-015 | Flashcard tag editing | Medium | M | Not started | Flashcard list/editor/types; normalized `PUT /flashcard-sets/{id}`, validation and invalidation | None |
 | PAR-016 | Folder metadata clarification and conditional implementation | Low | S/M | Blocked | Folder form/types only if DEC-005 requires description/color/icon/parent parity | Blocked by decision: DEC-005. |
 
@@ -230,9 +230,9 @@ A parity ticket is complete only when:
 
 ## 8. Next Ticket
 
-PAR-012 is **Ready to merge** as isolated commit `0f20e17`, but is not merged into local `main`.
+PAR-012 is **Merged** as commit `336a035` on local `main`.
 
-The next action is to resolve the overlapping dirty `mobile/app/book/[id].tsx` integration boundary, then apply and revalidate `0f20e17` without losing unrelated work. PAR-013 remains blocked until local-main merge proof exists. DEBT-017 was resolved separately in commit `1d40eb1`.
+The next work batch is PAR-013 and PAR-014 together.
 
 ## Audit Reconciliation
 
