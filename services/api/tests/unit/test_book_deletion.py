@@ -33,6 +33,7 @@ async def test_collects_linked_and_resource_and_orphan_sets():
     book = type("Book", (), {})()
     book.id = book_id
     book.user_id = uuid4()
+    book.title = "Test Book"
     book.extras = {"ai_job": {"task_id": task_id, "resource_id": str(set_b)}}
 
     db = _FakeSession(
@@ -40,6 +41,7 @@ async def test_collects_linked_and_resource_and_orphan_sets():
             [set_a],  # linked by book_id
             [set_c],  # orphaned by job marker
             [],  # legacy scan
+            [],  # orphaned by matching title
         ],
     )
 
