@@ -1,26 +1,26 @@
 # Mobile Parity Progress
 
-- **Last updated:** 2026-08-03
+- **Last updated:** 2026-08-05
 - **Source audit:** `MOBILE_PARITY_AUDIT.md`
 - **Mobile application:** `mobile/`
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
-- **Current parity phase:** Phase A — Finish study-group functionality.
-- **Next recommended action:** `PAR-011` — Study-group detail permission and state review
+- **Current parity phase:** Phase B — Book and content lifecycle.
+- **Next recommended action:** `PAR-012` — Book deletion and cache invalidation
 
-Status is evidence-based. PAR-001–PAR-010, PAR-057, and PAR-058 are `Merged`: PAR-010 commit `6b9da14` passed mobile typecheck, independent Android and iOS exports, scoped diff check, and focused backend validation before commit. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-011, PAR-057, and PAR-058 are `Merged`: PAR-011 code commit `f468fc5` passed mobile typecheck, independent Android and iOS exports, and scoped diff check before commit. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 12 |
+| Merged | 13 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 1 |
 | Needs refinement | 0 |
-| Not started | 34 |
+| Not started | 33 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -29,10 +29,10 @@ All status rows sum to 58. Decision records and technical-debt records are not t
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 29.3% (27.5 / 94 effort points) |
+| Executable roadmap progress | 31.4% (29.5 / 94 effort points) |
 | Critical-ticket executable progress | 47.4% (9 / 19 effort points) |
-| High-priority executable progress | 36.3% (18.5 / 51 effort points) |
-| Disposition progress | 31.0% (18 / 58 tickets) |
+| High-priority executable progress | 40.2% (20.5 / 51 effort points) |
+| Disposition progress | 32.8% (19 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -72,13 +72,13 @@ Integration evidence: `93954a0` contains the coherent 30-file PAR-001–PAR-008 
 | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
 | PAR-009 | Study-group public search parity | High | M | Merged | Debounced, normalized, authenticated public search with user/query-scoped caching; validated public/deduplicated rows; truthful invite-code joining; member-only detail navigation; precise membership refresh | Commit `6a5f95f`; engineering review corrections included scroll ownership, Strict Mode lifecycle, identity transition, and invite-code guidance. Mobile typecheck, Android export, iOS export, scoped diff check, and 29 focused backend tests passed. |
 | PAR-010 | Study-group material attachment | High | M | Merged | Member-authorized native book picker; user-scoped pagination; validated detail/material responses; known-duplicate and stale-response protection; exact detail refresh and accepted-write recovery | Commit `6b9da14`; engineering review corrected retained-detail refresh failure, response/book binding, and semantic material deduplication. Mobile typecheck, Android export, iOS export, scoped diff check, and 29 focused backend tests passed; database-backed books suite was environment-blocked. |
-| PAR-011 | Study-group detail permission and state review | High | M | In progress | Detail route/components/types; verify owner/member/non-member states, direct routes, loading/error/empty and invalidation | Active ticket. PAR-010 is merged, so attachment states are included in the review boundary. |
+| PAR-011 | Study-group detail permission and state review | High | M | Merged | Detail route/components/types; verified owner/member/non-member states, direct routes, loading/error/retained-data states and invalidation | Code commit `f468fc5`; review corrections added explicit 403/404/invalid-link states, identity-bound validated responses, owner/member presentation, stable member keys, retained-data refresh messaging, pull-to-refresh, semantic material validation, and exact joined-group invalidation. Mobile typecheck, Android export, iOS export, and scoped diff check passed; exports retained the known Sentry warning. |
 
 ### Phase B — Book and content lifecycle
 
 | ID | Ticket | Priority | Effort | Status | Expected area / acceptance boundary | Relationship |
 | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
-| PAR-012 | Book deletion and cache invalidation | High | M | Not started | `mobile/app/book/[id].tsx`; confirmation, 204 handling, navigation and precise books/sets invalidation | Technical dependency: fix or explicitly waive the known backend fixture failure for validation. |
+| PAR-012 | Book deletion and cache invalidation | High | M | In progress | `mobile/app/book/[id].tsx`; confirmation, 204 handling, navigation and precise books/sets invalidation | Active ticket. Technical dependency retained: resolve the known backend fixture failure before acceptance; do not waive it as pre-existing. |
 | PAR-013 | Reused flashcard-generation response handling | High | S | Not started | Book generation DTO/route; honor `reused` and `set_id`, navigate without polling | None |
 | PAR-014 | Book processing and generation completion behavior | High | M | Not started | Book detail/generation phases; polling, recovery, plan messages and final navigation | Technical dependency: PAR-013 response handling. |
 | PAR-015 | Flashcard tag editing | Medium | M | Not started | Flashcard list/editor/types; normalized `PUT /flashcard-sets/{id}`, validation and invalidation | None |
@@ -230,9 +230,9 @@ A parity ticket is complete only when:
 
 ## 8. Next Ticket
 
-The active implementation ticket is **PAR-011 — Study-group detail permission and state review**.
+The active implementation ticket is **PAR-012 — Book deletion and cache invalidation**.
 
-PAR-010 is merged as commit `6b9da14` after passing independent Android and iOS exports, mobile typecheck, scoped diff check, and focused backend validation. PAR-011 now reviews only the detail route's permission and state model; no new group feature is in scope.
+PAR-011 is merged as code commit `f468fc5` after review corrections and passing independent Android and iOS exports, mobile typecheck, and scoped diff check. Phase B begins with PAR-012, whose DEBT-017 backend-fixture dependency remains blocking until investigated and resolved with evidence.
 
 ## Audit Reconciliation
 
