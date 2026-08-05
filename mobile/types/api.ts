@@ -8,6 +8,23 @@ export type Paginated<T> = {
   total_pages?: number;
 };
 
+export type EngagementPreferencesOut = {
+  in_app_enabled: boolean;
+  learning_reminders: boolean;
+  streak_reminders: boolean;
+  weekly_summaries: boolean;
+  achievement_announcements: boolean;
+  marketing_emails: boolean;
+  celebration_animations: boolean;
+  achievement_sounds: boolean;
+  streak_sounds: boolean;
+  quiet_hours_start: string | null;
+  quiet_hours_end: string | null;
+  timezone: string;
+};
+
+export type EngagementPreferencesPatch = Partial<EngagementPreferencesOut>;
+
 export type WeakTopicOut = {
   set_id: string;
   title: string;
@@ -31,6 +48,7 @@ export type AnalyticsSummaryOut = {
   quiz_count: number;
   avg_score: number;
   streak_days: number;
+  total_study_time_seconds?: number;
   has_perfect_quiz?: boolean;
   weak_topics?: WeakTopicOut[];
   flashcard_sets_count?: number;

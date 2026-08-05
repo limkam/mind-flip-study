@@ -1,45 +1,62 @@
 import * as Sentry from "@sentry/react-native";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "expo-router";
 import {
   Alert,
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
-import { UpgradeSection } from "../components/UpgradeSection";
 import { PageHeader } from "../components/PageHeader";
 import { Screen } from "../components/Screen";
 import { api } from "../api/client";
 import { useLogout } from "../hooks/useLogout";
 import { useScreenHeader } from "../hooks/useScreenHeader";
 import { useTheme } from "../hooks/useTheme";
-import { subscriptionLabel, subscriptionsEnabled } from "../lib/billing";
 import { hapticImpact } from "../lib/haptics";
+import { getApiErrorMessage } from "../lib/apiErrors";
+import {
+  STUDY_THEMES,
+  getStudyTheme,
+  parseUserResponse,
+  validateAvatarUrl,
+  validateDisplayName,
+} from "../lib/preferences";
 import { type User, useAuthStore } from "../store/authStore";
+import { type AnalyticsSummaryOut } from "../types/api";
 
-const STUDY_THEMES = [
-  { id: "indigo", label: "Indigo Classic" },
-  { id: "ocean", label: "Ocean Blue" },
-  { id: "sunset", label: "Sunset" },
-  { id: "forest", label: "Forest" },
-  { id: "midnight", label: "Midnight" },
-  { id: "rose", label: "Rose" },
-];
-
-const DAILY_GOAL_OPTIONS = [10, 20, 30, 50, 100];
+function formatStudyTime(seconds = 0) {
+  if (seconds < 60) return `${seconds}s`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
 
 export default function ProfileScreen() {
   const { colors, scheme, isDark, toggleScheme } = useTheme();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const header = useScreenHeader("My Profile");
   const { confirmLogout } = useLogout();
-  const { user, accessToken, setAuth } = useAuthStore();
+  const { user, accessToken, setAuth, bootstrapStatus } = useAuthStore();
 
-  const me = useQuery({
+  const isMountedRef = useRef(true);
+  const saveAttemptIdRef = useRef(0);
+  const saveInFlightRef = useRef(false);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const meQuery = useQuery({
     queryKey: ["me"],
     queryFn: async () => {
       const { data } = await api.get<User>("/users/me");
@@ -47,95 +64,281 @@ export default function ProfileScreen() {
     },
   });
 
-  const profile = me.data ?? user;
-  const prefs = (profile?.preferences ?? {}) as {
-    study_theme?: string;
-    daily_goal?: number;
-    notifications?: boolean;
-  };
-
-  const [selectedTheme, setSelectedTheme] = useState(prefs.study_theme ?? "indigo");
-  const [dailyGoal, setDailyGoal] = useState(prefs.daily_goal ?? 20);
-  const [notifications, setNotifications] = useState(prefs.notifications !== false);
-
-  useEffect(() => {
-    if (me.data) {
-      const p = (me.data.preferences ?? {}) as typeof prefs;
-      setSelectedTheme(p.study_theme ?? "indigo");
-      setDailyGoal(p.daily_goal ?? 20);
-      setNotifications(p.notifications !== false);
-    }
-  }, [me.data]);
-
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      const { data } = await api.patch<User>("/users/me", {
-        preferences: {
-          study_theme: selectedTheme,
-          daily_goal: dailyGoal,
-          notifications,
-        },
-      });
+  const analyticsQuery = useQuery({
+    queryKey: ["analytics-summary"],
+    queryFn: async () => {
+      const { data } = await api.get<AnalyticsSummaryOut>("/analytics/summary");
       return data;
     },
-    onSuccess: (data) => {
-      if (accessToken) setAuth(data, accessToken);
-      Alert.alert("Saved", "Your preferences were updated.");
-    },
-    onError: () => Alert.alert("Error", "Could not save preferences."),
   });
+
+  const profile = meQuery.data ?? user;
+  const prefs = (profile?.preferences ?? {}) as { study_theme?: string };
+
+  // Profile Form States
+  const [fullName, setFullName] = useState(profile?.full_name ?? "");
+  const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url ?? "");
+  const [occupation, setOccupation] = useState(profile?.occupation ?? "");
+  const [jobTitle, setJobTitle] = useState(profile?.job_title ?? "");
+  const [dateOfBirth, setDateOfBirth] = useState(profile?.date_of_birth ?? "");
+  const [selectedTheme, setSelectedTheme] = useState(prefs.study_theme ?? "indigo");
+
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingTheme, setSavingTheme] = useState(false);
+
+  // Synchronize state when server profile updates if not actively editing
+  useEffect(() => {
+    if (meQuery.data) {
+      setFullName(meQuery.data.full_name ?? "");
+      setAvatarUrl(meQuery.data.avatar_url ?? "");
+      setOccupation(meQuery.data.occupation ?? "");
+      setJobTitle(meQuery.data.job_title ?? "");
+      setDateOfBirth(meQuery.data.date_of_birth ?? "");
+      const p = (meQuery.data.preferences ?? {}) as { study_theme?: string };
+      setSelectedTheme(p.study_theme ?? "indigo");
+    }
+  }, [meQuery.data]);
+
+  const handleSaveProfile = async () => {
+    if (saveInFlightRef.current) return;
+
+    const currentUserId = user?.id;
+    if (!currentUserId || bootstrapStatus !== "authenticated") {
+      Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
+      return;
+    }
+
+    // Validation checks
+    const nameCheck = validateDisplayName(fullName);
+    if (!nameCheck.valid) {
+      Alert.alert("Validation Error", nameCheck.reason);
+      return;
+    }
+
+    if (profile?.auth_provider !== "google") {
+      const avatarCheck = validateAvatarUrl(avatarUrl);
+      if (!avatarCheck.valid) {
+        Alert.alert("Validation Error", avatarCheck.reason);
+        return;
+      }
+    }
+
+    saveAttemptIdRef.current += 1;
+    const currentAttemptId = saveAttemptIdRef.current;
+    saveInFlightRef.current = true;
+    setSavingProfile(true);
+
+    try {
+      const body: Record<string, unknown> = {
+        full_name: nameCheck.name,
+        occupation: occupation.trim() || null,
+        job_title: jobTitle.trim() || null,
+        date_of_birth: dateOfBirth.trim() || null,
+      };
+
+      if (profile?.auth_provider !== "google") {
+        body.avatar_url = avatarUrl.trim() || null;
+      }
+
+      const { data: updatedUser } = await api.patch<User>("/users/me", body);
+
+      // Post-request identity & mounted validation and runtime parsing
+      const latestUser = useAuthStore.getState().user;
+      const latestAuth = useAuthStore.getState().bootstrapStatus;
+      const parseResult = parseUserResponse(updatedUser, currentUserId);
+
+      if (
+        !isMountedRef.current ||
+        currentAttemptId !== saveAttemptIdRef.current ||
+        latestUser?.id !== currentUserId ||
+        latestAuth !== "authenticated"
+      ) {
+        return;
+      }
+
+      if (!parseResult.valid) {
+        Alert.alert("Contract Error", `Invalid response from server: ${parseResult.reason}`);
+        return;
+      }
+
+      if (accessToken) setAuth(parseResult.user, accessToken);
+      queryClient.setQueryData<User>(["me"], parseResult.user);
+      Alert.alert("Success", "Profile updated successfully.");
+    } catch (e) {
+      if (isMountedRef.current && currentAttemptId === saveAttemptIdRef.current) {
+        Alert.alert("Could Not Save Profile", getApiErrorMessage(e, "Please try again."));
+      }
+    } finally {
+      if (currentAttemptId === saveAttemptIdRef.current) {
+        saveInFlightRef.current = false;
+        if (isMountedRef.current) {
+          setSavingProfile(false);
+        }
+      }
+    }
+  };
+
+  const handleSelectTheme = async (themeId: string) => {
+    if (saveInFlightRef.current) return;
+
+    const currentUserId = user?.id;
+    if (!currentUserId || bootstrapStatus !== "authenticated") {
+      return;
+    }
+
+    const previousTheme = selectedTheme;
+    setSelectedTheme(themeId);
+
+    saveAttemptIdRef.current += 1;
+    const currentAttemptId = saveAttemptIdRef.current;
+    saveInFlightRef.current = true;
+    setSavingTheme(true);
+
+    try {
+      const mergedPreferences = {
+        ...(profile?.preferences ?? {}),
+        study_theme: themeId,
+      };
+
+      const { data: updatedUser } = await api.patch<User>("/users/me", {
+        preferences: mergedPreferences,
+      });
+
+      const latestUser = useAuthStore.getState().user;
+      const latestAuth = useAuthStore.getState().bootstrapStatus;
+      const parseResult = parseUserResponse(updatedUser, currentUserId);
+
+      if (
+        !isMountedRef.current ||
+        currentAttemptId !== saveAttemptIdRef.current ||
+        latestUser?.id !== currentUserId ||
+        latestAuth !== "authenticated"
+      ) {
+        return;
+      }
+
+      if (!parseResult.valid) {
+        setSelectedTheme(previousTheme);
+        return;
+      }
+
+      if (accessToken) setAuth(parseResult.user, accessToken);
+      queryClient.setQueryData<User>(["me"], parseResult.user);
+    } catch {
+      if (isMountedRef.current && currentAttemptId === saveAttemptIdRef.current) {
+        setSelectedTheme(previousTheme);
+        Alert.alert("Error", "Could not update study theme.");
+      }
+    } finally {
+      if (currentAttemptId === saveAttemptIdRef.current) {
+        saveInFlightRef.current = false;
+        if (isMountedRef.current) {
+          setSavingTheme(false);
+        }
+      }
+    }
+  };
+
+  const stats = analyticsQuery.data;
+  const activeThemeDef = getStudyTheme(selectedTheme);
 
   return (
     <Screen>
       {header}
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <PageHeader title="My Profile" subtitle="Account and study preferences" />
+        <PageHeader title="My Profile" subtitle="Your identity and study progress" />
 
+        {/* Account Summary & Editable Fields */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.section, { color: colors.text }]}>Account</Text>
-          <Text style={[styles.value, { color: colors.text }]}>{profile?.full_name}</Text>
-          <Text style={[styles.email, { color: colors.muted }]}>{profile?.email}</Text>
-          <View style={styles.badges}>
-            <Text style={[styles.badge, { color: colors.primary, backgroundColor: colors.primary + "18" }]}>
-              {profile?.role}
-            </Text>
-            {subscriptionsEnabled() ? (
-              <Text style={[styles.badge, { color: colors.muted, backgroundColor: colors.border + "55" }]}>
-                {subscriptionLabel(profile?.subscription_tier)} plan
-              </Text>
-            ) : null}
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Account Details</Text>
+
+          <View style={styles.inputField}>
+            <Text style={[styles.fieldLabel, { color: colors.muted }]}>Display name</Text>
+            <TextInput
+              style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]}
+              value={fullName}
+              onChangeText={setFullName}
+              maxLength={255}
+              placeholder="Your full name"
+              placeholderTextColor={colors.muted}
+            />
           </View>
+
+          <View style={styles.inputField}>
+            <Text style={[styles.fieldLabel, { color: colors.muted }]}>Email address</Text>
+            <TextInput
+              style={[styles.textInput, { color: colors.muted, borderColor: colors.border, backgroundColor: colors.surface }]}
+              value={profile?.email ?? ""}
+              editable={false}
+            />
+          </View>
+
+          {profile?.auth_provider !== "google" ? (
+            <View style={styles.inputField}>
+              <Text style={[styles.fieldLabel, { color: colors.muted }]}>Profile picture URL</Text>
+              <TextInput
+                style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]}
+                value={avatarUrl}
+                onChangeText={setAvatarUrl}
+                placeholder="https://example.com/avatar.jpg"
+                placeholderTextColor={colors.muted}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          ) : (
+            <Text style={[styles.hint, { color: colors.muted }]}>Profile picture managed by Google</Text>
+          )}
+
+          <View style={styles.inputField}>
+            <Text style={[styles.fieldLabel, { color: colors.muted }]}>Occupation</Text>
+            <TextInput
+              style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]}
+              value={occupation}
+              onChangeText={setOccupation}
+              maxLength={100}
+              placeholder="e.g. Student, Engineer"
+              placeholderTextColor={colors.muted}
+            />
+          </View>
+
+          <View style={styles.inputField}>
+            <Text style={[styles.fieldLabel, { color: colors.muted }]}>Job Title</Text>
+            <TextInput
+              style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]}
+              value={jobTitle}
+              onChangeText={setJobTitle}
+              maxLength={100}
+              placeholder="e.g. Software Developer"
+              placeholderTextColor={colors.muted}
+            />
+          </View>
+
+          <View style={styles.inputField}>
+            <Text style={[styles.fieldLabel, { color: colors.muted }]}>Date of birth (YYYY-MM-DD)</Text>
+            <TextInput
+              style={[styles.textInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]}
+              value={dateOfBirth}
+              onChangeText={setDateOfBirth}
+              placeholder="1998-05-15"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <Pressable
+            style={[styles.saveBtn, { backgroundColor: colors.primary }, savingProfile && { opacity: 0.5 }]}
+            onPress={handleSaveProfile}
+            disabled={savingProfile}
+          >
+            <Text style={styles.saveBtnText}>{savingProfile ? "Saving…" : "Save profile"}</Text>
+          </Pressable>
         </View>
 
-        {(profile?.date_of_birth || profile?.country || profile?.occupation || profile?.job_title) ? (
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.section, { color: colors.text }]}>Profile details</Text>
-            {profile?.date_of_birth ? (
-              <InfoRow label="Date of birth" value={profile.date_of_birth} colors={colors} />
-            ) : null}
-            {profile?.age != null ? (
-              <InfoRow label="Age" value={String(profile.age)} colors={colors} />
-            ) : null}
-            {profile?.country ? <InfoRow label="Country" value={profile.country} colors={colors} /> : null}
-            {profile?.custom_country ? (
-              <InfoRow label="Custom country" value={profile.custom_country} colors={colors} />
-            ) : null}
-            {profile?.continent ? <InfoRow label="Continent" value={profile.continent} colors={colors} /> : null}
-            {profile?.occupation ? <InfoRow label="Occupation" value={profile.occupation} colors={colors} /> : null}
-            {profile?.job_title ? <InfoRow label="Job title" value={profile.job_title} colors={colors} /> : null}
-          </View>
-        ) : null}
-
-        {subscriptionsEnabled() ? (
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.section, { color: colors.text }]}>Subscription</Text>
-            <UpgradeSection subscriptionTier={profile?.subscription_tier} />
-          </View>
-        ) : null}
-
+        {/* Appearance & Color Scheme (Independent from Study Theme) */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.section, { color: colors.text }]}>Appearance</Text>
-          <Text style={[styles.hint, { color: colors.muted }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>App Appearance</Text>
+          <Text style={[styles.hint, { color: colors.muted, marginBottom: 8 }]}>
             Current: {scheme === "dark" ? "Dark" : "Light"} mode
           </Text>
           <Pressable
@@ -151,110 +354,84 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
+        {/* Study Theme Parity Section */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.section, { color: colors.text }]}>Study theme</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Study Theme</Text>
+          <Text style={[styles.hint, { color: colors.muted, marginBottom: 12 }]}>
+            Choose card colors used in study sessions (Active: {activeThemeDef.label})
+          </Text>
           <View style={styles.themeGrid}>
-            {STUDY_THEMES.map((theme) => (
-              <Pressable
-                key={theme.id}
-                style={[
-                  styles.themeChip,
-                  {
-                    borderColor: selectedTheme === theme.id ? colors.primary : colors.border,
-                    backgroundColor: selectedTheme === theme.id ? colors.primary + "14" : colors.background,
-                  },
-                ]}
-                onPress={() => setSelectedTheme(theme.id)}
-              >
-                <Text style={{ color: colors.text, fontWeight: selectedTheme === theme.id ? "700" : "500" }}>
-                  {theme.label}
-                </Text>
-              </Pressable>
-            ))}
+            {STUDY_THEMES.map((theme) => {
+              const active = selectedTheme === theme.id;
+              return (
+                <Pressable
+                  key={theme.id}
+                  style={[
+                    styles.themeChip,
+                    {
+                      borderColor: active ? theme.accentBorder : colors.border,
+                      backgroundColor: active ? theme.cardBackBackground : colors.background,
+                    },
+                  ]}
+                  onPress={() => handleSelectTheme(theme.id)}
+                  disabled={savingTheme}
+                >
+                  <Text style={[styles.themeLabel, { color: colors.text, fontWeight: active ? "700" : "500" }]}>
+                    {theme.label}
+                  </Text>
+                  <Text style={[styles.themeDesc, { color: colors.muted }]}>{theme.description}</Text>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
 
+        {/* Bounded Study Overview Analytics Summary */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.section, { color: colors.text }]}>Study preferences</Text>
-          <Text style={[styles.hint, { color: colors.muted }]}>Daily card goal</Text>
-          <View style={styles.goalRow}>
-            {DAILY_GOAL_OPTIONS.map((n) => (
-              <Pressable
-                key={n}
-                style={[
-                  styles.goalChip,
-                  {
-                    borderColor: dailyGoal === n ? colors.primary : colors.border,
-                    backgroundColor: dailyGoal === n ? colors.primary + "14" : colors.background,
-                  },
-                ]}
-                onPress={() => setDailyGoal(n)}
-              >
-                <Text style={{ color: colors.text, fontWeight: dailyGoal === n ? "700" : "500" }}>{n}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <View style={styles.switchRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.switchLabel, { color: colors.text }]}>Study reminders</Text>
-              <Text style={[styles.hint, { color: colors.muted }]}>Keep your streak alive</Text>
-            </View>
-            <Switch value={notifications} onValueChange={setNotifications} />
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Study Overview</Text>
+          <View style={styles.statsGrid}>
+            <StatBox label="Current streak" value={`${stats?.streak_days ?? 0} days`} colors={colors} />
+            <StatBox label="Quiz time" value={formatStudyTime(stats?.total_study_time_seconds)} colors={colors} />
+            <StatBox label="Decks created" value={String(stats?.flashcard_sets_count ?? 0)} colors={colors} />
+            <StatBox label="Quiz attempts" value={String(stats?.quiz_count ?? 0)} colors={colors} />
           </View>
         </View>
 
+        {/* Additional Navigation / System Actions */}
         <Pressable
-          style={[styles.saveBtn, { backgroundColor: colors.primary }]}
-          onPress={() => {
-            void hapticImpact("light");
-            saveMutation.mutate();
-          }}
-          disabled={saveMutation.isPending}
+          style={[styles.outlineBtn, { borderColor: colors.border, backgroundColor: colors.surface, marginHorizontal: 16, marginBottom: 10 }]}
+          onPress={() => router.push("/billing")}
         >
-          <Text style={styles.saveBtnText}>{saveMutation.isPending ? "Saving…" : "Save preferences"}</Text>
+          <Text style={[styles.outlineBtnText, { color: colors.text }]}>Billing &amp; credit usage</Text>
         </Pressable>
 
-        {typeof process.env.EXPO_PUBLIC_SENTRY_DSN === "string" &&
-        process.env.EXPO_PUBLIC_SENTRY_DSN.length > 0 ? (
-          <Pressable
-            style={[styles.outline, { borderColor: colors.border, backgroundColor: colors.surface }]}
-            onPress={() => {
-              void hapticImpact("light");
-              Sentry.captureException(new Error("MindFlip Sentry connectivity verify (React Native)"));
-              Alert.alert("Sent", "Check your Sentry project for the test issue.");
-            }}
-          >
-            <Text style={[styles.outlineText, { color: colors.text }]}>Send Sentry test event</Text>
-          </Pressable>
-        ) : null}
-
         <Pressable
-          style={[styles.outline, { borderColor: colors.border, backgroundColor: colors.surface }]}
+          style={[styles.outlineBtn, { borderColor: colors.danger, backgroundColor: colors.surface, marginHorizontal: 16 }]}
           onPress={() => {
             void hapticImpact("light");
             confirmLogout();
           }}
         >
-          <Text style={[styles.outlineText, { color: colors.danger }]}>Log out</Text>
+          <Text style={[styles.outlineBtnText, { color: colors.danger }]}>Log out</Text>
         </Pressable>
       </ScrollView>
     </Screen>
   );
 }
 
-function InfoRow({
+function StatBox({
   label,
   value,
   colors,
 }: {
   label: string;
   value: string;
-  colors: { text: string; muted: string };
+  colors: { text: string; muted: string; background: string; border: string };
 }) {
   return (
-    <View style={styles.infoRow}>
-      <Text style={[styles.infoLabel, { color: colors.muted }]}>{label}</Text>
-      <Text style={[styles.infoValue, { color: colors.text }]}>{value}</Text>
+    <View style={[styles.statBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
+      <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
+      <Text style={[styles.statLabel, { color: colors.muted }]}>{label}</Text>
     </View>
   );
 }
@@ -267,21 +444,27 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    gap: 8,
   },
-  section: { fontSize: 16, fontWeight: "700", marginBottom: 4 },
-  value: { fontSize: 18, fontWeight: "600" },
-  email: { fontSize: 15 },
-  badges: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
-  badge: {
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "capitalize",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
+  sectionTitle: { fontSize: 16, fontWeight: "700", marginBottom: 12 },
+  hint: { fontSize: 13, lineHeight: 18 },
+  inputField: { marginBottom: 10 },
+  fieldLabel: { fontSize: 12, textTransform: "uppercase", marginBottom: 4, fontWeight: "600" },
+  textInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
   },
-  hint: { fontSize: 14 },
+  saveBtn: {
+    marginTop: 8,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   outlineBtn: {
     borderWidth: 1,
     borderRadius: 10,
@@ -291,48 +474,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   outlineBtnText: { fontWeight: "600", fontSize: 15 },
-  themeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  themeGrid: { gap: 8 },
   themeChip: {
     borderWidth: 1,
     borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: 40,
-    justifyContent: "center",
+    padding: 12,
   },
-  goalRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
-  goalChip: {
+  themeLabel: { fontSize: 14 },
+  themeDesc: { fontSize: 12, marginTop: 2 },
+  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  statBox: {
+    flex: 1,
+    minWidth: "45%",
     borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minWidth: 48,
+    borderRadius: 8,
+    padding: 10,
     alignItems: "center",
   },
-  switchRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4 },
-  switchLabel: { fontSize: 15, fontWeight: "600" },
-  saveBtn: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: "center",
-    minHeight: 44,
-    justifyContent: "center",
-  },
-  saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
-  infoRow: { gap: 2 },
-  infoLabel: { fontSize: 12, textTransform: "uppercase" },
-  infoValue: { fontSize: 15, fontWeight: "500" },
-  outline: {
-    marginHorizontal: 16,
-    marginTop: 4,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: "center",
-    minHeight: 44,
-    justifyContent: "center",
-  },
-  outlineText: { fontWeight: "600" },
+  statValue: { fontSize: 16, fontWeight: "700" },
+  statLabel: { fontSize: 12, marginTop: 2 },
 });
