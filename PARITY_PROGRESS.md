@@ -6,21 +6,21 @@
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
 - **Current parity phase:** Phase C — Account and engagement.
-- **Next recommended action:** Execute PAR-019 (Notification deletion and refresh behavior) and PAR-020 (Nudge dismissal and invalidation).
+- **Next recommended action:** Execute PAR-021 (Notification and nudge rollout flags).
 
-Status is evidence-based. PAR-001–PAR-015, PAR-017, PAR-018, PAR-057, and PAR-058 are `Merged`: PAR-017/PAR-018 code commit `c3e10f7` reached local `main` with 4 isolated files (`mobile/types/api.ts`, `mobile/lib/preferences.ts`, `mobile/app/settings.tsx`, `mobile/app/profile.tsx`); mobile typecheck, Android export, iOS export, 25 backend unit tests, and cached diff check passed. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-020, PAR-057, and PAR-058 are `Merged`: PAR-019/PAR-020 code commit `0d11ae8` reached local `main` with 2 isolated files (`mobile/types/api.ts`, `mobile/components/EngagementCenter.tsx`); mobile typecheck, Android export, iOS export, 26 backend unit tests, and cached diff check passed. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 19 |
+| Merged | 21 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
-| Not started | 28 |
+| Not started | 26 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -29,10 +29,10 @@ All status rows sum to 58. Decision records and technical-debt records are not t
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 44.7% (42 / 94 effort points) |
+| Executable roadmap progress | 47.9% (45 / 94 effort points) |
 | Critical-ticket executable progress | 47.4% (9 / 19 effort points) |
 | High-priority executable progress | 54.9% (28 / 51 effort points) |
-| Disposition progress | 43.1% (25 / 58 tickets) |
+| Disposition progress | 46.6% (27 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -92,8 +92,8 @@ Unsupported top-level book title/author editing is intentionally absent: `BookPa
 | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
 | PAR-017 | Settings and engagement preferences | High | L | Merged | Settings/types; typed GET/PATCH `/engagement/preferences`, coordinated partial failures and auth-store refresh | Commit `c3e10f7`. |
 | PAR-018 | Profile validation and study-theme parity | Medium | M | Merged | Profile/theme/types; shared constraints, native theme mapping, normalized store update | Commit `c3e10f7`. |
-| PAR-019 | Notification deletion and refresh behavior | Medium | M | Not started | Engagement center; individual delete, counts, refresh/invalidation and recovery | Recommended sequence: PAR-021 first; rollout config is not required for endpoint correctness. |
-| PAR-020 | Nudge dismissal and invalidation | Medium | S | Not started | Engagement center; dismiss tracking plus query invalidation/refetch | Recommended sequence: PAR-021 first; rollout config is not required for endpoint correctness. |
+| PAR-019 | Notification deletion and refresh behavior | Medium | M | Merged | Engagement center; individual delete (`DELETE /engagement/notifications/{id}` with 204 No Content), per-item ref locking, 404 safety, runtime schema validation, safe action URLs, strict unread count shapes, and authoritative cache invalidation. Commit `0d11ae8`. Mobile typecheck, Android export, iOS export, 26 backend unit tests passed. Direct HTTP/database integration tests missing. | None |
+| PAR-020 | Nudge dismissal and invalidation | Medium | S | Merged | Engagement center; dismiss tracking (`POST /engagement/nudges/{id}/dismissal`), per-attempt ref locking, user+nudge scoped idempotency keys, immediate cache clearing, safe action URLs, and impression/click deduplication. Commit `0d11ae8`. Mobile typecheck, Android export, iOS export, 26 backend unit tests passed. Direct HTTP/database integration tests missing. | None |
 | PAR-021 | Notification and nudge rollout flags | High | S | Not started | `mobile/.env.example`, central mobile feature config, navigation/render gates with web-equivalent defaults | None |
 | PAR-022 | Onboarding return-route preservation | High | M | Not started | Index/onboarding/navigation; validated return route through bootstrap and completion | Technical dependency: PAR-002 bootstrap states. |
 | PAR-023 | Global auth-endpoint 401 exclusion parity | High | M | Not started | API client/auth predicate; exclude every auth endpoint and prevent refresh loops | Technical dependency: PAR-001/PAR-002 terminal-auth integration. |
