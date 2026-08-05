@@ -284,6 +284,14 @@ export type FlashcardSetOut = {
   selected_chapters?: string[];
 };
 
+export type JobEnqueueResponse = {
+  job_id: string;
+  set_id?: string | null;
+  workbook_id?: string | null;
+  reused?: boolean;
+  message?: string | null;
+};
+
 export type JobStatusResponse = {
   status: "pending" | "started" | "complete" | "failed";
   phase?: string | null;
@@ -291,4 +299,5 @@ export type JobStatusResponse = {
   chapters_total?: number | null;
   chapters_done?: number | null;
   percent_complete?: number | null;
+  current_chapter?: string | null;
 };

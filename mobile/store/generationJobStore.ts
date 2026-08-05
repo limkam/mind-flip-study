@@ -4,18 +4,22 @@ export type GenerationJob = {
   jobId: string;
   bookId: string;
   bookTitle: string;
+  userId: string;
   phase: string | null;
   chaptersTotal: number | null;
   chaptersDone: number | null;
   percentComplete: number | null;
+  claimed?: boolean;
 };
 
 type GenerationJobState = {
   jobs: GenerationJob[];
-  startJob: (job: Pick<GenerationJob, "jobId" | "bookId" | "bookTitle">) => void;
+  startJob: (job: Pick<GenerationJob, "jobId" | "bookId" | "bookTitle" | "userId">) => void;
   updateJob: (jobId: string, patch: Partial<GenerationJob>) => void;
   removeJob: (jobId: string) => void;
-  getBookJob: (bookId: string) => GenerationJob | undefined;
+  claimCompletedJob: (jobId: string, userId: string) => GenerationJob | null;
+  clearJobsForUser: (userId: string) => void;
+  getBookJob: (bookId: string, userId?: string) => GenerationJob | undefined;
 };
 
 export const useGenerationJobStore = create<GenerationJobState>((set, get) => ({
@@ -23,13 +27,14 @@ export const useGenerationJobStore = create<GenerationJobState>((set, get) => ({
   startJob: (job) =>
     set((state) => ({
       jobs: [
-        ...state.jobs.filter((j) => j.jobId !== job.jobId),
+        ...state.jobs.filter((j) => j.jobId !== job.jobId && j.bookId !== job.bookId),
         {
           ...job,
           phase: "starting",
           chaptersTotal: null,
           chaptersDone: null,
           percentComplete: null,
+          claimed: false,
         },
       ],
     })),
@@ -41,5 +46,18 @@ export const useGenerationJobStore = create<GenerationJobState>((set, get) => ({
     set((state) => ({
       jobs: state.jobs.filter((j) => j.jobId !== jobId),
     })),
-  getBookJob: (bookId) => get().jobs.find((j) => j.bookId === bookId),
+  claimCompletedJob: (jobId, userId) => {
+    const job = get().jobs.find((j) => j.jobId === jobId && j.userId === userId && !j.claimed);
+    if (!job) return null;
+    set((state) => ({
+      jobs: state.jobs.filter((j) => j.jobId !== jobId),
+    }));
+    return job;
+  },
+  clearJobsForUser: (userId) =>
+    set((state) => ({
+      jobs: state.jobs.filter((j) => j.userId !== userId),
+    })),
+  getBookJob: (bookId, userId) =>
+    get().jobs.find((j) => j.bookId === bookId && (!userId || j.userId === userId)),
 }));

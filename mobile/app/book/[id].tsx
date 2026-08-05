@@ -26,7 +26,7 @@ import { useAuthStore } from "../../store/authStore";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
 import { SUMMARY_DETAIL_OPTIONS, type SummaryDetailLevel } from "../../lib/summaryScope";
-import type { BookOut, JobStatusResponse } from "../../types/api";
+import type { BookOut, JobEnqueueResponse, JobStatusResponse } from "../../types/api";
 
 const TOC_PHASE_LABELS: Record<string, string> = {
   extracting_contents: "Extracting contents…",
@@ -177,32 +177,86 @@ export default function BookByIdScreen() {
     setExpandedChapters((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
 
+  const generateInFlightRef = useRef(false);
+  const currentAttemptIdRef = useRef(0);
+
   const startGenerate = async () => {
-    if (!book || !id) return;
+    if (generateInFlightRef.current || !book || !id || !userId || !validBookId) return;
     if (chapters.length > 0 && !selectedChapter) {
       setGenError("Select one chapter.");
       return;
     }
+
+    generateInFlightRef.current = true;
+    currentAttemptIdRef.current += 1;
+    const attemptId = currentAttemptIdRef.current;
+
     setGenError(null);
     setStarting(true);
     try {
-      const { data: job } = await api.post<{ job_id: string }>("/flashcard-sets/generate", {
+      const selectedChapters = selectedChapter ? [selectedChapter] : [];
+      const { data: job } = await api.post<JobEnqueueResponse>("/flashcard-sets/generate", {
         book_id: book.id,
         title: book.title,
         num_cards: cardCount,
-        selected_chapters: selectedChapter ? [selectedChapter] : [],
+        selected_chapters: selectedChapters,
         summary_detail_level: summaryDetailLevel,
       });
-      startJob({ jobId: job.job_id, bookId: id, bookTitle: book.title });
+
+      if (
+        !mountedRef.current ||
+        currentAttemptIdRef.current !== attemptId ||
+        currentBookIdRef.current !== id ||
+        currentUserIdRef.current !== userId ||
+        useAuthStore.getState().bootstrapStatus !== "authenticated" ||
+        useAuthStore.getState().user?.id !== userId
+      ) {
+        return;
+      }
+
+      if (job.reused) {
+        if (!job.set_id || !UUID_PATTERN.test(job.set_id)) {
+          throw new Error("Server returned a reused set response without a valid set identifier.");
+        }
+        setStarting(false);
+        const existingBookJob = useGenerationJobStore.getState().getBookJob(id, userId);
+        if (existingBookJob) {
+          useGenerationJobStore.getState().removeJob(existingBookJob.jobId);
+        }
+        void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
+        void queryClient.invalidateQueries({ queryKey: ["book", id] });
+        router.push(`/study/${job.set_id}`);
+        return;
+      }
+
+      if (!job.job_id) {
+        throw new Error("Server did not return a valid job identifier.");
+      }
+
+      startJob({ jobId: job.job_id, bookId: id, bookTitle: book.title, userId });
       void queryClient.invalidateQueries({ queryKey: ["flashcard-sets"] });
     } catch (e: unknown) {
+      if (
+        !mountedRef.current ||
+        currentAttemptIdRef.current !== attemptId ||
+        currentBookIdRef.current !== id ||
+        currentUserIdRef.current !== userId
+      ) {
+        return;
+      }
+
+      if ((e as { response?: { status?: number } })?.response?.status === 402) return;
       const msg =
         e && typeof e === "object" && "response" in e
-          ? String((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Request failed")
-          : "Request failed";
-      setGenError(msg);
+          ? String((e as { response?: { data?: { detail?: string | { message?: string } } } }).response?.data?.detail ?? "Request failed")
+          : (e instanceof Error ? e.message : "Request failed");
+      const detailStr = typeof msg === "object" && msg !== null && "message" in msg ? String((msg as { message: string }).message) : String(msg);
+      setGenError(detailStr);
     } finally {
-      setStarting(false);
+      generateInFlightRef.current = false;
+      if (mountedRef.current && currentAttemptIdRef.current === attemptId) {
+        setStarting(false);
+      }
     }
   };
 

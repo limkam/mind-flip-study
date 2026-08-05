@@ -4,14 +4,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GenerateProgressBar } from "./GenerateProgressBar";
 import { generationPhaseLabel } from "../lib/generationPhases";
 import { useGenerationJobStore } from "../store/generationJobStore";
+import { useAuthStore } from "../store/authStore";
 import { useTheme } from "../hooks/useTheme";
 
 export function GenerationStatusBanner() {
   const jobs = useGenerationJobStore((s) => s.jobs);
   const removeJob = useGenerationJobStore((s) => s.removeJob);
+  const userId = useAuthStore((s) => s.user?.id);
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const active = jobs[0];
+  const active = jobs.find((j) => j.userId === userId);
 
   if (!active) return null;
 
