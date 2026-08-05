@@ -12,3 +12,11 @@ export async function fetchFlashcardSetsList(): Promise<FlashcardSetOut[]> {
 export async function deleteFlashcardSet(setId: string): Promise<void> {
   await api.delete(`/flashcard-sets/${setId}`);
 }
+
+export async function updateFlashcardSetTags(
+  setId: string,
+  tags: string[],
+): Promise<FlashcardSetOut> {
+  const { data } = await api.put<FlashcardSetOut>(`/flashcard-sets/${setId}`, { tags });
+  return data;
+}

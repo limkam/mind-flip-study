@@ -70,6 +70,8 @@ export default function GamePlayScreen() {
         if (!cached) throw new Error("offline");
         return {
           id: cached.id,
+          user_id: "",
+          tags: [],
           title: cached.title,
           book_title: cached.book_title,
           card_count: cached.cards.length,

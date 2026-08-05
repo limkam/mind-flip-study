@@ -12,10 +12,17 @@ import { cacheStudySet, getCachedStudySet } from "../../../lib/offlineStudy";
 import { MIN_GAME_CARDS } from "../../../lib/gameUtils";
 import type { FlashcardSetOut } from "../../../types/api";
 import type { GameSlug } from "../../../components/games/types";
+import { fetchEntitlementsSnapshot } from "../../../lib/billing";
 
 export default function GameHubScreen() {
   const { setId } = useLocalSearchParams<{ setId: string }>();
   const router = useRouter();
+
+  const { data: entitlements } = useQuery({
+    queryKey: ["billing-entitlements"],
+    queryFn: fetchEntitlementsSnapshot,
+  });
+  const gameLimit = entitlements?.features?.games_limit ?? 2;
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["game-set", setId],
@@ -30,6 +37,8 @@ export default function GameHubScreen() {
         if (!cached) throw new Error("offline");
         return {
           id: cached.id,
+          user_id: "",
+          tags: [],
           title: cached.title,
           book_title: cached.book_title,
           card_count: cached.cards.length,
@@ -70,7 +79,7 @@ export default function GameHubScreen() {
         />
       ) : (
         <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }} showsVerticalScrollIndicator>
-          <GameSelector onSelect={openGame} />
+          <GameSelector onSelect={openGame} maxGames={gameLimit} />
         </ScrollView>
       )}
     </Screen>

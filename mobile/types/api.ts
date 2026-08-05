@@ -276,12 +276,20 @@ export type FlashcardSetOut = {
   card_count: number;
   book_title: string | null;
   book_id: string | null;
-  cards: FlashcardOut[];
+  user_id: string;
+  tags: string[];
+  cards?: FlashcardOut[];
   summary?: string | null;
   scenarios?: ScenarioOut[];
   chapter_summaries?: ChapterSummaryOut[];
   generation_seed?: number | null;
   selected_chapters?: string[];
+};
+
+export type FlashcardSetUpdateInput = {
+  title?: string;
+  description?: string;
+  tags?: string[];
 };
 
 export type JobEnqueueResponse = {

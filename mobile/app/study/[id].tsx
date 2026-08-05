@@ -109,11 +109,13 @@ export default function StudyByIdScreen() {
         fromCache = true;
         setMeta = {
           id: cached.id,
+          user_id: user?.id ?? "",
           title: cached.title,
           book_title: cached.book_title,
           card_count: cached.cards.length,
           book_id: null,
           cards: cached.cards,
+          tags: [],
         };
         due = cached.cards.map((c) => ({
           ...c,
