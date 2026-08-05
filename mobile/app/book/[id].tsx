@@ -1,8 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Stack, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import axios from "axios";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,6 +22,7 @@ import { generationPhaseLabel } from "../../lib/generationPhases";
 import { getTocErrorFromBook, getTocJobIdFromBook, isTocExtractionInProgress } from "../../lib/bookToc";
 import { chapterSelectionSubtitle, cardsGeneratedLabel } from "../../lib/studySetDisplay";
 import { useGenerationJobStore } from "../../store/generationJobStore";
+import { useAuthStore } from "../../store/authStore";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
 import { SUMMARY_DETAIL_OPTIONS, type SummaryDetailLevel } from "../../lib/summaryScope";
@@ -36,11 +39,16 @@ function tocPhaseLabel(phase?: string | null) {
 }
 
 const COUNTS = [5, 10, 20, 30, 40, 50] as const;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function BookByIdScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: routeId } = useLocalSearchParams<{ id: string | string[] }>();
+  const id = Array.isArray(routeId) ? routeId[0] : routeId;
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { colors, isDark } = useTheme();
+  const userId = useAuthStore((s) => s.user?.id);
+  const bootstrapStatus = useAuthStore((s) => s.bootstrapStatus);
   const startJob = useGenerationJobStore((s) => s.startJob);
   const activeBookJob = useGenerationJobStore((s) => (id ? s.getBookJob(id) : undefined));
 
@@ -54,10 +62,27 @@ export default function BookByIdScreen() {
   const [tocError, setTocError] = useState<string | null>(null);
   const [editingToc, setEditingToc] = useState(false);
   const [summaryDetailLevel, setSummaryDetailLevel] = useState<SummaryDetailLevel>("standard");
+  const [deleting, setDeleting] = useState(false);
+  const [deletionSucceeded, setDeletionSucceeded] = useState(false);
+  const confirmationOpenRef = useRef(false);
+  const deletionInFlightRef = useRef(false);
+  const deletionNavigatedRef = useRef(false);
+  const mountedRef = useRef(true);
+  const currentBookIdRef = useRef(id);
+  const currentUserIdRef = useRef(userId);
+
+  currentBookIdRef.current = id;
+  currentUserIdRef.current = userId;
+
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
+
+  const validBookId = typeof id === "string" && UUID_PATTERN.test(id);
 
   const { data: book, isLoading, isError, refetch } = useQuery({
     queryKey: ["book", id],
-    enabled: !!id,
+    enabled: validBookId && !deletionSucceeded,
     queryFn: async () => {
       const { data } = await api.get<BookOut>(`/books/${id}`);
       return data;
@@ -184,10 +209,128 @@ export default function BookByIdScreen() {
   const isGenerating = !!activeBookJob || starting;
   const canGenerate = !isGenerating && !(chapters.length > 0 && !selectedChapter);
 
+  const deleteBook = async (expectedBookId: string, expectedUserId: string) => {
+    if (deletionInFlightRef.current || deletionNavigatedRef.current) return;
+    deletionInFlightRef.current = true;
+    setDeleting(true);
+    try {
+      const currentRouteId = Array.isArray(routeId) ? routeId[0] : routeId;
+      const auth = useAuthStore.getState();
+      if (
+        currentRouteId !== expectedBookId
+        || book?.id !== expectedBookId
+        || !UUID_PATTERN.test(expectedBookId)
+        || auth.bootstrapStatus !== "authenticated"
+        || !auth.user?.id
+        || auth.user.id !== expectedUserId
+      ) {
+        throw new Error("The book or signed-in account changed. Please try again.");
+      }
+
+      const response = await api.delete(`/books/${expectedBookId}`);
+      if (response.status !== 204) {
+        throw new Error("The server returned an unexpected deletion response.");
+      }
+      const completedBookJob = useGenerationJobStore.getState().getBookJob(expectedBookId);
+      if (completedBookJob) useGenerationJobStore.getState().removeJob(completedBookJob.jobId);
+      await queryClient.cancelQueries({ queryKey: ["book", expectedBookId], exact: true });
+      queryClient.removeQueries({ queryKey: ["book", expectedBookId], exact: true });
+
+      if (
+        !mountedRef.current
+        || currentBookIdRef.current !== expectedBookId
+        || currentUserIdRef.current !== expectedUserId
+        || useAuthStore.getState().bootstrapStatus !== "authenticated"
+        || useAuthStore.getState().user?.id !== expectedUserId
+      ) return;
+
+      deletionNavigatedRef.current = true;
+      setDeletionSucceeded(true);
+
+      queryClient.removeQueries({ queryKey: ["study-session"] });
+      queryClient.removeQueries({ queryKey: ["game-set"] });
+      queryClient.removeQueries({ queryKey: ["quiz-result"] });
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ["books"], refetchType: "none" }),
+        queryClient.invalidateQueries({ queryKey: ["books-daily-review"], refetchType: "none" }),
+        queryClient.invalidateQueries({ queryKey: ["flashcard-sets"], refetchType: "none" }),
+        queryClient.invalidateQueries({ queryKey: ["daily-review-queue"], refetchType: "none" }),
+        queryClient.invalidateQueries({ queryKey: ["quiz-results"], refetchType: "none" }),
+        queryClient.invalidateQueries({ queryKey: ["quiz-challenges"], refetchType: "none" }),
+        queryClient.invalidateQueries({ queryKey: ["analytics-summary"], refetchType: "none" }),
+        queryClient.invalidateQueries({ queryKey: ["analytics-me"], refetchType: "none" }),
+        queryClient.invalidateQueries({ queryKey: ["scorecards"], refetchType: "none" }),
+        queryClient.invalidateQueries({ queryKey: ["achievements"], refetchType: "none" }),
+        queryClient.invalidateQueries({ queryKey: ["folders"], refetchType: "none" }),
+        queryClient.invalidateQueries({ queryKey: ["study-group"], refetchType: "none" }),
+      ]);
+      if (!mountedRef.current) return;
+      router.replace("/(tabs)/library");
+    } catch (error: unknown) {
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      if (status === 401) return;
+      if (
+        !mountedRef.current
+        || currentBookIdRef.current !== expectedBookId
+        || currentUserIdRef.current !== expectedUserId
+      ) return;
+      const detail = axios.isAxiosError(error) ? error.response?.data as { detail?: unknown } | undefined : undefined;
+      const backendMessage = typeof detail?.detail === "string" ? detail.detail : null;
+      const message = status === 403
+        ? "You do not have permission to delete this book."
+        : status === 404
+          ? "This book is already unavailable or you no longer have access to it."
+          : status === 409
+            ? backendMessage || "The book could not be deleted because of a conflict. Try again."
+            : status === 422
+              ? "The book link is invalid. Return to your library and try again."
+              : backendMessage || (error instanceof Error ? error.message : "Check your connection and try again.");
+      Alert.alert("Could not delete book", message);
+    } finally {
+      if (mountedRef.current && !deletionNavigatedRef.current) {
+        deletionInFlightRef.current = false;
+        setDeleting(false);
+      }
+    }
+  };
+
+  const confirmDelete = () => {
+    if (
+      confirmationOpenRef.current
+      || deletionInFlightRef.current
+      || !validBookId
+      || !book
+      || bootstrapStatus !== "authenticated"
+      || !userId
+      || book.id !== id
+    ) return;
+    confirmationOpenRef.current = true;
+    const expectedBookId = id;
+    const expectedUserId = userId;
+    Alert.alert(
+      "Delete this book?",
+      `This permanently deletes “${book.title}”, its generated flashcards, study progress, and quiz history. It also removes related references from collections and study-group materials. This cannot be undone. Running generation jobs may not be canceled.`,
+      [
+        { text: "Cancel", style: "cancel", onPress: () => { confirmationOpenRef.current = false; } },
+        {
+          text: "Delete Book",
+          style: "destructive",
+          onPress: () => {
+            confirmationOpenRef.current = false;
+            void deleteBook(expectedBookId, expectedUserId);
+          },
+        },
+      ],
+      { cancelable: true, onDismiss: () => { confirmationOpenRef.current = false; } },
+    );
+  };
+
   return (
     <Screen edges={["bottom"]}>
       <Stack.Screen options={{ title: book?.title ?? "Book" }} />
-      {isLoading ? (
+      {deletionSucceeded ? (
+        <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} />
+      ) : isLoading ? (
         <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} />
       ) : isError ? (
         <View style={styles.center}>
@@ -484,6 +627,21 @@ export default function BookByIdScreen() {
               )}
             </Pressable>
           </View>
+
+          <View style={[styles.dangerSection, { borderColor: colors.danger }]}>
+            <Text style={[styles.sectionTitle, { color: colors.danger }]}>Delete book</Text>
+            <Text style={[styles.sectionSub, { color: colors.muted }]}>Permanently remove this book and its generated study content.</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Delete ${book.title}`}
+              accessibilityHint="Opens a confirmation before permanently deleting this book"
+              disabled={deleting}
+              onPress={confirmDelete}
+              style={[styles.deleteBtn, { backgroundColor: colors.danger }, deleting && styles.disabledBtn]}
+            >
+              {deleting ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Delete Book</Text>}
+            </Pressable>
+          </View>
         </ScrollView>
       ) : null}
     </Screen>
@@ -598,4 +756,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
   },
+  dangerSection: { borderWidth: 1, borderRadius: 16, padding: 16, marginTop: 24 },
+  deleteBtn: { borderRadius: 12, paddingVertical: 14, alignItems: "center", minHeight: 48, justifyContent: "center", marginTop: 12 },
+  disabledBtn: { opacity: 0.6 },
 });
