@@ -15,6 +15,7 @@ import {
 
 import { api } from "../api/client";
 import { useTheme } from "../hooks/useTheme";
+import { mobileFeatures } from "../lib/featureFlags";
 import { hapticImpact } from "../lib/haptics";
 import { useAuthStore } from "../store/authStore";
 import type {
@@ -164,7 +165,7 @@ export function EngagementCenter() {
       const res = await api.get("/engagement/notifications/unread-count");
       return parseUnreadCount(res.data) ?? { count: 0 };
     },
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && mobileFeatures.notifications,
     refetchInterval: 60_000,
   });
 
@@ -176,7 +177,7 @@ export function EngagementCenter() {
       });
       return parseNotificationPage(res.data);
     },
-    enabled: open && isAuthenticated,
+    enabled: open && isAuthenticated && mobileFeatures.notifications,
   });
 
   useEffect(() => {
@@ -314,6 +315,10 @@ export function EngagementCenter() {
         });
       }
     }
+  }
+
+  if (!mobileFeatures.notifications) {
+    return null;
   }
 
   const unreadCountVal = Math.min(unreadData?.count ?? 0, 99);
@@ -545,7 +550,7 @@ export function ContextualNudge() {
       });
       return parseNudgeOut(res.data);
     },
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && mobileFeatures.nudges,
     retry: 1,
   });
 
@@ -554,7 +559,8 @@ export function ContextualNudge() {
     activeUserId && nudge?.id ? `${activeUserId}:${nudge.id}` : null;
 
   const isHidden = Boolean(userNudgeKey && hiddenKey === userNudgeKey);
-  const activeNudge = nudge && userNudgeKey && !isHidden ? nudge : null;
+  const activeNudge =
+    mobileFeatures.nudges && nudge && userNudgeKey && !isHidden ? nudge : null;
 
   useEffect(() => {
     if (!activeNudge?.id || !userNudgeKey) return;
@@ -689,6 +695,10 @@ export function ContextualNudge() {
         dismissLockRef.current = null;
       }
     }
+  }
+
+  if (!activeNudge) {
+    return null;
   }
 
   return (

@@ -4,12 +4,66 @@ import { router } from "expo-router";
 import { useAuthStore } from "../store/authStore";
 import { emitUpgradeLimit } from "../lib/upgradeLimitEvents";
 import { clearMobileQueryCache } from "../lib/queryClient";
+import { safeReturnRoute } from "../lib/returnRoute";
 
 const baseURL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000";
 
+let currentRoutePath: string | null = null;
+
+/**
+ * Route listener bridge to record the active route pathname for non-React modules.
+ */
+export function setNavigationRouteBridge(pathname: string | null | undefined) {
+  const safe = safeReturnRoute(pathname);
+  currentRoutePath = safe;
+}
+
+/**
+ * Pure predicate for authenticating endpoints that legitimately return 401
+ * and should NOT trigger token refresh or refresh-queueing.
+ *
+ * Handles relative and absolute URLs, strips protocol/origin/API prefix,
+ * query strings, hashes, and normalizes trailing slashes.
+ */
+export function isAuthEndpoint(url: string | undefined): boolean {
+  if (!url || typeof url !== "string") return false;
+
+  // Extract path from absolute or relative URL
+  let path = url;
+  if (path.includes("://")) {
+    try {
+      path = new URL(path).pathname;
+    } catch {
+      path = path.split("://")[1] || path;
+      const firstSlash = path.indexOf("/");
+      path = firstSlash !== -1 ? path.slice(firstSlash) : path;
+    }
+  }
+
+  // Strip query strings and hash
+  path = path.split("?")[0].split("#")[0];
+
+  // Strip trailing slashes
+  path = path.replace(/\/+$/, "");
+
+  // Match exact backend auth endpoints
+  const AUTH_PATHS = new Set([
+    "/auth/refresh",
+    "/auth/email/start",
+    "/auth/email/verify",
+    "/auth/google",
+    "/auth/apple",
+    "/auth/login",
+    "/auth/register",
+    "/auth/logout",
+    "/auth/onboarding",
+  ]);
+
+  return AUTH_PATHS.has(path);
+}
+
 /**
  * Mirrors the web SPA client: Bearer access token + refresh on 401.
- * Note: refresh uses an httpOnly cookie on web; on native, cookie handling depends on the stack.
  */
 export const api = axios.create({
   baseURL,
@@ -52,7 +106,15 @@ api.interceptors.response.use(
       && !original.url?.includes("/auth/onboarding")
       && !original.url?.includes("/users/me")
     ) {
-      router.replace("/onboarding");
+      const validReturn = safeReturnRoute(currentRoutePath);
+      if (validReturn) {
+        router.replace({
+          pathname: "/onboarding",
+          params: { returnTo: validReturn },
+        });
+      } else {
+        router.replace("/onboarding");
+      }
       return Promise.reject(error);
     }
 
@@ -69,13 +131,22 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    if (error.response?.status !== 401 || original._retry) {
+    if (error.response?.status !== 401) {
       return Promise.reject(error);
     }
-    if (original.url?.includes("/auth/refresh")) {
-      terminateSession(useAuthStore.getState().accessToken);
+
+    // Excluded authentication endpoints: reject immediately without calling refresh
+    if (isAuthEndpoint(original.url)) {
+      if (original.url?.includes("/auth/refresh")) {
+        terminateSession(useAuthStore.getState().accessToken);
+      }
       return Promise.reject(error);
     }
+
+    if (original._retry) {
+      return Promise.reject(error);
+    }
+
     original._retry = true;
     if (isRefreshing) {
       return new Promise((resolve, reject) => {

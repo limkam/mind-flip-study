@@ -3,12 +3,14 @@ import "react-native-reanimated";
 
 import * as Sentry from "@sentry/react-native";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Stack, useRouter } from "expo-router";
+import { Stack, usePathname, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
+
+import { setNavigationRouteBridge } from "../api/client";
 
 import { GenerationJobPoller } from "../components/GenerationJobPoller";
 import { UpgradeLimitModal } from "../components/UpgradeLimitModal";
@@ -36,9 +38,14 @@ if (typeof sentryDsn === "string" && sentryDsn.length > 0) {
 function RootNavigator() {
   const { isDark, colors } = useTheme();
   const router = useRouter();
+  const pathname = usePathname();
   const userId = useAuthStore((state) => state.user?.id);
   const accessToken = useAuthStore((state) => state.accessToken);
   const bootstrapStatus = useAuthStore((state) => state.bootstrapStatus);
+
+  useEffect(() => {
+    setNavigationRouteBridge(pathname);
+  }, [pathname]);
 
   useEffect(() => {
     if (bootstrapStatus === "authenticated" && userId && accessToken) {
@@ -72,6 +79,9 @@ function RootNavigator() {
         <Stack.Screen name="quiz-results/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="daily-review" options={{ headerShown: true, title: "Daily Review" }} />
         <Stack.Screen name="analytics" options={{ headerShown: true, title: "Analytics" }} />
+        <Stack.Screen name="scorecards" options={{ headerShown: true, title: "Scorecards" }} />
+        <Stack.Screen name="pricing" options={{ headerShown: true, title: "Plans & Pricing" }} />
+        <Stack.Screen name="billing" options={{ headerShown: true, title: "Billing & Credits" }} />
         <Stack.Screen name="leaderboard" options={{ headerShown: true, title: "Leaderboard" }} />
         <Stack.Screen name="study-groups" options={{ headerShown: true, title: "Study Groups" }} />
         <Stack.Screen name="study-groups/[id]" options={{ headerShown: true, title: "Group" }} />
