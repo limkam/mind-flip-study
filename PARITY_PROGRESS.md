@@ -6,21 +6,21 @@
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
 - **Current parity phase:** Phase B — Book and content lifecycle.
-- **Next recommended action:** Execute PAR-015 (Flashcard tag editing).
+- **Next recommended action:** Execute PAR-017 (Settings and engagement preferences).
 
-Status is evidence-based. PAR-001–PAR-014, PAR-057, and PAR-058 are `Merged`: PAR-013 & PAR-014 code commit `320b6de` reached local `main` via hunk isolation while preserving unrelated dirty edits as unstaged changes; mobile typecheck, Android export, iOS export, 7 unit backend tests, and scoped diff check passed. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-015, PAR-057, and PAR-058 are `Merged`: PAR-015 code commit `e312476` reached local `main` with 9 isolated files; mobile typecheck, Android export, iOS export, 6 backend unit tests, and scoped diff check passed. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 16 |
+| Merged | 17 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
-| Not started | 31 |
+| Not started | 30 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -29,10 +29,10 @@ All status rows sum to 58. Decision records and technical-debt records are not t
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 37.2% (35 / 94 effort points) |
+| Executable roadmap progress | 39.4% (37 / 94 effort points) |
 | Critical-ticket executable progress | 47.4% (9 / 19 effort points) |
 | High-priority executable progress | 49.0% (25 / 51 effort points) |
-| Disposition progress | 37.9% (22 / 58 tickets) |
+| Disposition progress | 39.7% (23 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -81,7 +81,7 @@ Integration evidence: `93954a0` contains the coherent 30-file PAR-001–PAR-008 
 | PAR-012 | Book deletion and cache invalidation | High | M | Merged | `mobile/app/book/[id].tsx`; native confirmation, guarded 204 handling, exact detail/job cleanup, proven dependent invalidation and replacement navigation | Commit `336a035` on local `main` via cherry-pick `0f20e17`; overlapping uncommitted edits preserved as unstaged patch. Mobile typecheck, Android export, iOS export, scoped diff check, and targeted deletion test passed. |
 | PAR-013 | Reused flashcard-generation response handling | High | S | Merged | Book generation DTO/route; honor `reused` and `set_id`, navigate directly without starting background poller | Commit `320b6de`; runtime response validation of reused set_id, user/book scoping, query invalidation, and direct navigation without poller mount. Typecheck, Android export, iOS export, 7 backend unit tests, and diff check passed. |
 | PAR-014 | Book processing and generation completion behavior | High | M | Merged | Book detail/generation phases; polling, recovery, defensive observation bound, atomic completion claim, and invalidation | Commit `320b6de`; 10-min defensive observation window (unsupported process/restart recovery documented gap), 15-error threshold, 401/403/404 handling, atomic claimCompletedJob, invalidates flashcard-sets/book/billing-entitlements/credit-usage. Typecheck, Android export, iOS export, 7 backend unit tests, and diff check passed. |
-| PAR-015 | Flashcard tag editing | Medium | M | Not started | Flashcard list/editor/types; normalized `PUT /flashcard-sets/{id}`, validation and invalidation | None |
+| PAR-015 | Flashcard tag editing | High | M | Merged | Native tag editing modal (`TagEditModal.tsx`), tag normalization (`tagUtils.ts`), `PUT /flashcard-sets/{id}` helper (`flashcardSets.ts`), list UI (`flashcards.tsx`); runtime response validation, identity/attempt locks, exact cache updates, and zero hard count/length limits to match web/backend. | Commit `e312476`; mobile typecheck, Android export, iOS export, 6 backend unit tests, and scoped diff check passed. Route/DB integration tests are environment-blocked. | None |
 | PAR-016 | Folder metadata clarification and conditional implementation | Low | S/M | Blocked | Folder form/types only if DEC-005 requires description/color/icon/parent parity | Blocked by decision: DEC-005. |
 
 Unsupported top-level book title/author editing is intentionally absent: `BookPatch` supports only `extras`, so the audit's earlier claim was withdrawn. Subject/tag behavior must follow supported `extras` contracts, not invent top-level fields.
