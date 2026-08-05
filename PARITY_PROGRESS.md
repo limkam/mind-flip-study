@@ -5,22 +5,22 @@
 - **Mobile application:** `mobile/`
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
-- **Current parity phase:** Phase C — Account and engagement.
-- **Next recommended action:** Execute PAR-021 (Notification and nudge rollout flags).
+- **Current parity phase:** Phase D — Dashboard and learning UX.
+- **Next recommended action:** Execute PAR-024 (Dashboard data composition).
 
-Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-020, PAR-057, and PAR-058 are `Merged`: PAR-019/PAR-020 code commit `0d11ae8` reached local `main` with 2 isolated files (`mobile/types/api.ts`, `mobile/components/EngagementCenter.tsx`); mobile typecheck, Android export, iOS export, 26 backend unit tests, and cached diff check passed. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-023, PAR-057, and PAR-058 are `Merged`: PAR-021–PAR-023 code commit `aad09f2` reached local `main` with 7 isolated files (`mobile/.env.example`, `mobile/api/client.ts`, `mobile/app/_layout.tsx`, `mobile/app/onboarding.tsx`, `mobile/components/EngagementCenter.tsx`, `mobile/lib/featureFlags.ts`, `mobile/lib/returnRoute.ts`); mobile typecheck, Android export, iOS export, 19 backend unit tests, and cached diff check passed. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 21 |
+| Merged | 24 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
-| Not started | 26 |
+| Not started | 23 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -94,9 +94,9 @@ Unsupported top-level book title/author editing is intentionally absent: `BookPa
 | PAR-018 | Profile validation and study-theme parity | Medium | M | Merged | Profile/theme/types; shared constraints, native theme mapping, normalized store update | Commit `c3e10f7`. |
 | PAR-019 | Notification deletion and refresh behavior | Medium | M | Merged | Engagement center; individual delete (`DELETE /engagement/notifications/{id}` with 204 No Content), per-item ref locking, 404 safety, runtime schema validation, safe action URLs, strict unread count shapes, and authoritative cache invalidation. Commit `0d11ae8`. Mobile typecheck, Android export, iOS export, 26 backend unit tests passed. Direct HTTP/database integration tests missing. | None |
 | PAR-020 | Nudge dismissal and invalidation | Medium | S | Merged | Engagement center; dismiss tracking (`POST /engagement/nudges/{id}/dismissal`), per-attempt ref locking, user+nudge scoped idempotency keys, immediate cache clearing, safe action URLs, and impression/click deduplication. Commit `0d11ae8`. Mobile typecheck, Android export, iOS export, 26 backend unit tests passed. Direct HTTP/database integration tests missing. | None |
-| PAR-021 | Notification and nudge rollout flags | High | S | Not started | `mobile/.env.example`, central mobile feature config, navigation/render gates with web-equivalent defaults | None |
-| PAR-022 | Onboarding return-route preservation | High | M | Not started | Index/onboarding/navigation; validated return route through bootstrap and completion | Technical dependency: PAR-002 bootstrap states. |
-| PAR-023 | Global auth-endpoint 401 exclusion parity | High | M | Not started | API client/auth predicate; exclude every auth endpoint and prevent refresh loops | Technical dependency: PAR-001/PAR-002 terminal-auth integration. |
+| PAR-021 | Notification and nudge rollout flags | High | S | Merged | Central `mobileFeatures` parser (`lib/featureFlags.ts`) reading `EXPO_PUBLIC_ENGAGEMENT_NOTIFICATIONS_ENABLED` and `EXPO_PUBLIC_ENGAGEMENT_NUDGES_ENABLED` with explicit string normalization (`true`/`1` vs `false`/`0`), defaulting to `true` to match web. Gated queries and UI in `EngagementCenter.tsx`. Commit `aad09f2`. | None |
+| PAR-022 | Onboarding return-route preservation | High | M | Merged | Safe return route validator (`lib/returnRoute.ts`), dynamic route bridge (`_layout.tsx`), interceptor 403 `returnTo` preservation (`client.ts`), and identity-guarded onboarding completion navigation (`onboarding.tsx`). Commit `aad09f2`. | Technical dependency: PAR-002 bootstrap states. |
+| PAR-023 | Global auth-endpoint 401 exclusion parity | High | M | Merged | Pure auth endpoint predicate (`isAuthEndpoint` in `client.ts`) with domain, path, hash, and query stripping. Excludes all auth endpoints from refresh/queueing while preserving 401 refresh for `/users/me` and protected resources. Commit `aad09f2`. | Technical dependency: PAR-001/PAR-002 terminal-auth integration. |
 
 ### Phase D — Dashboard and learning UX
 
@@ -230,9 +230,9 @@ A parity ticket is complete only when:
 
 ## 8. Next Ticket
 
-PAR-012 is **Merged** as commit `336a035` on local `main`.
+PAR-021, PAR-022, and PAR-023 are **Merged** as commit `aad09f2` on local `main`.
 
-The next work batch is PAR-013 and PAR-014 together.
+The next work batch is PAR-024 (Dashboard data composition).
 
 ## Audit Reconciliation
 
