@@ -25,6 +25,51 @@ export type EngagementPreferencesOut = {
 
 export type EngagementPreferencesPatch = Partial<EngagementPreferencesOut>;
 
+export type NotificationOut = {
+  id: string;
+  user_id: string;
+  category: string;
+  type: string;
+  title: string;
+  body: string;
+  action_url: string | null;
+  created_at: string;
+  read_at: string | null;
+  seen_at: string | null;
+  expires_at: string | null;
+};
+
+export type NotificationPage = {
+  items: NotificationOut[];
+  page: number;
+  size: number;
+  total: number;
+  has_more: boolean;
+  next_before_created_at: string | null;
+  next_before_id: string | null;
+};
+
+export type UnreadCount = {
+  count: number;
+};
+
+export type NudgeOut = {
+  id: string;
+  nudge_key: string;
+  placement: string;
+  category: string;
+  priority: number;
+  title: string;
+  body: string;
+  action_label: string;
+  action_url: string;
+  expires_at: string | null;
+};
+
+export type NudgeActionRequest = {
+  idempotency_key: string;
+};
+
 export type WeakTopicOut = {
   set_id: string;
   title: string;
