@@ -68,7 +68,7 @@ export function AttachStudyGroupBookModal({
     setSelectedBookId(null);
     setAttachmentError(null);
     submittingRef.current = null;
-  }, [groupId, userId]);
+  }, [authorized, groupId, userId]);
 
   const booksQuery = useInfiniteQuery({
     queryKey: ["books", "study-group-material-picker", userId],

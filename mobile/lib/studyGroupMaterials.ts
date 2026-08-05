@@ -61,10 +61,18 @@ export type ParsedStudyGroupDetail = StudyGroupDetailOut & {
   has_incomplete_materials: boolean;
 };
 
-export function parseStudyGroupDetail(value: unknown): ParsedStudyGroupDetail {
+export class StudyGroupDetailContractError extends Error {
+  constructor() {
+    super("The group detail response was invalid.");
+    this.name = "StudyGroupDetailContractError";
+  }
+}
+
+export function parseStudyGroupDetail(value: unknown, expectedGroupId?: string): ParsedStudyGroupDetail {
   if (!isRecord(value)
     || typeof value.id !== "string"
     || !UUID_PATTERN.test(value.id)
+    || (expectedGroupId !== undefined && value.id !== expectedGroupId)
     || typeof value.name !== "string"
     || value.name.trim().length === 0
     || !(value.description === null || typeof value.description === "string")
@@ -80,7 +88,7 @@ export function parseStudyGroupDetail(value: unknown): ParsedStudyGroupDetail {
     || !(value.created_at === null || typeof value.created_at === "string")
     || value.is_member !== true
     || !Array.isArray(value.members)) {
-    throw new Error("The group detail response was invalid.");
+    throw new StudyGroupDetailContractError();
   }
 
   const members = value.members.filter((member) => {

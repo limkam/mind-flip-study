@@ -182,6 +182,12 @@ export default function StudyGroupsScreen() {
       await queryClient.invalidateQueries({ queryKey: ["study-groups", "mine"] }).catch(() => {
         console.warn("[studyGroups] Joined a group, but My Groups could not be refreshed.");
       });
+      await queryClient.invalidateQueries({
+        queryKey: ["study-group", joinedGroup.id],
+        exact: true,
+      }).catch(() => {
+        console.warn("[studyGroups] Joined a group, but its cached detail could not be invalidated.");
+      });
       if (variables.searchAtStart.length >= SEARCH_MIN_LENGTH
         && currentSearchRef.current === variables.searchAtStart) {
         const activeSearchKey = ["study-groups", "search", variables.expectedUserId, variables.searchAtStart] as const;
