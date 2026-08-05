@@ -78,7 +78,7 @@ Integration evidence: `93954a0` contains the coherent 30-file PAR-001–PAR-008 
 
 | ID | Ticket | Priority | Effort | Status | Expected area / acceptance boundary | Relationship |
 | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
-| PAR-012 | Book deletion and cache invalidation | High | M | In progress | `mobile/app/book/[id].tsx`; confirmation, 204 handling, navigation and precise books/sets invalidation | Active ticket. Technical dependency retained: resolve the known backend fixture failure before acceptance; do not waive it as pre-existing. |
+| PAR-012 | Book deletion and cache invalidation | High | M | In progress | `mobile/app/book/[id].tsx`; confirmation, 204 handling, navigation and precise books/sets invalidation | Active ticket. DEBT-017 prerequisite resolved by fixture-only commit `1d40eb1`; focused deletion test passes. |
 | PAR-013 | Reused flashcard-generation response handling | High | S | Not started | Book generation DTO/route; honor `reused` and `set_id`, navigate without polling | None |
 | PAR-014 | Book processing and generation completion behavior | High | M | Not started | Book detail/generation phases; polling, recovery, plan messages and final navigation | Technical dependency: PAR-013 response handling. |
 | PAR-015 | Flashcard tag editing | Medium | M | Not started | Flashcard list/editor/types; normalized `PUT /flashcard-sets/{id}`, validation and invalidation | None |
@@ -194,7 +194,7 @@ Technical debt is not included in feature-parity completion or ticket status cou
 | DEBT-014 | Offline queue records do not retain `setId` | PAR-005, PAR-006 | Medium | Replay invalidation must discover affected sessions indirectly | Add versioned optional `setId` migration | No |
 | DEBT-015 | Best-effort study-event delivery | PAR-007, PAR-028 | Medium | Analytics events can be lost offline | Define durable/at-most-once event policy separately | No |
 | DEBT-016 | Remaining pre-existing whitespace failures | Repository baseline | Low | Repository-wide `git diff --check` remains noisy | Fix unrelated whitespace in a separate cleanup | No |
-| DEBT-017 | Pre-existing backend book-deletion fixture failure | PAR-012 | Medium | Full unit suite cannot serve as a clean gate | Repair fixture/service expectation before PAR-012 acceptance | Yes, for PAR-012 validation only |
+| DEBT-017 | Resolved backend book-deletion fixture failure | PAR-012 | Medium | None remaining from this fixture | Fixture-only correction committed as `1d40eb1`; targeted deletion test passes | No |
 
 ## 6. Validation Baseline
 
@@ -204,10 +204,10 @@ Technical debt is not included in feature-parity completion or ticket status cou
 | Android Expo export | `cd mobile && npx expo export --platform android --output-dir /tmp/mindflip-par-058-clean-export` | Isolated committed HEAD `917c723` passes with the known Sentry warning. |
 | Mobile tests | No script/runner in `mobile/package.json` | Absent; typecheck/export do not replace unit, integration or lifecycle tests. |
 | Sentry | Export warning | Existing warning: missing Sentry organization/project configuration; environment fallback is used. |
-| Backend units | `services/api/.venv/bin/pytest services/api/tests/unit -q -x` | Audit baseline: failed after 38 passes at the pre-existing book-deletion fixture issue. Scoped commands may pass independently. |
+| Backend units | `services/api/.venv/bin/pytest services/api/tests/unit -q -x` | DEBT-017 no longer fails; the 2026-08-05 rerun advanced through 33 tests, then produced no progress for more than 90 seconds and was interrupted. This broader suite is not claimed as passing. |
 | Backend integration | `services/api/.venv/bin/pytest services/api/tests/integration -q -x` | Audit baseline: inconclusive—one pass, nine skips, then stalled/interrupted; DB infrastructure must be diagnosed. |
 | Whitespace | Repository-wide `git diff --check` | Known unrelated/pre-existing failures; use scoped checks per ticket. |
-| Book deletion | Targeted unit coverage | Pre-existing `test_collects_linked_and_resource_and_orphan_sets` failure because the fixture lacks `book.title`. |
+| Book deletion | `services/api/.venv/bin/pytest services/api/tests/unit/test_book_deletion.py -vv` | Passes (1 test) after fixture-only commit `1d40eb1` supplied the required title and fourth fake query response. |
 
 The committed mobile foundation passes its project-wide typecheck, Android export, and diff check at `917c723`. Backend and unrelated repository-wide baselines remain qualified as above.
 
@@ -232,7 +232,7 @@ A parity ticket is complete only when:
 
 The active implementation ticket is **PAR-012 — Book deletion and cache invalidation**.
 
-PAR-011 is merged as code commit `f468fc5` after review corrections and passing independent Android and iOS exports, mobile typecheck, and scoped diff check. Phase B begins with PAR-012, whose DEBT-017 backend-fixture dependency remains blocking until investigated and resolved with evidence.
+PAR-011 is merged as code commit `f468fc5` after review corrections and passing independent Android and iOS exports, mobile typecheck, and scoped diff check. Phase B begins with PAR-012; its DEBT-017 fixture dependency was resolved separately in commit `1d40eb1` and no longer blocks focused deletion validation.
 
 ## Audit Reconciliation
 
