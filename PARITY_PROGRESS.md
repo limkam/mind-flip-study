@@ -5,22 +5,22 @@
 - **Mobile application:** `mobile/`
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
-- **Current parity phase:** Phase D — Dashboard and learning UX.
-- **Next recommended action:** Execute PAR-029 (Celebration policy and native presentation).
+- **Current parity phase:** Phase E — Billing and credits.
+- **Next recommended action:** Execute PAR-030 (Server-driven pricing catalog).
 
-Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-028, PAR-057, and PAR-058 are `Merged`: PAR-028 code commit `70a7ad9` reached local `main` with `mobile/lib/studyEvents.ts`, `mobile/lib/gameLifecycle.ts`, and `mobile/app/games/[setId]/[slug].tsx`; mobile typecheck, Android export, iOS export, 12 backend unit tests, and cached diff check passed. Direct HTTP/database integration coverage for `POST /study/events` is missing as documented. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-029, PAR-057, and PAR-058 are `Merged`: PAR-029 code commit `5bc9765` reached local `main` with `mobile/lib/celebrations/policy.ts`, `mobile/lib/celebrations/trustedEvents.ts`, `mobile/lib/celebrations/seenState.ts`, `mobile/context/CelebrationContext.tsx`, `mobile/components/CelebrationOverlay.tsx`, `mobile/app/_layout.tsx`, `mobile/app/study/[id].tsx`, `mobile/app/daily-review.tsx`, and `mobile/app/games/[setId]/[slug].tsx`; mobile typecheck, Android export, iOS export, 3 backend celebration tests, and cached diff check passed. Deferred native gaps: mobile sound playback and true particle engine. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 29 |
+| Merged | 30 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
-| Not started | 18 |
+| Not started | 17 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -107,7 +107,7 @@ Unsupported top-level book title/author editing is intentionally absent: `BookPa
 | PAR-026 | Pending challenge count and entitlement state | Medium | M | Merged | Entitlement loading/enabled/disabled/error state separation, recipient filtering, inline error/retry state. Commit `9256937`. | Technical dependency: PAR-004 entitlement guard and PAR-024 dashboard composition. |
 | PAR-027 | Daily-review remaining refinements | Medium | M | Merged | Runtime `DueFlashcardOut` validation, duplicate card ID deduplication, synchronous attempt lock, submitted/queued/rejected result handling, truthful empty/error states, pull-to-refresh. Commit `622e25c`. | Technical dependency: PAR-005/PAR-006 authoritative mutation and invalidation. |
 | PAR-028 | Central study-event taxonomy and transport | Medium | M | Merged | Central browser-free `logStudyEvent` transport in `mobile/lib/studyEvents.ts`, taxonomy (`game_start`, `game_finish`, `game_continue`), canonical UUID validation, recursive bounded metadata sanitizer, once-only instance key `game_start` guard, `game_finish` upon result persistence success, and user-action `game_continue`. Commit `70a7ad9`. Typecheck, Android/iOS exports, 12 backend unit tests passed. Direct `POST /study/events` DB test coverage missing. | None |
-| PAR-029 | Celebration policy and native presentation | Medium | L | Not started | Native provider plus portable policy/seen state; dedupe, bounds, reduced motion, haptics | Technical dependency: PAR-028 trusted event taxonomy/transport. |
+| PAR-029 | Celebration policy and native presentation | Medium | L | Merged | Native `CelebrationProvider` in `mobile/context/CelebrationContext.tsx`, browser-free `policy.ts`, trusted event parser (`trustedEvents.ts`), user-scoped storage seen state (`seenState.ts`), exact route handoff for quiz results (`QuizResultOut.id`), TanStack engagement preferences integration (`GET /engagement/preferences`), accessible announcements, and native `expo-haptics`. Commit `5bc9765`. Mobile typecheck, Android export, iOS export, 3 backend celebration tests passed. Deferred native gaps: mobile sound playback and true particle engine. | Technical dependency: PAR-028 trusted event taxonomy/transport. |
 
 Celebration presentation remains separate from study/quiz persistence.
 
