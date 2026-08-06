@@ -434,3 +434,172 @@ async def test_verify_session_stripe_error_returns_404(monkeypatch):
             session_id='cs_test_unknown', current_user=user, db=db,
         )
     assert exc.value.status_code == 404
+
+
+# --- Hardening tests for Ownership & Error Classification ---
+
+@pytest.mark.asyncio
+async def test_verify_session_client_ref_matches_metadata_differs_rejected(monkeypatch):
+    """client_reference_id matches user but metadata.user_id points to another user -> 403."""
+    uid = uuid4()
+    other_uid = uuid4()
+    user = SimpleNamespace(id=uid, stripe_customer_id='cus_1')
+
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(billing.stripe.checkout.Session, 'retrieve', lambda sid: {
+        'status': 'complete', 'client_reference_id': str(uid),
+        'metadata': {'user_id': str(other_uid)},
+    })
+    db = AsyncMock()
+
+    with pytest.raises(billing.HTTPException) as exc:
+        await billing.verify_checkout_session(session_id='cs_test_mismatch1', current_user=user, db=db)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_verify_session_metadata_matches_client_ref_differs_rejected(monkeypatch):
+    """metadata.user_id matches user but client_reference_id points to another user -> 403."""
+    uid = uuid4()
+    other_uid = uuid4()
+    user = SimpleNamespace(id=uid, stripe_customer_id='cus_1')
+
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(billing.stripe.checkout.Session, 'retrieve', lambda sid: {
+        'status': 'complete', 'client_reference_id': str(other_uid),
+        'metadata': {'user_id': str(uid)},
+    })
+    db = AsyncMock()
+
+    with pytest.raises(billing.HTTPException) as exc:
+        await billing.verify_checkout_session(session_id='cs_test_mismatch2', current_user=user, db=db)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_verify_session_legacy_only_client_ref_present(monkeypatch):
+    """Legacy session with only client_reference_id present -> PASS if matches."""
+    uid = uuid4()
+    user = SimpleNamespace(id=uid, stripe_customer_id='cus_1')
+
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(billing.stripe.checkout.Session, 'retrieve', lambda sid: {
+        'status': 'complete', 'client_reference_id': str(uid), 'metadata': {},
+    })
+    db = AsyncMock()
+    monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
+        'state': 'active', 'subscription': {'id': 'sub_1'}, 'count': 1,
+    }))
+
+    result = await billing.verify_checkout_session(session_id='cs_test_legacy_ref', current_user=user, db=db)
+    assert result.subscription_state == 'active'
+
+
+@pytest.mark.asyncio
+async def test_verify_session_legacy_only_metadata_user_present(monkeypatch):
+    """Legacy session with only metadata user_id present -> PASS if matches."""
+    uid = uuid4()
+    user = SimpleNamespace(id=uid, stripe_customer_id='cus_1')
+
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(billing.stripe.checkout.Session, 'retrieve', lambda sid: {
+        'status': 'complete', 'client_reference_id': None, 'metadata': {'user_id': str(uid)},
+    })
+    db = AsyncMock()
+    monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
+        'state': 'active', 'subscription': {'id': 'sub_1'}, 'count': 1,
+    }))
+
+    result = await billing.verify_checkout_session(session_id='cs_test_legacy_meta', current_user=user, db=db)
+    assert result.subscription_state == 'active'
+
+
+@pytest.mark.asyncio
+async def test_verify_session_neither_ownership_field_present_rejected(monkeypatch):
+    """Session with neither client_reference_id nor metadata user_id -> 403."""
+    uid = uuid4()
+    user = SimpleNamespace(id=uid, stripe_customer_id='cus_1')
+
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(billing.stripe.checkout.Session, 'retrieve', lambda sid: {
+        'status': 'complete', 'client_reference_id': None, 'metadata': {},
+    })
+    db = AsyncMock()
+
+    with pytest.raises(billing.HTTPException) as exc:
+        await billing.verify_checkout_session(session_id='cs_test_no_owner', current_user=user, db=db)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_verify_session_customer_id_mismatch_rejected(monkeypatch):
+    """Session customer matches different customer ID than user's stripe_customer_id -> 403."""
+    uid = uuid4()
+    user = SimpleNamespace(id=uid, stripe_customer_id='cus_known_user')
+
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(billing.stripe.checkout.Session, 'retrieve', lambda sid: {
+        'status': 'complete', 'client_reference_id': str(uid),
+        'metadata': {'user_id': str(uid)}, 'customer': 'cus_different_user',
+    })
+    db = AsyncMock()
+
+    with pytest.raises(billing.HTTPException) as exc:
+        await billing.verify_checkout_session(session_id='cs_test_cust_mismatch', current_user=user, db=db)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_verify_session_customer_present_first_time_user_without_customer_id(monkeypatch):
+    """First-time subscriber with customer present on session but no saved stripe_customer_id -> PASS."""
+    uid = uuid4()
+    user = SimpleNamespace(id=uid, stripe_customer_id=None)
+
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(billing.stripe.checkout.Session, 'retrieve', lambda sid: {
+        'status': 'complete', 'client_reference_id': str(uid),
+        'metadata': {'user_id': str(uid)}, 'customer': 'cus_new_user',
+    })
+    db = AsyncMock()
+    monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
+        'state': 'active', 'subscription': {'id': 'sub_1'}, 'count': 1,
+    }))
+
+    result = await billing.verify_checkout_session(session_id='cs_test_first_time', current_user=user, db=db)
+    assert result.subscription_state == 'active'
+
+
+@pytest.mark.asyncio
+async def test_verify_session_stripe_auth_error_returns_503(monkeypatch):
+    """Stripe AuthenticationError -> 503 configuration error."""
+    uid = uuid4()
+    user = SimpleNamespace(id=uid, stripe_customer_id='cus_1')
+
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    def mock_retrieve(sid):
+        raise billing.stripe.error.AuthenticationError("Invalid API key")
+    monkeypatch.setattr(billing.stripe.checkout.Session, 'retrieve', mock_retrieve)
+    db = AsyncMock()
+
+    with pytest.raises(billing.HTTPException) as exc:
+        await billing.verify_checkout_session(session_id='cs_test_auth_err', current_user=user, db=db)
+    assert exc.value.status_code == 503
+    assert exc.value.detail == "Stripe billing configuration error"
+
+
+@pytest.mark.asyncio
+async def test_verify_session_stripe_transient_error_returns_503(monkeypatch):
+    """Stripe APIConnectionError -> 503 transient service error."""
+    uid = uuid4()
+    user = SimpleNamespace(id=uid, stripe_customer_id='cus_1')
+
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    def mock_retrieve(sid):
+        raise billing.stripe.error.APIConnectionError("Connection timeout")
+    monkeypatch.setattr(billing.stripe.checkout.Session, 'retrieve', mock_retrieve)
+    db = AsyncMock()
+
+    with pytest.raises(billing.HTTPException) as exc:
+        await billing.verify_checkout_session(session_id='cs_test_transient_err', current_user=user, db=db)
+    assert exc.value.status_code == 503
+    assert exc.value.detail == "Checkout verification service temporarily unavailable"

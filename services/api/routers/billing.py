@@ -982,22 +982,89 @@ async def verify_checkout_session(
 
     try:
         session = stripe.checkout.Session.retrieve(session_id)
+    except stripe.error.InvalidRequestError as err:
+        logger.info("stripe_checkout_retrieve_invalid_request", extra={"session_id": session_id, "error": str(err)})
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Checkout session not found",
+        )
+    except (stripe.error.AuthenticationError, stripe.error.PermissionError) as err:
+        logger.error("stripe_checkout_auth_error", extra={"session_id": session_id, "error": str(err)})
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Stripe billing configuration error",
+        )
+    except (stripe.error.APIConnectionError, stripe.error.RateLimitError, stripe.error.StripeError) as err:
+        logger.warning("stripe_checkout_transient_error", extra={"session_id": session_id, "error": str(err)})
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Checkout verification service temporarily unavailable",
+        )
     except Exception:
+        logger.warning("stripe_checkout_unknown_error", extra={"session_id": session_id})
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Checkout session not found",
         )
 
-    client_ref = session.get("client_reference_id")
-    meta = session.get("metadata") or {}
-    meta_user_id = meta.get("user_id") if isinstance(meta, dict) else None
+    # Ownership checks (strict policy matching section 1 & 2)
+    client_ref = session.get("client_reference_id") if isinstance(session, dict) else getattr(session, "client_reference_id", None)
+    meta = (session.get("metadata") if isinstance(session, dict) else getattr(session, "metadata", None)) or {}
+    meta_user_id = (meta.get("user_id") if isinstance(meta, dict) else getattr(meta, "user_id", None)) if meta else None
 
     user_id_str = str(current_user.id)
-    if client_ref != user_id_str and meta_user_id != user_id_str:
+    client_ref_str = str(client_ref) if client_ref is not None else None
+    meta_user_id_str = str(meta_user_id) if meta_user_id is not None else None
+
+    client_ref_present = bool(client_ref_str)
+    meta_user_id_present = bool(meta_user_id_str)
+
+    if not client_ref_present and not meta_user_id_present:
+        logger.warning("checkout_session_ownership_missing", extra={"session_id": session_id, "user_id": user_id_str})
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Checkout session does not belong to current user",
+            detail="Checkout session missing user ownership metadata",
         )
+
+    if client_ref_present and meta_user_id_present:
+        if client_ref_str != user_id_str or meta_user_id_str != user_id_str:
+            logger.warning(
+                "checkout_session_ownership_mismatch",
+                extra={"session_id": session_id, "user_id": user_id_str, "client_ref": client_ref_str, "meta_user_id": meta_user_id_str},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Checkout session ownership mismatch",
+            )
+    elif client_ref_present and not meta_user_id_present:
+        # Legacy session compatibility: only client_reference_id present
+        if client_ref_str != user_id_str:
+            logger.warning("checkout_session_client_ref_mismatch", extra={"session_id": session_id, "user_id": user_id_str, "client_ref": client_ref_str})
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Checkout session ownership mismatch",
+            )
+    elif not client_ref_present and meta_user_id_present:
+        # Legacy session compatibility: only metadata user_id present
+        if meta_user_id_str != user_id_str:
+            logger.warning("checkout_session_meta_user_mismatch", extra={"session_id": session_id, "user_id": user_id_str, "meta_user_id": meta_user_id_str})
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Checkout session ownership mismatch",
+            )
+
+    # Customer ID consistency check (Section 2)
+    session_customer = session.get("customer") if isinstance(session, dict) else getattr(session, "customer", None)
+    if session_customer and current_user.stripe_customer_id:
+        if str(session_customer) != str(current_user.stripe_customer_id):
+            logger.warning(
+                "checkout_session_customer_mismatch",
+                extra={"session_id": session_id, "user_id": user_id_str, "known_customer": current_user.stripe_customer_id, "session_customer": session_customer},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Checkout session customer mismatch",
+            )
 
     raw_status = str(session.get("status") or "open")
     checkout_status = "complete" if raw_status == "complete" else "expired" if raw_status == "expired" else "open"

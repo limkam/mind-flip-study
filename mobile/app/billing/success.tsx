@@ -23,13 +23,27 @@ type ScreenStatus =
   | "conflict"
   | "error";
 
+function parseSessionId(param: string | string[] | undefined): string | null {
+  if (!param) return null;
+  const raw = Array.isArray(param) ? param[0] : param;
+  if (typeof raw !== "string") return null;
+  try {
+    const decoded = decodeURIComponent(raw).trim();
+    if (decoded.length < 10 || decoded.length > 255) return null;
+    if (!/^cs_[a-zA-Z0-9_]+$/.test(decoded)) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
 export default function BillingSuccessScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const params = useLocalSearchParams<{ session_id?: string }>();
   const user = useAuthStore((state) => state.user);
 
-  const sessionId = typeof params.session_id === "string" ? params.session_id : "";
+  const sessionId = parseSessionId(params.session_id) || "";
   const [statusState, setStatusState] = useState<ScreenStatus>("verifying");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -49,7 +63,7 @@ export default function BillingSuccessScreen() {
   }, []);
 
   const runFullVerification = useCallback(async () => {
-    if (!sessionId || !sessionId.startsWith("cs_")) {
+    if (!sessionId) {
       setStatusState("error");
       setErrorMessage("Invalid or missing checkout session ID.");
       return;
@@ -95,6 +109,9 @@ export default function BillingSuccessScreen() {
 
       if (verifyRes.subscription_state === "active") {
         terminalSessionsRef.current.add(sessionId);
+        const entitlements = await fetchEntitlementsSnapshot();
+        if (!mountedRef.current) return;
+        mobileQueryClient.setQueryData(["billing-entitlements"], entitlements);
         await mobileQueryClient.invalidateQueries({ queryKey: ["billing-entitlements"] });
         if (!mountedRef.current) return;
         setStatusState("activated");
@@ -155,6 +172,7 @@ export default function BillingSuccessScreen() {
 
       if (isActivePaid && planMatches) {
         terminalSessionsRef.current.add(sessionId);
+        mobileQueryClient.setQueryData(["billing-entitlements"], entitlements);
         await mobileQueryClient.invalidateQueries({ queryKey: ["billing-entitlements"] });
         if (!mountedRef.current) return;
         setStatusState("activated");
