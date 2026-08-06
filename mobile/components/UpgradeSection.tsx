@@ -55,7 +55,7 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
   const [interval, setInterval] = useState<BillingInterval>("monthly");
   const [loadingSlug, setLoadingSlug] = useState<BillingPlanSlug | "trial_checkout" | null>(null);
 
-  const activeAttempt = getCheckoutAttempt();
+  const activeAttempt = isEnabled ? getCheckoutAttempt() : null;
   const isLockActive = activeAttempt !== null;
 
   const mountedRef = useRef(true);
@@ -102,14 +102,16 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
   // Set initial interval once pricing returns backend default
   const defaultInitializedRef = useRef(false);
   useEffect(() => {
+    if (!isEnabled) return;
     if (pricingData?.default_interval && !defaultInitializedRef.current) {
       defaultInitializedRef.current = true;
       setInterval(pricingData.default_interval);
     }
-  }, [pricingData]);
+  }, [isEnabled, pricingData]);
 
   // Foreground recovery: refetch entitlements & trial status when app becomes active after checkout browser handoff.
   useEffect(() => {
+    if (!isEnabled) return;
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       if (nextAppState !== "active") return;
       const pendingAttempt = getCheckoutAttempt();
@@ -132,7 +134,7 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
     return () => {
       subscription.remove();
     };
-  }, [refetchEntitlements, refetchTrial]);
+  }, [isEnabled, refetchEntitlements, refetchTrial]);
 
   const activePlanSlug = entitlementsData?.plan_slug || null;
   const isPaidSubscriber = isAuthenticated && activePlanSlug !== null && activePlanSlug !== "free";

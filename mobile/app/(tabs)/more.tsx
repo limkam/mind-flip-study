@@ -13,6 +13,8 @@ import { mobileFeatures } from "../../lib/featureFlags";
 import { APP_NAV_ITEMS } from "../../lib/navigation";
 import { fetchEntitlementsSnapshot } from "../../lib/billing";
 
+import { subscriptionsEnabled } from "../../lib/billing";
+
 function isNavActive(pathname: string, href: string) {
   if (href === "/(tabs)") {
     return pathname === "/" || pathname === "/index" || pathname.endsWith("/index");
@@ -27,7 +29,11 @@ export default function MoreTab() {
   const { confirmLogout } = useLogout();
   const { data: entitlements, isError: entitlementsError } = useQuery({ queryKey: ["billing-entitlements"], queryFn: fetchEntitlementsSnapshot });
   const isFree = !entitlements?.plan_slug || entitlements.plan_slug === "free";
+  const isSubscriptionsEnabled = subscriptionsEnabled();
+
   const visibleNavItems = APP_NAV_ITEMS.filter((item) => {
+    const href = typeof item.href === "string" ? item.href : String(item.href);
+    if (href === "/pricing" && !isSubscriptionsEnabled) return false;
     if (!item.feature) return true;
     if (item.feature === "scorecards") return mobileFeatures.scorecards;
     return !entitlementsError && entitlements?.features[item.feature] === true;
@@ -38,14 +44,31 @@ export default function MoreTab() {
       <PageHeader title="Menu" subtitle="Same sections as the web app" />
       <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
         <Pressable
-          onPress={() => { void hapticImpact("medium"); router.push(isFree ? "/pricing" : "/billing"); }}
+          onPress={() => {
+            void hapticImpact("medium");
+            router.push(!isSubscriptionsEnabled ? "/billing" : isFree ? "/pricing" : "/billing");
+          }}
           style={styles.upgradeCard}
         >
           <View style={styles.upgradeGlow} />
-          <View style={styles.upgradeIcon}><Ionicons name={isFree ? "rocket" : "diamond"} size={23} color="#5b21b6" /></View>
+          <View style={styles.upgradeIcon}>
+            <Ionicons
+              name={!isSubscriptionsEnabled ? "card" : isFree ? "rocket" : "diamond"}
+              size={23}
+              color="#5b21b6"
+            />
+          </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.upgradeTitle}>{isFree ? "Upgrade MindFlip" : "Manage your plan"}</Text>
-            <Text style={styles.upgradeText}>{isFree ? "Unlock more books, cards and study features" : `${entitlements?.plan_slug?.replace(/_/g, " ")} plan · View credits and billing`}</Text>
+            <Text style={styles.upgradeTitle}>
+              {!isSubscriptionsEnabled ? "Billing & Credits" : isFree ? "Upgrade MindFlip" : "Manage your plan"}
+            </Text>
+            <Text style={styles.upgradeText}>
+              {!isSubscriptionsEnabled
+                ? "View credit balances, usage and history"
+                : isFree
+                ? "Unlock more books, cards and study features"
+                : `${entitlements?.plan_slug?.replace(/_/g, " ")} plan · View credits and billing`}
+            </Text>
           </View>
           <Ionicons name="arrow-forward-circle" size={27} color="#fff" />
         </Pressable>

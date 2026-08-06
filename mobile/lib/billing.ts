@@ -18,6 +18,7 @@ import type {
   TrialEligibilityResponse,
   TrialEligibilitySignals,
 } from "../types/api";
+import { mobileFeatures } from "./featureFlags";
 import { mobileQueryClient } from "./queryClient";
 
 export type EntitlementsSnapshot = {
@@ -163,7 +164,7 @@ const SUBSCRIPTION_LABELS: Record<string, string> = {
 
 /** Set EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED=true to show upgrade UI in profile. */
 export function subscriptionsEnabled(): boolean {
-  return process.env.EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED === "true";
+  return mobileFeatures.subscriptions;
 }
 
 export function isFreeTier(subscriptionTier?: string | null): boolean {
@@ -330,6 +331,10 @@ export async function startCheckout(
   interval: BillingInterval,
   expectedUserId?: string,
 ): Promise<void> {
+  if (!mobileFeatures.subscriptions) {
+    throw new Error("Subscription upgrades are disabled");
+  }
+
   const alias = checkoutPlanForSlug(planSlug);
   if (!alias) {
     throw new Error("Free and unknown plans cannot initiate paid checkout");
@@ -347,6 +352,10 @@ export async function startCheckout(
 }
 
 export async function startTrialCheckout(expectedUserId?: string): Promise<void> {
+  if (!mobileFeatures.subscriptions) {
+    throw new Error("Subscription upgrades are disabled");
+  }
+
   const { data } = await api.post<{ checkout_url?: string }>("/billing/trial/start", null, {
     params: { client: "mobile" },
   });

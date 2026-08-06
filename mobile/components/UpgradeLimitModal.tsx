@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "../hooks/useTheme";
+import { subscriptionsEnabled } from "../lib/billing";
 import { subscribeUpgradeLimit } from "../lib/upgradeLimitEvents";
 
 function friendlyMessage(reason?: string) {
@@ -20,6 +21,7 @@ export function UpgradeLimitModal() {
   const { colors } = useTheme();
   const router = useRouter();
   const [message, setMessage] = useState("");
+  const isSubscriptionsEnabled = subscriptionsEnabled();
 
   useEffect(() => subscribeUpgradeLimit(({ reason }) => setMessage(friendlyMessage(reason))), []);
 
@@ -40,10 +42,12 @@ export function UpgradeLimitModal() {
               style={[styles.primary, { backgroundColor: colors.primary }]}
               onPress={() => {
                 close();
-                router.push("/pricing");
+                router.push(isSubscriptionsEnabled ? "/pricing" : "/billing");
               }}
             >
-              <Text style={styles.primaryText}>Upgrade Plan</Text>
+              <Text style={styles.primaryText}>
+                {isSubscriptionsEnabled ? "Upgrade Plan" : "View Billing"}
+              </Text>
             </Pressable>
           </View>
         </View>

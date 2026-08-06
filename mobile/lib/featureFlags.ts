@@ -19,4 +19,8 @@ export const mobileFeatures = {
     process.env.EXPO_PUBLIC_ENGAGEMENT_SCORECARDS_ENABLED,
     true,
   ),
+  subscriptions: parseBoolFlag(
+    process.env.EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED,
+    false,
+  ),
 } as const;

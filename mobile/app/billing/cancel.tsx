@@ -4,10 +4,12 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Screen } from "../../components/Screen";
 import { useTheme } from "../../hooks/useTheme";
+import { subscriptionsEnabled } from "../../lib/billing";
 
 export default function BillingCancelScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const isSubscriptionsEnabled = subscriptionsEnabled();
 
   return (
     <Screen edges={["bottom"]}>
@@ -25,9 +27,11 @@ export default function BillingCancelScreen() {
           <View style={styles.actions}>
             <Pressable
               style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
-              onPress={() => router.replace("/pricing")}
+              onPress={() => router.replace(isSubscriptionsEnabled ? "/pricing" : "/billing")}
             >
-              <Text style={styles.primaryBtnText}>Return to Plans</Text>
+              <Text style={styles.primaryBtnText}>
+                {isSubscriptionsEnabled ? "Return to Plans" : "Return to Billing"}
+              </Text>
             </Pressable>
             <Pressable
               style={[styles.secondaryBtn, { borderColor: colors.border }]}

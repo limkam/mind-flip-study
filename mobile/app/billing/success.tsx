@@ -5,7 +5,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 
 import { Screen } from "../../components/Screen";
 import { useTheme } from "../../hooks/useTheme";
-import { fetchEntitlementsSnapshot, verifyCheckoutSession } from "../../lib/billing";
+import { fetchEntitlementsSnapshot, subscriptionsEnabled, verifyCheckoutSession } from "../../lib/billing";
 import { mobileQueryClient } from "../../lib/queryClient";
 import { useAuthStore } from "../../store/authStore";
 import type { CheckoutVerificationResponse } from "../../types/api";
@@ -101,6 +101,12 @@ export default function BillingSuccessScreen() {
 
       verificationRef.current = verifyRes;
 
+      if (verifyRes.checkout_kind !== "subscription") {
+        setStatusState("error");
+        setErrorMessage("Mismatched checkout type for subscription verification.");
+        return;
+      }
+
       if (verifyRes.subscription_state === "conflict") {
         terminalSessionsRef.current.add(sessionId);
         setStatusState("conflict");
@@ -114,6 +120,7 @@ export default function BillingSuccessScreen() {
         mobileQueryClient.setQueryData(["billing-entitlements"], entitlements);
         await mobileQueryClient.invalidateQueries({ queryKey: ["billing-entitlements"] });
         await mobileQueryClient.invalidateQueries({ queryKey: ["billing-trial-eligibility"] });
+        await mobileQueryClient.invalidateQueries({ queryKey: ["credit-usage"] });
         if (!mountedRef.current) return;
         setStatusState("activated");
         return;
@@ -326,9 +333,11 @@ export default function BillingSuccessScreen() {
                 </Pressable>
                 <Pressable
                   style={[styles.secondaryBtn, { borderColor: colors.border }]}
-                  onPress={() => router.replace("/pricing")}
+                  onPress={() => router.replace(subscriptionsEnabled() ? "/pricing" : "/billing")}
                 >
-                  <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Return to Plans</Text>
+                  <Text style={[styles.secondaryBtnText, { color: colors.text }]}>
+                    {subscriptionsEnabled() ? "Return to Plans" : "Return to Billing"}
+                  </Text>
                 </Pressable>
                 <Pressable
                   style={[styles.secondaryBtn, { borderColor: colors.border }]}
