@@ -388,3 +388,11 @@ export type BillingPricingResponse = {
   default_interval: BillingInterval;
   plans: Record<string, BillingPlanPrice>;
 };
+
+export type CheckoutVerificationResponse = {
+  session_id: string;
+  checkout_status: "open" | "complete" | "expired";
+  subscription_state: "active" | "processing" | "conflict" | "not_confirmed";
+  plan_slug: BillingPlanSlug | null;
+  interval: BillingInterval | null;
+};

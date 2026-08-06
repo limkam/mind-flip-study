@@ -1,11 +1,13 @@
 import * as Linking from "expo-linking";
 
 import { api } from "../api/client";
+import { useAuthStore } from "../store/authStore";
 import type {
   BillingInterval,
   BillingPlanPrice,
   BillingPlanSlug,
   BillingPricingResponse,
+  CheckoutVerificationResponse,
 } from "../types/api";
 
 export type EntitlementsSnapshot = {
@@ -224,7 +226,7 @@ export async function startCheckout(
   }
 
   const { data } = await api.post<{ checkout_url?: string }>("/billing/checkout", null, {
-    params: { plan: alias, interval },
+    params: { plan: alias, interval, client: "mobile" },
   });
 
   const urlStr = data?.checkout_url;
@@ -249,8 +251,24 @@ export async function startCheckout(
 
   const canOpen = await Linking.canOpenURL(parsedUrl.href);
   if (!canOpen) {
-    throw new Error("Unable to open checkout URL on this device");
+    throw new Error("Device cannot open the checkout URL");
+  }
+
+  if (expectedUserId && useAuthStore.getState().user?.id !== expectedUserId) {
+    throw new Error("User identity changed before opening checkout");
   }
 
   await Linking.openURL(parsedUrl.href);
+}
+
+export async function verifyCheckoutSession(
+  sessionId: string,
+): Promise<CheckoutVerificationResponse> {
+  if (!sessionId || !sessionId.startsWith("cs_")) {
+    throw new Error("Invalid checkout session ID format");
+  }
+  const { data } = await api.get<CheckoutVerificationResponse>(
+    `/billing/checkout/sessions/${encodeURIComponent(sessionId)}`,
+  );
+  return data;
 }

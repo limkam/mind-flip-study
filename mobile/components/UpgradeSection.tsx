@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Pressable,
   StyleSheet,
   Text,
@@ -96,6 +97,33 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
     }
   }, [pricingData]);
 
+  // Foreground recovery: refetch entitlements when app becomes active after checkout browser handoff.
+  // If entitlements now show a paid plan, clear the pending attempt.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState !== "active") return;
+      const pendingAttempt = checkoutLockRef.current;
+      if (!pendingAttempt) return;
+      // Identity guard
+      if (pendingAttempt.userId && useAuthStore.getState().user?.id !== pendingAttempt.userId) {
+        checkoutLockRef.current = null;
+        return;
+      }
+      void refetchEntitlements().then(() => {
+        // Lock may have been cleared by another path; safe to check
+        if (checkoutLockRef.current?.attemptId === pendingAttempt.attemptId) {
+          checkoutLockRef.current = null;
+        }
+        if (mountedRef.current) {
+          setLoadingSlug(null);
+        }
+      });
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [refetchEntitlements]);
+
   const activePlanSlug = entitlementsData?.plan_slug || null;
   const isPaidSubscriber = isAuthenticated && activePlanSlug !== null && activePlanSlug !== "free";
   const isConflict = entitlementsData?.subscription_status === "subscription_conflict";
@@ -130,10 +158,18 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
 
     try {
       await startCheckout(slug, capturedInterval, capturedUserId || undefined);
+      // Browser opened successfully — keep lock alive for foreground recovery.
+      // Loading spinner is cleared by the AppState listener when the user returns.
     } catch (e: unknown) {
+      // Release lock on error only
+      if (checkoutLockRef.current?.attemptId === currentAttemptId) {
+        checkoutLockRef.current = null;
+      }
+      if (mountedRef.current) {
+        setLoadingSlug(null);
+      }
       if (
         mountedRef.current &&
-        checkoutLockRef.current?.attemptId === currentAttemptId &&
         (!capturedUserId || useAuthStore.getState().user?.id === capturedUserId)
       ) {
         const errorMsg = getApiErrorMessage(e);
@@ -155,13 +191,6 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
             getApiErrorMessage(e, "Could not start checkout."),
           );
         }
-      }
-    } finally {
-      if (checkoutLockRef.current?.attemptId === currentAttemptId) {
-        checkoutLockRef.current = null;
-      }
-      if (mountedRef.current) {
-        setLoadingSlug(null);
       }
     }
   };
