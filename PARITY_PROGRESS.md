@@ -6,21 +6,21 @@
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
 - **Current parity phase:** Phase E — Billing and credits.
-- **Next recommended action:** Execute PAR-031 (Monthly and annual interval presentation).
+- **Next recommended action:** Execute PAR-034 (Trial eligibility and start) or PAR-035 (Subscription cancellation).
 
-Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-030, PAR-057, and PAR-058 are `Merged`: PAR-030 code commit `c8038f5` reached local `main` with `mobile/types/api.ts`, `mobile/lib/billing.ts`, and `mobile/components/UpgradeSection.tsx`; mobile typecheck, Android export, iOS export, 1 focused pricing test, 6 total unit tests, and cached diff check passed. Unimplemented/deferred gaps: live Stripe integration testing and external browser return verification. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-032, PAR-057, and PAR-058 are `Merged`: PAR-031 was already satisfied by PAR-030 (commit `c8038f5`); PAR-032 code commit `d2ec1a5` reached local `main` with backend `CheckoutClient` enum, `GET /billing/checkout/sessions/{session_id}` verification endpoint, mobile success/cancel return routes, bounded entitlement reconciliation, foreground recovery, and 10 new backend tests (16 total); mobile typecheck, Android export, iOS export passed. Deferred gaps: universal-link domain association, live Stripe integration, physical-device deep-link testing. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 31 |
+| Merged | 33 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
-| Not started | 16 |
+| Not started | 14 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -29,10 +29,10 @@ All status rows sum to 58. Decision records and technical-debt records are not t
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 60.6% (57 / 94 effort points) |
-| Critical-ticket executable progress | 52.6% (10 / 19 effort points) |
+| Executable roadmap progress | 64.9% (61 / 94 effort points) |
+| Critical-ticket executable progress | 63.2% (12 / 19 effort points) |
 | High-priority executable progress | 54.9% (28 / 51 effort points) |
-| Disposition progress | 56.9% (33 / 58 tickets) |
+| Disposition progress | 60.3% (35 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -116,8 +116,8 @@ Celebration presentation remains separate from study/quiz persistence.
 | ID | Ticket | Priority | Effort | Status | Expected area / acceptance boundary | Relationship |
 | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
 | PAR-030 | Server-driven pricing catalog | Critical | M | Merged | Server-driven pricing (`GET /billing/pricing`), strict schema parsing, Monthly/Annual interval selection, pure formatUsd formatting, active subscriber checkout blocking, 409 entitlement refresh, ref-based double-submit lock, HTTPS URL validation. Commit `c8038f5`. | None |
-| PAR-031 | Monthly and annual interval presentation | Critical | M | Not started | Pricing UI; server-defined default and explicit monthly/annual selection | Technical dependency: PAR-030 catalog. |
-| PAR-032 | Checkout interval behavior | Critical | M | Not started | Checkout helper/UI; selected interval must match checkout query | Technical dependency: PAR-031 selected interval. |
+| PAR-031 | Monthly and annual interval presentation | Critical | M | Merged | All interval presentation requirements already satisfied by PAR-030 (commit `c8038f5`): Monthly/Annual selectors, server `default_interval` initialization, independent interval availability, annual savings, interval-specific checkout, accessibility state. No additional code changes needed. | Technical dependency: PAR-030 catalog. |
+| PAR-032 | Checkout return and recovery behavior | Critical | M | Merged | Backend `CheckoutClient` enum, `MOBILE_CHECKOUT_SUCCESS/CANCEL_URL` settings, `GET /billing/checkout/sessions/{session_id}` verification endpoint, mobile success/cancel deep-link routes, bounded entitlement reconciliation (5×2s), foreground AppState recovery, identity-change guards, terminal-session tracking, plan-slug matching, 10 new backend tests. Commit `d2ec1a5`. Deferred: universal-link domain association. | Technical dependency: PAR-031 selected interval. |
 | PAR-033 | Checkout return-flow product decision | Critical | S | Blocked | No callback change; define native deep link versus hosted web/approved alternative | Blocked by decision: DEC-002. |
 | PAR-034 | Trial eligibility and start | High | M | Not started | Billing UI/types; eligibility reasons and trial checkout | Technical dependency: PAR-030 catalog/types. Blocked by decision for return handling: PAR-033/DEC-002. |
 | PAR-035 | Subscription cancellation | High | M | Not started | Billing UI/types; period-end confirmation and entitlement refresh | Technical dependency: PAR-030 catalog/types. |
