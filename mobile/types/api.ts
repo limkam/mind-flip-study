@@ -417,3 +417,8 @@ export type TrialEligibilityResponse = {
   signals: TrialEligibilitySignals;
   trial_days?: number;
 };
+
+export type SubscriptionCancelResponse = {
+  canceled_at_period_end: boolean;
+  current_period_end: string | null;
+};

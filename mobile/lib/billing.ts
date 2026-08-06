@@ -8,6 +8,7 @@ import type {
   BillingPlanSlug,
   BillingPricingResponse,
   CheckoutVerificationResponse,
+  SubscriptionCancelResponse,
   TrialEligibilityReason,
   TrialEligibilityResponse,
   TrialEligibilitySignals,
@@ -365,4 +366,41 @@ export async function verifyCheckoutSession(
     `/billing/checkout/sessions/${encodeURIComponent(sessionId)}`,
   );
   return data;
+}
+
+export function parseSubscriptionCancelResponse(raw: unknown): SubscriptionCancelResponse {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid cancellation response: expected plain object");
+  }
+  const record = raw as Record<string, unknown>;
+
+  if (typeof record.canceled_at_period_end !== "boolean") {
+    throw new Error("Invalid cancellation response: canceled_at_period_end must be boolean");
+  }
+
+  if (!record.canceled_at_period_end) {
+    throw new Error("Cancellation unconfirmed: canceled_at_period_end is false");
+  }
+
+  let current_period_end: string | null = null;
+  if (record.current_period_end !== null && record.current_period_end !== undefined) {
+    if (typeof record.current_period_end !== "string") {
+      throw new Error("Invalid cancellation response: current_period_end must be a string or null");
+    }
+    const parsedDate = Date.parse(record.current_period_end);
+    if (Number.isNaN(parsedDate)) {
+      throw new Error("Invalid cancellation response: current_period_end is an invalid date timestamp");
+    }
+    current_period_end = new Date(parsedDate).toISOString();
+  }
+
+  return {
+    canceled_at_period_end: record.canceled_at_period_end,
+    current_period_end,
+  };
+}
+
+export async function cancelSubscriptionAtPeriodEnd(): Promise<SubscriptionCancelResponse> {
+  const { data } = await api.post<unknown>("/billing/subscription/cancel");
+  return parseSubscriptionCancelResponse(data);
 }
