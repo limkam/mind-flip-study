@@ -530,3 +530,19 @@ export type ScorecardOut = {
   formula_version: string;
   metrics: ScorecardMetrics;
 };
+
+export type ScorecardShareExpiryDays = 7 | 30 | 90;
+
+export type ShareCreateIn = {
+  expires_in_days: ScorecardShareExpiryDays;
+  show_display_name: boolean;
+  public_display_name: string | null;
+  public_message?: string | null;
+};
+
+export type ShareOut = {
+  id: string;
+  share_url: string;
+  expires_at: string;
+  show_display_name: boolean;
+};

@@ -299,3 +299,126 @@ export function formatPeriodDateRange(
 
   return `${startMonth} ${sD}, ${sY} – ${endMonth} ${eD}, ${eY}`;
 }
+
+export function validateScorecardShareUrl(raw: string): string {
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new Error("Invalid share URL: expected a non-empty string");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("Invalid share URL format");
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error("Share URL must not contain credentials");
+  }
+
+  if (!parsed.hostname) {
+    throw new Error("Share URL must contain a valid hostname");
+  }
+
+  const isLocalHost =
+    parsed.hostname === "localhost" ||
+    parsed.hostname === "127.0.0.1" ||
+    parsed.hostname === "10.0.2.2" ||
+    parsed.hostname.endsWith(".local");
+
+  if (parsed.protocol === "http:") {
+    if (!isLocalHost) {
+      throw new Error("HTTP share URLs are only permitted for local development");
+    }
+  } else if (parsed.protocol !== "https:") {
+    throw new Error("Share URL must use the HTTPS protocol");
+  }
+
+  return parsed.toString();
+}
+
+export function parseShareOutResponse(raw: unknown): import("../types/api").ShareOut {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid share creation response: expected a plain object");
+  }
+
+  const obj = raw as Record<string, unknown>;
+
+  if (typeof obj.id !== "string" || !UUID_REGEX.test(obj.id)) {
+    throw new Error("Invalid share creation response: malformed share ID");
+  }
+
+  if (typeof obj.share_url !== "string") {
+    throw new Error("Invalid share creation response: missing share_url");
+  }
+
+  const validUrl = validateScorecardShareUrl(obj.share_url);
+
+  if (typeof obj.expires_at !== "string" || Number.isNaN(Date.parse(obj.expires_at))) {
+    throw new Error("Invalid share creation response: malformed expires_at timestamp");
+  }
+
+  const expiresTime = Date.parse(obj.expires_at);
+  if (expiresTime <= Date.now()) {
+    throw new Error("Invalid share creation response: expires_at must be in the future");
+  }
+
+  if (typeof obj.show_display_name !== "boolean") {
+    throw new Error("Invalid share creation response: missing show_display_name");
+  }
+
+  return {
+    id: obj.id,
+    share_url: validUrl,
+    expires_at: obj.expires_at,
+    show_display_name: obj.show_display_name,
+  };
+}
+
+export function validatePublicDisplayName(
+  raw: string,
+  required: boolean,
+): { valid: true; value: string | null } | { valid: false; message: string } {
+  if (!required) {
+    return { valid: true, value: null };
+  }
+
+  const trimmed = raw.trim();
+
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed.charCodeAt(i) < 32) {
+      return { valid: false, message: "Control characters are not allowed." };
+    }
+  }
+
+  if (trimmed.length > 80) {
+    return { valid: false, message: "Public display name cannot exceed 80 characters." };
+  }
+
+  if (!trimmed) {
+    return {
+      valid: false,
+      message: "A public display name is required when name sharing is enabled.",
+    };
+  }
+
+  return { valid: true, value: trimmed };
+}
+
+export async function createScorecardShare(
+  scorecardId: string,
+  input: import("../types/api").ShareCreateIn,
+): Promise<import("../types/api").ShareOut> {
+  if (!UUID_REGEX.test(scorecardId)) {
+    throw new Error("Invalid scorecard ID");
+  }
+
+  const payload: import("../types/api").ShareCreateIn = {
+    expires_in_days: input.expires_in_days,
+    show_display_name: input.show_display_name,
+    public_display_name: input.show_display_name ? input.public_display_name : null,
+  };
+
+  const res = await api.post(`/scorecards/${scorecardId}/share`, payload);
+  return parseShareOutResponse(res.data);
+}

@@ -17,6 +17,7 @@ import {
 import { captureRef } from "react-native-view-shot";
 
 import { Screen } from "../components/Screen";
+import { ShareScorecardModal } from "../components/scorecards/ShareScorecardModal";
 import { useTheme } from "../hooks/useTheme";
 import { mobileFeatures } from "../lib/featureFlags";
 import {
@@ -48,6 +49,7 @@ export default function ScorecardsScreen() {
   const [period, setPeriod] = useState<ScorecardPeriodType>("weekly");
   const [selectedId, setSelectedId] = useState<string>();
   const [sharing, setSharing] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshErrorMsg, setRefreshErrorMsg] = useState<string | null>(null);
   const [backend404Detected, setBackend404Detected] = useState(false);
@@ -648,24 +650,55 @@ export default function ScorecardsScreen() {
               </View>
             </Animated.View>
 
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Share scorecard image"
-              disabled={sharing}
-              onPress={() => void shareScorecardImage()}
-              style={[
-                styles.shareButton,
-                { backgroundColor: colors.primary, opacity: sharing ? 0.6 : 1 },
-              ]}
-            >
-              <Ionicons name="share-social-outline" size={21} color="#fff" />
-              <Text style={styles.shareText}>
-                {sharing ? "Preparing image…" : "Share image"}
-              </Text>
-            </Pressable>
+            <View style={styles.shareActionRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Create public scorecard share link"
+                onPress={() => setShareModalVisible(true)}
+                style={[
+                  styles.shareButton,
+                  { backgroundColor: colors.primary, flex: 1 },
+                ]}
+              >
+                <Ionicons name="link-outline" size={20} color="#fff" />
+                <Text style={styles.shareText}>Create public link</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Share scorecard image"
+                disabled={sharing}
+                onPress={() => void shareScorecardImage()}
+                style={[
+                  styles.shareButton,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    borderWidth: 1,
+                    flex: 1,
+                    opacity: sharing ? 0.6 : 1,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="share-social-outline"
+                  size={20}
+                  color={colors.text}
+                />
+                <Text style={[styles.shareText, { color: colors.text }]}>
+                  {sharing ? "Preparing…" : "Share image"}
+                </Text>
+              </Pressable>
+            </View>
           </>
         )}
       </ScrollView>
+
+      <ShareScorecardModal
+        visible={shareModalVisible}
+        scorecard={card}
+        onClose={() => setShareModalVisible(false)}
+      />
     </Screen>
   );
 }
@@ -851,14 +884,19 @@ const styles = StyleSheet.create({
     borderTopColor: "#ffffff45",
     paddingTop: 10,
   },
+  shareActionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16,
+  },
   shareButton: {
     minHeight: 52,
     borderRadius: 12,
-    marginTop: 16,
     flexDirection: "row",
-    gap: 9,
+    gap: 8,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 12,
   },
-  shareText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  shareText: { color: "#fff", fontSize: 14, fontWeight: "800" },
 });
