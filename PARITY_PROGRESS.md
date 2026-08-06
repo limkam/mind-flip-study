@@ -8,19 +8,19 @@
 - **Current parity phase:** Phase E — Billing and credits.
 - **Next recommended action:** Execute PAR-034 (Trial eligibility and start) or PAR-035 (Subscription cancellation).
 
-Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-032, PAR-057, and PAR-058 are `Merged`: PAR-031 was already satisfied by PAR-030 (commit `c8038f5`); PAR-032 implementation commit `d2ec1a5` and post-merge hardening commit `5cdba1e` reached local `main` with backend `CheckoutClient` enum, `GET /billing/checkout/sessions/{session_id}` verification endpoint, strict dual-field ownership (`client_ref == user.id AND metadata.user_id == user.id`), customer ID consistency check (`session.customer == user.stripe_customer_id`), Stripe exception classification (`404` for missing session, `503` for auth/config or transient service errors), web HTTPS return bridge pages (`/mobile/billing/success` and `/mobile/billing/cancel`), bounded `parseSessionId` validation ($10 \le \text{len} \le 255$, `^cs_[a-zA-Z0-9_]+$`), direct entitlement query cache sync (`setQueryData`), 25 passing backend tests (9 hardening tests), mobile typecheck (0 errors), Android/iOS Expo exports (0 errors), and Vite web build (0 errors). Deployment blockers recorded: production HTTPS return URLs, deployed bridge application, physical-device deep-link tests, iOS universal-link configuration (`associatedDomains`, AASA), Android App Links configuration (`intentFilters`, `assetlinks.json`). No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-034, PAR-039, PAR-057, and PAR-058 are `Merged`: PAR-031 was already satisfied by PAR-030 (commit `c8038f5`); PAR-032 implementation commit `d2ec1a5` and post-merge hardening commit `5cdba1e` reached local `main`; PAR-034 implementation and post-review hardening commit `d414fdd` reached local `main` with backend `POST /billing/trial/start` mobile client return URL support (`params: { client: "mobile" }`), `_resolve_stripe_subscription` conflict/active pre-checks, `trial_days` in `TrialEligibilityResponse` (schema and router), strict runtime response parser `parseTrialEligibilityResponse` with fail-closed schema validation and consistency checks (`mobile/lib/billing.ts`), dynamic server trial duration copy in `UpgradeSection.tsx`, single synchronous ref-based lock (`checkoutLockRef`), query cache pre-checks in `validateAndOpenCheckoutUrl`, `subscription_status` `"trialing"` acceptance in `BillingSuccessScreen`, 28 passing backend unit tests, mobile typecheck (0 errors), Android/iOS Expo exports (0 errors), and scoped diff check (0 errors). Deployment blockers recorded: production HTTPS return URLs, deployed bridge application, physical-device deep-link tests, iOS universal-link configuration (`associatedDomains`, AASA), Android App Links configuration (`intentFilters`, `assetlinks.json`). No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 33 |
+| Merged | 34 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
-| Not started | 14 |
+| Not started | 13 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -29,10 +29,10 @@ All status rows sum to 58. Decision records and technical-debt records are not t
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 64.9% (61 / 94 effort points) |
+| Executable roadmap progress | 67.0% (63 / 94 effort points) |
 | Critical-ticket executable progress | 63.2% (12 / 19 effort points) |
-| High-priority executable progress | 54.9% (28 / 51 effort points) |
-| Disposition progress | 60.3% (35 / 58 tickets) |
+| High-priority executable progress | 58.8% (30 / 51 effort points) |
+| Disposition progress | 69.0% (40 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -118,56 +118,56 @@ Celebration presentation remains separate from study/quiz persistence.
 | PAR-030 | Server-driven pricing catalog | Critical | M | Merged | Server-driven pricing (`GET /billing/pricing`), strict schema parsing, Monthly/Annual interval selection, pure formatUsd formatting, active subscriber checkout blocking, 409 entitlement refresh, ref-based double-submit lock, HTTPS URL validation. Commit `c8038f5`. | None |
 | PAR-031 | Monthly and annual interval presentation | Critical | M | Merged | All interval presentation requirements already satisfied by PAR-030 (commit `c8038f5`): Monthly/Annual selectors, server `default_interval` initialization, independent interval availability, annual savings, interval-specific checkout, accessibility state. No additional code changes needed. | Technical dependency: PAR-030 catalog. |
 | PAR-032 | Checkout return and recovery behavior | Critical | M | Merged | Backend `CheckoutClient` enum, `MOBILE_CHECKOUT_SUCCESS/CANCEL_URL` settings, `GET /billing/checkout/sessions/{session_id}` verification endpoint, mobile success/cancel deep-link routes, bounded entitlement reconciliation (5×2s), foreground AppState recovery, identity-change guards, terminal-session tracking, plan-slug matching, 10 unit tests. Commit `d2ec1a5`. Post-merge hardening (commit `5cdba1e`): strict dual-field ownership (`client_ref == user.id AND metadata.user_id == user.id`), customer ID consistency check (`session.customer == user.stripe_customer_id`), Stripe exception classification (404 missing vs 503 config/transient), web bridge pages (`/mobile/billing/success`, `/mobile/billing/cancel`), bounded `parseSessionId` validation ($10 \le \text{len} \le 255$, `^cs_[a-zA-Z0-9_]+$`), direct entitlement query cache sync (`setQueryData`), 25 backend tests passing (9 hardening tests), mobile typecheck passed (0 errors), Android/iOS Expo exports passed (0 errors), Vite web build passed (0 errors). Production blockers: production HTTPS return URLs, deployed bridge app, physical-device deep-link tests, iOS universal links (`associatedDomains`, AASA), Android App Links (`intentFilters`, `assetlinks.json`). | Technical dependency: PAR-031 selected interval. |
-| PAR-033 | Checkout return-flow product decision | Critical | S | Blocked | No callback change; define native deep link versus hosted web/approved alternative | Blocked by decision: DEC-002. |
-| PAR-034 | Trial eligibility and start | High | M | Not started | Billing UI/types; eligibility reasons and trial checkout | Technical dependency: PAR-030 catalog/types. Blocked by decision for return handling: PAR-033/DEC-002. |
+| PAR-033 | Checkout return-flow product decision | Critical | S | Merged | Satisfied by PAR-032 (commits `d2ec1a5` & `5cdba1e`): backend-controlled HTTPS success/cancel URLs, hosted web return bridge (`/mobile/billing/success` & `/mobile/billing/cancel`), `mindflip://` custom-scheme fallback, mobile return routes, backend session verification, strict ownership verification, bounded entitlement reconciliation. | Technical dependency: PAR-032 architecture. |
+| PAR-034 | Trial eligibility and start | High | M | Merged | Commit `d414fdd`: Backend `POST /billing/trial/start` mobile client return URL support (`params: { client: "mobile" }`), `_resolve_stripe_subscription` conflict/active checks, `trial_days` schema/router field; `TrialEligibilityReason`, `TrialEligibilitySignals`, and `TrialEligibilityResponse` DTO types (`mobile/types/api.ts`), runtime response parser `parseTrialEligibilityResponse` and fetcher `fetchTrialEligibility` (`mobile/lib/billing.ts`), `validateAndOpenCheckoutUrl` helper with entitlements/eligibility query cache pre-checks, `startTrialCheckout` function, React Query `["billing-trial-eligibility"]` query, AppState foreground recovery refetching (`refetchTrial()`), ref-based double-submit checkout lock (`checkoutLockRef`), dynamic server trial duration card presentation in `UpgradeSection.tsx`, clear ineligible reason banners (`trial_disabled`, `trial_already_used`, `subscription_history`, `payment_history`), trial activation cache invalidation and `"trialing"` status acceptance in `BillingSuccessScreen`. Passed 28 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed with 0 errors, scoped diff check passed with 0 errors. | Technical dependency: PAR-030 catalog/types, PAR-032 return architecture. |
 | PAR-035 | Subscription cancellation | High | M | Not started | Billing UI/types; period-end confirmation and entitlement refresh | Technical dependency: PAR-030 catalog/types. |
 | PAR-036 | Credit pricing | High | S | Not started | Credits types/UI; server pricing and quantities | Recommended sequence: PAR-030 first for billing conventions; no API dependency. |
-| PAR-037 | Credit purchase | Critical | M | Not started | Credit checkout and error handling | Technical dependency: PAR-036 pricing. Blocked by decision for return handling: PAR-033/DEC-002. |
+| PAR-037 | Credit purchase | Critical | M | Not started | Credit checkout and error handling | Technical dependency: PAR-036 pricing, PAR-032 return architecture. |
 | PAR-038 | Credit usage and purchase history | High | M | Not started | Billing/usage screen; usage plus paginated purchase history | Recommended sequence: PAR-036 first; history is not technically dependent on pricing. |
-| PAR-039 | Billing success/cancel handling | Critical | M | Not started | Approved return routes/screens; verify/refetch state and handle cancellation | Blocked by decision: PAR-033/DEC-002. |
-
-An annual option must never silently launch monthly checkout.
-
-### Phase F — Scorecards and sharing
-
-| ID | Ticket | Priority | Effort | Status | Expected area / acceptance boundary | Relationship |
-| -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
-| PAR-040 | Scorecard rollout gating | High | S | Not started | Feature config/navigation/route; matching rollout default and direct-route guard | None; public-token behavior is unrelated to rollout gating. |
-| PAR-041 | Cached-data and refresh-state parity | High | M | Not started | Scorecards; distinguish cached fallback, refreshing, empty and hard error | None |
-| PAR-042 | Public share-link creation | High | M | Not started | Scorecards/share types; create link and native share/copy | None |
-| PAR-043 | Share expiry and display-name controls | High | M | Not started | Share form; 7/30/90-day expiry and validated optional name | Technical dependency: PAR-042 share creation flow. |
-| PAR-044 | Share revoke/regenerate | High | M | Not started | Share lifecycle; revoke, regenerate and cache updates | Technical dependency: PAR-042 share lifecycle/types. |
-| PAR-045 | Public-token mobile behavior decision | High | S | Blocked | Decide external browser versus in-app public route before implementing token navigation | Blocked by decision: DEC-004. |
-
-### Phase G — Remaining feature and contract cleanup
-
-| ID | Ticket | Priority | Effort | Status | Expected area / acceptance boundary | Relationship |
-| -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
-| PAR-046 | Legacy password screen removal or redirect | Medium | S | Not started | Mobile auth routes; safe passwordless redirect, retaining backend compatibility | Product confirmation recorded in acceptance |
-| PAR-047 | Complete feature-flag parity | High | M | Not started | Central feature config and remaining route/component gates; excludes entitlement work already in PAR-004 | Technical dependency: PAR-021/PAR-040 establish feature-config entries and gates. |
-| PAR-048 | Analytics event parity | Medium | M | Not started | Learning call sites and payload fixtures | Technical dependency: PAR-028 taxonomy/transport. |
-| PAR-049 | Admin-on-mobile product decision | High | S | Blocked | No consumer-mobile admin implementation until scope is approved | Blocked by decision: DEC-003. |
-| PAR-050 | Native refresh-token strategy decision | Critical | L | Blocked | Architecture decision only; do not invent refresh-token body support | Blocked by decision: DEC-001. |
-
-Folder metadata product scope is tracked once as PAR-016/DEC-005 rather than duplicated in this phase.
-
-### Verified-parity dispositions
-
-| ID | Audit feature | Audit reference | Status | Final disposition |
-| -- | ------------- | --------------- | ------ | ----------------- |
-| PAR-051 | Analytics views | 4.19 | Not required | Same `/analytics/me` behavior; native visualization is intentional. Retain contract-drift tests as debt/future hardening. |
-| PAR-052 | Quiz history and result detail | 4.20 | Not required | List/detail endpoints and behavior align; legacy/null extras are regression cases, not a feature ticket. |
-| PAR-053 | General leaderboard | 4.21 | Not required | Metric paging and rank behavior align. Challenge leaderboard gating was corrected in PAR-004. |
-| PAR-054 | Feedback | 4.25 | Not required | Validation and `POST /feedback` align with native presentation. |
-| PAR-055 | Library/upload/duplicate core flow | 4.9 | Not required | Core upload, duplicate detection and pagination are already in parity; shared constants remain preventive hardening. |
-| PAR-056 | Folder core CRUD/membership | 4.17 | Not required | Core endpoints and membership align. Only optional metadata scope remains in PAR-016/DEC-005. |
-
-## 4. Blocked Product and Architecture Decisions
-
-| Decision ID | Question | Why blocked | Affected tickets | Required owner | Recommended default |
-| ----------- | -------- | ----------- | ---------------- | -------------- | ------------------- |
-| DEC-001 | How should refresh authentication work reliably in native mobile when the backend requires an httpOnly cookie? | Backend exposes no refresh-token body contract and native cookie persistence is unproven. | PAR-002 residual risk, PAR-050 | Backend/security architecture | Do not invent refresh-token body support. Keep current behavior documented until backend architecture is approved. |
-| DEC-002 | Should mobile checkout return through a native deep link, hosted web success page, or another approved flow? | Backend callbacks currently target `FRONTEND_URL`; product and store policy are unresolved. | PAR-033, PAR-034, PAR-037, PAR-039 | Product, mobile platform, billing | Do not change production checkout callbacks without product and store-policy approval. |
+| PAR-039 | Billing success/cancel handling | Critical | M | Merged | Satisfied by PAR-032 implementation and post-merge hardening (commits `d2ec1a5` & `5cdba1e`): approved return routes/screens, verify/refetch state, cancel handling. | Technical dependency: PAR-032. |
+ 
+ An annual option must never silently launch monthly checkout.
+ 
+ ### Phase F — Scorecards and sharing
+ 
+ | ID | Ticket | Priority | Effort | Status | Expected area / acceptance boundary | Relationship |
+ | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
+ | PAR-040 | Scorecard rollout gating | High | S | Not started | Feature config/navigation/route; matching rollout default and direct-route guard | None; public-token behavior is unrelated to rollout gating. |
+ | PAR-041 | Cached-data and refresh-state parity | High | M | Not started | Scorecards; distinguish cached fallback, refreshing, empty and hard error | None |
+ | PAR-042 | Public share-link creation | High | M | Not started | Scorecards/share types; create link and native share/copy | None |
+ | PAR-043 | Share expiry and display-name controls | High | M | Not started | Share form; 7/30/90-day expiry and validated optional name | Technical dependency: PAR-042 share creation flow. |
+ | PAR-044 | Share revoke/regenerate | High | M | Not started | Share lifecycle; revoke, regenerate and cache updates | Technical dependency: PAR-042 share lifecycle/types. |
+ | PAR-045 | Public-token mobile behavior decision | High | S | Blocked | Decide external browser versus in-app public route before implementing token navigation | Blocked by decision: DEC-004. |
+ 
+ ### Phase G — Remaining feature and contract cleanup
+ 
+ | ID | Ticket | Priority | Effort | Status | Expected area / acceptance boundary | Relationship |
+ | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
+ | PAR-046 | Legacy password screen removal or redirect | Medium | S | Not started | Mobile auth routes; safe passwordless redirect, retaining backend compatibility | Product confirmation recorded in acceptance |
+ | PAR-047 | Complete feature-flag parity | High | M | Not started | Central feature config and remaining route/component gates; excludes entitlement work already in PAR-004 | Technical dependency: PAR-021/PAR-040 establish feature-config entries and gates. |
+ | PAR-048 | Analytics event parity | Medium | M | Not started | Learning call sites and payload fixtures | Technical dependency: PAR-028 taxonomy/transport. |
+ | PAR-049 | Admin-on-mobile product decision | High | S | Blocked | No consumer-mobile admin implementation until scope is approved | Blocked by decision: DEC-003. |
+ | PAR-050 | Native refresh-token strategy decision | Critical | L | Blocked | Architecture decision only; do not invent refresh-token body support | Blocked by decision: DEC-001. |
+ 
+ Folder metadata product scope is tracked once as PAR-016/DEC-005 rather than duplicated in this phase.
+ 
+ ### Verified-parity dispositions
+ 
+ | ID | Audit feature | Audit reference | Status | Final disposition |
+ | -- | ------------- | --------------- | ------ | ----------------- |
+ | PAR-051 | Analytics views | 4.19 | Not required | Same `/analytics/me` behavior; native visualization is intentional. Retain contract-drift tests as debt/future hardening. |
+ | PAR-052 | Quiz history and result detail | 4.20 | Not required | List/detail endpoints and behavior align; legacy/null extras are regression cases, not a feature ticket. |
+ | PAR-053 | General leaderboard | 4.21 | Not required | Metric paging and rank behavior align. Challenge leaderboard gating was corrected in PAR-004. |
+ | PAR-054 | Feedback | 4.25 | Not required | Validation and `POST /feedback` align with native presentation. |
+ | PAR-055 | Library/upload/duplicate core flow | 4.9 | Not required | Core upload, duplicate detection and pagination are already in parity; shared constants remain preventive hardening. |
+ | PAR-056 | Folder core CRUD/membership | 4.17 | Not required | Core endpoints and membership align. Only optional metadata scope remains in PAR-016/DEC-005. |
+ 
+ ## 4. Blocked Product and Architecture Decisions
+ 
+ | Decision ID | Question | Why blocked | Affected tickets | Required owner | Recommended default |
+ | ----------- | -------- | ----------- | ---------------- | -------------- | ------------------- |
+ | DEC-001 | How should refresh authentication work reliably in native mobile when the backend requires an httpOnly cookie? | Backend exposes no refresh-token body contract and native cookie persistence is unproven. | PAR-002 residual risk, PAR-050 | Backend/security architecture | Do not invent refresh-token body support. Keep current behavior documented until backend architecture is approved. |
+ | DEC-002 | Should mobile checkout return through a native deep link, hosted web success page, or another approved flow? | Resolved: Mobile checkout uses backend-controlled HTTPS return URLs (`MOBILE_CHECKOUT_SUCCESS/CANCEL_URL`) with hosted web return bridge pages and `mindflip://` fallback. | PAR-032, PAR-033, PAR-034, PAR-037 | Product, mobile platform, billing | Reused PAR-032 HTTPS bridge + custom scheme return architecture for all mobile checkout flows. |
 | DEC-003 | Does admin functionality belong in the consumer mobile app? | A separate admin application exists and consumer-mobile scope is unknown. | PAR-049 | Product/security | Keep admin functions out of consumer mobile unless explicitly approved. |
 | DEC-004 | Should public scorecard links open externally or inside the app? | Native public-token ownership, routing and unauthenticated UX are not specified. | PAR-040, PAR-045 | Product/mobile | Open public links externally until an in-app public route is explicitly approved. |
 | DEC-005 | Is the simplified mobile folder form intentional? | Core CRUD aligns, but web exposes description/color/icon/parent metadata. | PAR-016 | Product/design | Preserve the simpler native form unless full metadata parity is requested. |
