@@ -278,6 +278,7 @@ async def _trial_eligibility_signals(db: AsyncSession, user: User) -> dict:
     trial_meta = dict(prefs.get("trial") or {})
     trial_used = bool(trial_meta.get("used_at"))
     return {
+        "trial_enabled": bool(settings.TRIAL_ENABLED),
         "has_prior_subscription": has_prior_subscription,
         "has_credit_purchase_history": has_credit_purchase_history,
         "trial_used": trial_used,
@@ -652,25 +653,27 @@ async def trial_eligibility(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TrialEligibilityResponse:
+    trial_days = int(settings.TRIAL_DAYS_PREMIUM)
     if not settings.TRIAL_ENABLED:
-        return TrialEligibilityResponse(eligible=False, reason="trial_disabled", signals={"trial_enabled": False})
+        return TrialEligibilityResponse(eligible=False, reason="trial_disabled", signals={"trial_enabled": False}, trial_days=trial_days)
 
     signals = await _trial_eligibility_signals(db, current_user)
     if current_user.subscription_tier != "free":
-        return TrialEligibilityResponse(eligible=False, reason="already_paid", signals=signals)
+        return TrialEligibilityResponse(eligible=False, reason="already_paid", signals=signals, trial_days=trial_days)
     if signals["trial_used"]:
-        return TrialEligibilityResponse(eligible=False, reason="trial_already_used", signals=signals)
+        return TrialEligibilityResponse(eligible=False, reason="trial_already_used", signals=signals, trial_days=trial_days)
     if signals["has_prior_subscription"]:
-        return TrialEligibilityResponse(eligible=False, reason="subscription_history", signals=signals)
+        return TrialEligibilityResponse(eligible=False, reason="subscription_history", signals=signals, trial_days=trial_days)
     if signals["has_credit_purchase_history"]:
-        return TrialEligibilityResponse(eligible=False, reason="payment_history", signals=signals)
-    return TrialEligibilityResponse(eligible=True, signals=signals)
+        return TrialEligibilityResponse(eligible=False, reason="payment_history", signals=signals, trial_days=trial_days)
+    return TrialEligibilityResponse(eligible=True, reason=None, signals=signals, trial_days=trial_days)
 
 
 @router.post("/trial/start", response_model=CheckoutUrlResponse)
 async def start_trial_checkout(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    client: Annotated[CheckoutClient, Query(description="Client platform ('web' or 'mobile')")] = CheckoutClient.web,
 ) -> CheckoutUrlResponse:
     trial_check = await trial_eligibility(current_user=current_user, db=db)
     if not trial_check.eligible:
@@ -700,13 +703,32 @@ async def start_trial_checkout(
         await db.commit()
         await db.refresh(user_row)
 
-    base = settings.FRONTEND_URL.rstrip("/")
+    resolution = await _resolve_stripe_subscription(db, user_row)
+    if resolution["state"] == "subscription_conflict":
+        raise _billing_error(status.HTTP_409_CONFLICT, "SUBSCRIPTION_CONFLICT", "Multiple active subscriptions require support review before initiating trial checkout.")
+    if resolution["state"] == "active":
+        raise _billing_error(status.HTTP_409_CONFLICT, "ALREADY_SUBSCRIBED", "An active subscription already exists. Manage it from Billing & Usage.")
+
+    if client == CheckoutClient.mobile:
+        base_success = settings.MOBILE_CHECKOUT_SUCCESS_URL
+        base_cancel = settings.MOBILE_CHECKOUT_CANCEL_URL
+    else:
+        base_web = settings.FRONTEND_URL.rstrip("/")
+        base_success = f"{base_web}/billing/success"
+        base_cancel = f"{base_web}/billing/cancel"
+
+    if "?" in base_success:
+        success_url = f"{base_success}&session_id={{CHECKOUT_SESSION_ID}}"
+    else:
+        success_url = f"{base_success}?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = base_cancel
+
     session = stripe.checkout.Session.create(
         customer=user_row.stripe_customer_id,
         mode="subscription",
         line_items=[{"price": price_id, "quantity": 1}],
-        success_url=f"{base}/billing/success",
-        cancel_url=f"{base}/billing/cancel",
+        success_url=success_url,
+        cancel_url=cancel_url,
         client_reference_id=str(user_row.id),
         metadata={
             "user_id": str(user_row.id),

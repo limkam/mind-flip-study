@@ -113,6 +113,7 @@ export default function BillingSuccessScreen() {
         if (!mountedRef.current) return;
         mobileQueryClient.setQueryData(["billing-entitlements"], entitlements);
         await mobileQueryClient.invalidateQueries({ queryKey: ["billing-entitlements"] });
+        await mobileQueryClient.invalidateQueries({ queryKey: ["billing-trial-eligibility"] });
         if (!mountedRef.current) return;
         setStatusState("activated");
         return;
@@ -166,14 +167,18 @@ export default function BillingSuccessScreen() {
         return;
       }
 
-      // Confirm the expected plan is now active
-      const isActivePaid = entitlements.plan_slug !== "free";
+      // Confirm the expected plan is now active or trialing
+      const isConfirmedStatus =
+        entitlements.subscription_status === "active" ||
+        entitlements.subscription_status === "trialing";
+      const isActivePaid = entitlements.plan_slug !== "free" && isConfirmedStatus;
       const planMatches = !expectedPlanSlug || entitlements.plan_slug === expectedPlanSlug;
 
       if (isActivePaid && planMatches) {
         terminalSessionsRef.current.add(sessionId);
         mobileQueryClient.setQueryData(["billing-entitlements"], entitlements);
         await mobileQueryClient.invalidateQueries({ queryKey: ["billing-entitlements"] });
+        await mobileQueryClient.invalidateQueries({ queryKey: ["billing-trial-eligibility"] });
         if (!mountedRef.current) return;
         setStatusState("activated");
         return;

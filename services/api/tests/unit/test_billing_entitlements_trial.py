@@ -603,3 +603,97 @@ async def test_verify_session_stripe_transient_error_returns_503(monkeypatch):
         await billing.verify_checkout_session(session_id='cs_test_transient_err', current_user=user, db=db)
     assert exc.value.status_code == 503
     assert exc.value.detail == "Checkout verification service temporarily unavailable"
+
+
+@pytest.mark.asyncio
+async def test_trial_eligibility_reasons(monkeypatch):
+    """Verify reason codes for trial disabled, already paid, sub history, and payment history."""
+    user = SimpleNamespace(id=uuid4(), subscription_tier='free', preferences={})
+    db = AsyncMock()
+
+    # 1. trial_disabled
+    monkeypatch.setattr(billing.settings, 'TRIAL_ENABLED', False)
+    out1 = await billing.trial_eligibility(current_user=user, db=db)
+    assert out1.eligible is False
+    assert out1.reason == 'trial_disabled'
+
+    monkeypatch.setattr(billing.settings, 'TRIAL_ENABLED', True)
+
+    # 2. already_paid
+    paid_user = SimpleNamespace(id=uuid4(), subscription_tier='premium', preferences={})
+    monkeypatch.setattr(billing, '_trial_eligibility_signals', AsyncMock(return_value={
+        'trial_enabled': True, 'trial_used': False, 'has_prior_subscription': False, 'has_credit_purchase_history': False
+    }))
+    out2 = await billing.trial_eligibility(current_user=paid_user, db=db)
+    assert out2.eligible is False
+    assert out2.reason == 'already_paid'
+
+    # 3. subscription_history
+    monkeypatch.setattr(billing, '_trial_eligibility_signals', AsyncMock(return_value={
+        'trial_enabled': True, 'trial_used': False, 'has_prior_subscription': True, 'has_credit_purchase_history': False
+    }))
+    out3 = await billing.trial_eligibility(current_user=user, db=db)
+    assert out3.eligible is False
+    assert out3.reason == 'subscription_history'
+
+    # 4. payment_history
+    monkeypatch.setattr(billing, '_trial_eligibility_signals', AsyncMock(return_value={
+        'trial_enabled': True, 'trial_used': False, 'has_prior_subscription': False, 'has_credit_purchase_history': True
+    }))
+    out4 = await billing.trial_eligibility(current_user=user, db=db)
+    assert out4.eligible is False
+    assert out4.reason == 'payment_history'
+
+
+@pytest.mark.asyncio
+async def test_start_trial_checkout_mobile_client(monkeypatch):
+    """Confirm start_trial_checkout with client=mobile uses mobile return URLs."""
+    uid = uuid4()
+    user = SimpleNamespace(id=uid, email="test@example.com", stripe_customer_id="cus_123", preferences={})
+    db = AsyncMock()
+    exec_res = MagicMock()
+    exec_res.scalar_one.return_value = user
+    db.execute.return_value = exec_res
+
+    monkeypatch.setattr(billing, 'trial_eligibility', AsyncMock(return_value=billing.TrialEligibilityResponse(eligible=True, reason=None, signals={})))
+    monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={'state': 'none', 'subscription': None, 'count': 0}))
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(billing.settings, 'STRIPE_PRICE_ID_PREMIUM_MONTHLY', 'price_123')
+    monkeypatch.setattr(billing.settings, 'MOBILE_CHECKOUT_SUCCESS_URL', 'https://mindflip.example.com/mobile/billing/success')
+    monkeypatch.setattr(billing.settings, 'MOBILE_CHECKOUT_CANCEL_URL', 'https://mindflip.example.com/mobile/billing/cancel')
+
+    created_params = {}
+    def mock_create(**kwargs):
+        created_params.update(kwargs)
+        return SimpleNamespace(url="https://checkout.stripe.com/pay/cs_trial_123")
+
+    monkeypatch.setattr(billing.stripe.checkout.Session, 'create', mock_create)
+
+    res = await billing.start_trial_checkout(current_user=user, db=db, client=billing.CheckoutClient.mobile)
+    assert res.checkout_url == "https://checkout.stripe.com/pay/cs_trial_123"
+    assert created_params['success_url'] == 'https://mindflip.example.com/mobile/billing/success?session_id={CHECKOUT_SESSION_ID}'
+    assert created_params['cancel_url'] == 'https://mindflip.example.com/mobile/billing/cancel'
+    assert created_params['subscription_data']['trial_period_days'] == 7
+
+
+@pytest.mark.asyncio
+async def test_start_trial_checkout_rejects_subscription_conflict(monkeypatch):
+    """Confirm start_trial_checkout raises 409 SUBSCRIPTION_CONFLICT when multiple active subs exist."""
+    uid = uuid4()
+    user = SimpleNamespace(id=uid, email="test@example.com", stripe_customer_id="cus_123", preferences={})
+    db = AsyncMock()
+    exec_res = MagicMock()
+    exec_res.scalar_one.return_value = user
+    db.execute.return_value = exec_res
+
+    monkeypatch.setattr(billing, 'trial_eligibility', AsyncMock(return_value=billing.TrialEligibilityResponse(eligible=True, reason=None, signals={})))
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(billing.settings, 'STRIPE_PRICE_ID_PREMIUM_MONTHLY', 'price_123')
+    monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
+        'state': 'subscription_conflict', 'subscription': None, 'count': 2,
+    }))
+
+    with pytest.raises(billing.HTTPException) as exc:
+        await billing.start_trial_checkout(current_user=user, db=db, client=billing.CheckoutClient.mobile)
+    assert exc.value.status_code == 409
+    assert exc.value.detail['code'] == 'SUBSCRIPTION_CONFLICT'

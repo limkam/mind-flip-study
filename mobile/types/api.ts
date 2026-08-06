@@ -396,3 +396,24 @@ export type CheckoutVerificationResponse = {
   plan_slug: BillingPlanSlug | null;
   interval: BillingInterval | null;
 };
+
+export type TrialEligibilityReason =
+  | "trial_disabled"
+  | "already_paid"
+  | "trial_already_used"
+  | "subscription_history"
+  | "payment_history";
+
+export type TrialEligibilitySignals = {
+  trial_enabled?: boolean;
+  trial_used?: boolean;
+  has_prior_subscription?: boolean;
+  has_credit_purchase_history?: boolean;
+};
+
+export type TrialEligibilityResponse = {
+  eligible: boolean;
+  reason: TrialEligibilityReason | null;
+  signals: TrialEligibilitySignals;
+  trial_days?: number;
+};

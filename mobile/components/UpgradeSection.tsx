@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   fetchBillingPricing,
   fetchEntitlementsSnapshot,
+  fetchTrialEligibility,
   formatUsd,
   getPlanIntervalPriceDetails,
   isFreeTier,
@@ -21,6 +22,7 @@ import {
   PLAN_ORDER,
   PLAN_TAGLINES,
   startCheckout,
+  startTrialCheckout,
   subscriptionLabel,
   subscriptionsEnabled,
 } from "../lib/billing";
@@ -28,7 +30,7 @@ import { useTheme } from "../hooks/useTheme";
 import { hapticImpact } from "../lib/haptics";
 import { getApiErrorMessage } from "../lib/apiErrors";
 import { useAuthStore } from "../store/authStore";
-import type { BillingInterval, BillingPlanSlug } from "../types/api";
+import type { BillingInterval, BillingPlanSlug, TrialEligibilityReason } from "../types/api";
 
 type Props = {
   subscriptionTier?: string | null;
@@ -45,12 +47,12 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
   const isEnabled = subscriptionsEnabled();
 
   const [interval, setInterval] = useState<BillingInterval>("monthly");
-  const [loadingSlug, setLoadingSlug] = useState<BillingPlanSlug | null>(null);
+  const [loadingSlug, setLoadingSlug] = useState<BillingPlanSlug | "trial_checkout" | null>(null);
 
   // Synchronous lock ref to prevent rapid double-taps before React state updates
   const checkoutLockRef = useRef<{
     attemptId: number;
-    slug: BillingPlanSlug;
+    slug: BillingPlanSlug | "trial_checkout";
     interval: BillingInterval;
     userId: string | null;
   } | null>(null);
@@ -88,6 +90,17 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
     enabled: isEnabled && isAuthenticated,
   });
 
+  const {
+    data: trialData,
+    isLoading: isTrialLoading,
+    isError: isTrialError,
+    refetch: refetchTrial,
+  } = useQuery({
+    queryKey: ["billing-trial-eligibility"],
+    queryFn: fetchTrialEligibility,
+    enabled: isEnabled && isAuthenticated,
+  });
+
   // Set initial interval once pricing returns backend default
   const defaultInitializedRef = useRef(false);
   useEffect(() => {
@@ -97,8 +110,7 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
     }
   }, [pricingData]);
 
-  // Foreground recovery: refetch entitlements when app becomes active after checkout browser handoff.
-  // If entitlements now show a paid plan, clear the pending attempt.
+  // Foreground recovery: refetch entitlements & trial status when app becomes active after checkout browser handoff.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       if (nextAppState !== "active") return;
@@ -109,8 +121,7 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
         checkoutLockRef.current = null;
         return;
       }
-      void refetchEntitlements().then(() => {
-        // Lock may have been cleared by another path; safe to check
+      Promise.all([refetchEntitlements(), refetchTrial()]).then(() => {
         if (checkoutLockRef.current?.attemptId === pendingAttempt.attemptId) {
           checkoutLockRef.current = null;
         }
@@ -122,11 +133,87 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
     return () => {
       subscription.remove();
     };
-  }, [refetchEntitlements]);
+  }, [refetchEntitlements, refetchTrial]);
 
   const activePlanSlug = entitlementsData?.plan_slug || null;
   const isPaidSubscriber = isAuthenticated && activePlanSlug !== null && activePlanSlug !== "free";
   const isConflict = entitlementsData?.subscription_status === "subscription_conflict";
+
+  const handleStartTrial = async () => {
+    if (!isAuthenticated) {
+      router.push("/(auth)/login");
+      return;
+    }
+
+    if (
+      isEntitlementsLoading ||
+      isEntitlementsError ||
+      isPaidSubscriber ||
+      isConflict ||
+      !trialData?.eligible
+    ) {
+      return;
+    }
+
+    if (checkoutLockRef.current !== null) {
+      return;
+    }
+
+    const currentAttemptId = ++attemptIdCounterRef.current;
+    const capturedUserId = userId || null;
+
+    checkoutLockRef.current = {
+      attemptId: currentAttemptId,
+      slug: "trial_checkout",
+      interval: "monthly",
+      userId: capturedUserId,
+    };
+    setLoadingSlug("trial_checkout");
+
+    try {
+      await startTrialCheckout(capturedUserId || undefined);
+    } catch (e: unknown) {
+      if (checkoutLockRef.current?.attemptId === currentAttemptId) {
+        checkoutLockRef.current = null;
+      }
+      if (mountedRef.current) {
+        setLoadingSlug(null);
+      }
+      if (
+        mountedRef.current &&
+        (!capturedUserId || useAuthStore.getState().user?.id === capturedUserId)
+      ) {
+        const errorMsg = getApiErrorMessage(e);
+        if (errorMsg.includes("TRIAL_NOT_ELIGIBLE") || errorMsg.includes("not eligible")) {
+          void refetchTrial();
+          void refetchEntitlements();
+          Alert.alert(
+            "Trial no longer available",
+            "Your account is not eligible for a free trial at this time.",
+          );
+        } else if (errorMsg.includes("ALREADY_SUBSCRIBED") || errorMsg.includes("active subscription")) {
+          void refetchEntitlements();
+          void refetchTrial();
+          Alert.alert(
+            "Already subscribed",
+            "An active subscription already exists for your account. Manage your plan from Billing & Usage.",
+          );
+        } else if (errorMsg.includes("SUBSCRIPTION_CONFLICT")) {
+          void refetchEntitlements();
+          void refetchTrial();
+          Alert.alert(
+            "Subscription conflict",
+            "Multiple active subscriptions require support review before initiating trial checkout.",
+          );
+        } else {
+          Alert.alert(
+            "Trial checkout unavailable",
+            getApiErrorMessage(e, "Could not start trial checkout."),
+          );
+        }
+      }
+    }
+  };
 
   const checkout = async (slug: BillingPlanSlug) => {
     if (slug === "free") return;
@@ -275,6 +362,27 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
     );
   }
 
+  const renderTrialReasonText = (reason: TrialEligibilityReason | null): string | null => {
+    switch (reason) {
+      case "trial_disabled":
+        return "Free trial is currently unavailable.";
+      case "already_paid":
+        return null;
+      case "trial_already_used":
+        return "Free trial has already been used for this account.";
+      case "subscription_history":
+        return "Free trial is unavailable for accounts with prior subscriptions.";
+      case "payment_history":
+        return "Free trial is unavailable for accounts with prior payment history.";
+      default:
+        return null;
+    }
+  };
+
+  const trialReasonText = renderTrialReasonText(trialData?.reason || null);
+
+  const trialDays = trialData?.trial_days ?? 7;
+
   return (
     <View style={styles.plans}>
       <View style={styles.headerBlock}>
@@ -285,6 +393,103 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
           Pick the plan that matches your study load. Compare monthly and annual options.
         </Text>
       </View>
+
+      {/* Trial presentation section */}
+      {!isAuthenticated ? (
+        <Pressable
+          style={[
+            styles.trialCard,
+            {
+              backgroundColor: colors.primary + "0B",
+              borderColor: colors.primary + "30",
+            },
+          ]}
+          onPress={() => router.push("/(auth)/login")}
+          accessibilityRole="button"
+          accessibilityLabel="Sign in to check trial eligibility"
+        >
+          <View style={styles.trialHeaderRow}>
+            <Text style={[styles.trialTitle, { color: colors.text }]}>
+              {trialDays}-day Free Trial of Premium 30
+            </Text>
+            <View style={[styles.badge, { backgroundColor: colors.primary + "20" }]}>
+              <Text style={[styles.badgeText, { color: colors.primary }]}>{trialDays} Days Free</Text>
+            </View>
+          </View>
+          <Text style={[styles.tagline, { color: colors.muted }]}>
+            Sign in to check eligibility for a {trialDays}-day trial of Premium 30.
+          </Text>
+        </Pressable>
+      ) : isTrialLoading ? (
+        <View style={[styles.trialCard, { borderColor: colors.border, alignItems: "center", paddingVertical: 14 }]}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={[styles.tagline, { color: colors.muted, marginTop: 4 }]}>
+            Checking free trial eligibility…
+          </Text>
+        </View>
+      ) : isTrialError ? (
+        <View style={[styles.trialCard, { borderColor: colors.border }]}>
+          <Text style={[styles.tagline, { color: colors.muted }]}>
+            Could not verify free trial eligibility.
+          </Text>
+          <Pressable
+            style={[styles.planBtn, styles.planBtnOutline, { borderColor: colors.border, marginTop: 8, alignSelf: "flex-start", paddingHorizontal: 16, minHeight: 36 }]}
+            onPress={() => void refetchTrial()}
+            accessibilityRole="button"
+            accessibilityLabel="Retry checking trial eligibility"
+          >
+            <Text style={[styles.planBtnText, { color: colors.text, fontSize: 13 }]}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : trialData?.eligible ? (
+        <View
+          style={[
+            styles.trialCard,
+            {
+              backgroundColor: colors.primary + "12",
+              borderColor: colors.primary,
+            },
+          ]}
+        >
+          <View style={styles.trialHeaderRow}>
+            <Text style={[styles.trialTitle, { color: colors.text }]}>
+              {trialDays}-day Free Trial of Premium 30
+            </Text>
+            <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.badgeText, { color: "#fff" }]}>{trialDays} Days Free</Text>
+            </View>
+          </View>
+          <Text style={[styles.tagline, { color: colors.muted }]}>
+            Full access to all Premium features for {trialDays} days. $0 today. Card authorization required at checkout.
+          </Text>
+          <Pressable
+            style={[
+              styles.planBtn,
+              { backgroundColor: colors.primary, marginTop: 8 },
+            ]}
+            disabled={!!loadingSlug || isEntitlementsLoading || isPaidSubscriber || isConflict}
+            onPress={() => {
+              void hapticImpact("light");
+              void handleStartTrial();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`Start ${trialDays}-day Premium trial`}
+          >
+            {loadingSlug === "trial_checkout" ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.planBtnText}>Start {trialDays}-day Premium trial</Text>
+            )}
+          </Pressable>
+        </View>
+
+      ) : trialReasonText ? (
+        <View style={[styles.trialCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+          <Text style={[styles.tagline, { color: colors.muted }]}>
+            {trialReasonText}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Native Interval Selector */}
       <View style={[styles.toggleContainer, { backgroundColor: colors.border + "40" }]}>
@@ -517,4 +722,16 @@ const styles = StyleSheet.create({
   },
   activeTitle: { fontSize: 16, fontWeight: "700" },
   activeHint: { fontSize: 14, lineHeight: 20 },
+  trialCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    gap: 8,
+  },
+  trialHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  trialTitle: { fontSize: 16, fontWeight: "700" },
 });

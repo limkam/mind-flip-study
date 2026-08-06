@@ -79,3 +79,4 @@ class TrialEligibilityResponse(BaseModel):
     eligible: bool
     reason: str | None = None
     signals: dict
+    trial_days: int = Field(7, description="Trial period duration in days")
