@@ -465,3 +465,42 @@ export type CreditBalance = {
 export type CreditBalanceResponse = {
   balance: CreditBalance;
 };
+
+export type CreditUsageRecord = {
+  id: string;
+  amount: number;
+  pool: string;
+  reason: string;
+  metadata: Record<string, unknown> | null;
+  expires_at: string | null;
+  created_at: string;
+};
+
+export type CreditUsageResponse = {
+  entries: CreditUsageRecord[];
+  discarded_count: number;
+  discarded_duplicates_count: number;
+};
+
+export type CreditPurchaseRecord = {
+  id: string;
+  quantity: number;
+  amount_paid_cents: number;
+  currency: string;
+  unit_price_cents: number;
+  created_at: string;
+  status: string;
+};
+
+export type PurchaseHistoryResponse = {
+  purchases: CreditPurchaseRecord[];
+  total_purchases: number;
+  discarded_count: number;
+  discarded_duplicates_count: number;
+};
+
+export type CreditActivityFilter =
+  | "all"
+  | "usage"
+  | "allowances"
+  | "purchases";

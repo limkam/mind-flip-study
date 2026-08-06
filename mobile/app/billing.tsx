@@ -1,13 +1,23 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { BuyCreditsModal } from "../components/billing/BuyCreditsModal";
 import { Screen } from "../components/Screen";
 import { useTheme } from "../hooks/useTheme";
 import { getApiErrorMessage } from "../lib/apiErrors";
-import { cancelSubscriptionAtPeriodEnd, fetchCreditUsage, fetchEntitlementsSnapshot } from "../lib/billing";
+import {
+  cancelSubscriptionAtPeriodEnd,
+  fetchCreditPurchaseHistory,
+  fetchCreditUsage,
+  fetchEntitlementsSnapshot,
+  formatCurrency,
+  formatExpiryText,
+  getCreditReasonLabel,
+} from "../lib/billing";
 import { useAuthStore } from "../store/authStore";
+import type { CreditActivityFilter } from "../types/api";
 
 const PLAN_NAMES: Record<string, string> = {
   free: "Free",
@@ -25,67 +35,95 @@ function parseAndFormatDate(dateStr: string | null | undefined): ParsedDate {
   if (!dateStr || typeof dateStr !== "string") return { formatted: null, isPast: false };
   const ms = Date.parse(dateStr);
   if (Number.isNaN(ms)) return { formatted: null, isPast: false };
-
-  const nowMs = Date.now();
-  const isPast = ms < nowMs;
-
   try {
     const formatted = new Date(ms).toLocaleDateString(undefined, {
       year: "numeric",
       month: "short",
       day: "numeric",
     });
-    return { formatted, isPast };
+    return { formatted, isPast: ms < Date.now() };
   } catch {
-    return { formatted: null, isPast };
+    return { formatted: null, isPast: false };
   }
 }
 
-type CancellationLock =
-  | {
-      phase: "confirming";
-      attemptId: number;
-      userId: string;
-      planSlug: string;
-    }
-  | {
-      phase: "submitting";
-      attemptId: number;
-      userId: string;
-      planSlug: string;
-    };
+function getEmptyStateText(filter: CreditActivityFilter): string {
+  switch (filter) {
+    case "usage":
+      return "No usage activity yet.";
+    case "allowances":
+      return "No allowance activity yet.";
+    case "purchases":
+      return "No purchase activity yet.";
+    default:
+      return "No credit activity yet.";
+  }
+}
 
 export default function BillingScreen() {
-  const { colors } = useTheme();
   const router = useRouter();
-  const user = useAuthStore((s) => s.user);
+  const { colors } = useTheme();
+
+  const user = useAuthStore((state) => state.user);
+
+  const mountedRef = useRef(true);
+  const cancellationLockRef = useRef<{
+    phase: "confirming" | "executing";
+    attemptId: number;
+    userId: string;
+    planSlug: string;
+  } | null>(null);
+  const attemptSeqRef = useRef(0);
+  const refreshingRef = useRef(false);
 
   const [loadingCancel, setLoadingCancel] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [cancelSuccessMsg, setCancelSuccessMsg] = useState<string | null>(null);
-
-  const mountedRef = useRef(true);
-  const attemptSeqRef = useRef(0);
-  const cancellationLockRef = useRef<CancellationLock | null>(null);
+  const [buyCreditsModalVisible, setBuyCreditsModalVisible] = useState(false);
+  const [activityFilter, setActivityFilter] = useState<CreditActivityFilter>("all");
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       cancellationLockRef.current = null;
+      refreshingRef.current = false;
     };
   }, []);
 
   const entitlements = useQuery({
     queryKey: ["billing-entitlements"],
     queryFn: fetchEntitlementsSnapshot,
-    staleTime: 30_000,
   });
 
   const usage = useQuery({
     queryKey: ["credit-usage"],
     queryFn: fetchCreditUsage,
   });
+
+  const purchaseHistory = useQuery({
+    queryKey: ["credit-purchase-history"],
+    queryFn: fetchCreditPurchaseHistory,
+  });
+
+  const handleRefresh = async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    try {
+      await Promise.allSettled([
+        entitlements.refetch(),
+        usage.refetch(),
+        purchaseHistory.refetch(),
+      ]);
+    } finally {
+      if (mountedRef.current) {
+        setRefreshing(false);
+        refreshingRef.current = false;
+      }
+    }
+  };
 
   const plan = entitlements.data;
   const balances = plan?.balances;
@@ -99,246 +137,200 @@ export default function BillingScreen() {
   const isTrialing = subStatus === "trialing";
   const isCanceledStatus = subStatus === "canceled";
 
-  // Access remains usable if plan is not free and period end is null or in the future
   const accessUsable = planSlug !== "free" && !parsedDate.isPast;
-
-  // Cancellation scheduled at period end: status is canceled, but access remains active through period end date
   const isCancelingAtPeriodEnd = isCanceledStatus && accessUsable;
-
-  // Expired: canceled or inactive status where end date has passed or plan is free
   const isFullyExpired = (isCanceledStatus && parsedDate.isPast) || (subStatus === "free" && planSlug === "free");
-
-  // Can cancel if currently active or trialing with valid access, no conflict, not loading, and not already canceling
   const canCancel = (isPaidActive || isTrialing) && accessUsable && !isConflict && !entitlements.isLoading;
 
+  const hasDiscardedRows = (usage.data?.discarded_count || 0) > 0 || (purchaseHistory.data?.discarded_count || 0) > 0;
+
+  const filteredUsageEntries = useMemo(() => {
+    const entries = usage.data?.entries || [];
+    return entries.filter((entry) => {
+      if (activityFilter === "all") return true;
+      if (activityFilter === "usage") return entry.amount < 0;
+      if (activityFilter === "allowances") {
+        return (
+          entry.reason.includes("allowance") ||
+          entry.reason === "signup_free_grant"
+        );
+      }
+      if (activityFilter === "purchases") return entry.reason === "purchased_credits";
+      return true;
+    });
+  }, [usage.data?.entries, activityFilter]);
+
   const handleCancelPress = () => {
-    // 1. Synchronous confirmation guard: reject rapid duplicate taps
-    if (
-      !canCancel ||
-      !user?.id ||
-      loadingCancel ||
-      cancellationLockRef.current !== null ||
-      entitlements.isFetching
-    ) {
+    if (!canCancel || !user?.id || loadingCancel || cancellationLockRef.current !== null || entitlements.isFetching) {
       return;
     }
 
     attemptSeqRef.current += 1;
     const currentAttemptId = attemptSeqRef.current;
-    const capturedUserId = user.id;
-    const capturedPlanSlug = planSlug;
-
     cancellationLockRef.current = {
       phase: "confirming",
       attemptId: currentAttemptId,
-      userId: capturedUserId,
-      planSlug: capturedPlanSlug,
+      userId: user.id,
+      planSlug,
     };
 
-    const formattedDate = parsedDate.formatted;
-    const title = "Cancel subscription?";
-    let body = "Your subscription will not renew. You will keep access until the end of the current billing period.";
-    if (isTrialing) {
-      body = formattedDate
-        ? `Your trial will not renew into a paid subscription. Access remains available until your trial ends on ${formattedDate}.`
-        : "Your trial will not renew into a paid subscription. Access remains available until the trial ends.";
-    } else if (formattedDate) {
-      body = `Your subscription will not renew. You will keep access until ${formattedDate}.`;
-    }
-
-    Alert.alert(title, body, [
-      {
-        text: "Keep subscription",
-        style: "cancel",
-        onPress: () => {
-          if (cancellationLockRef.current?.attemptId === currentAttemptId) {
-            cancellationLockRef.current = null;
-          }
-        },
-      },
-      {
-        text: "Cancel at period end",
-        style: "destructive",
-        onPress: () => {
-          executeCancellation(currentAttemptId, capturedUserId, capturedPlanSlug);
-        },
-      },
+    Alert.alert("Cancel subscription?", "Your subscription will not renew. You will keep access until the end of the current billing period.", [
+      { text: "Keep subscription", style: "cancel", onPress: () => { cancellationLockRef.current = null; } },
+      { text: "Cancel at period end", style: "destructive", onPress: () => executeCancellation(currentAttemptId, user.id, planSlug) },
     ]);
   };
 
-  const executeCancellation = async (
-    attemptId: number,
-    capturedUserId: string,
-    capturedPlanSlug: string
-  ) => {
-    // 2. Pre-request freshness and lock ownership checks
+  const executeCancellation = async (attemptId: number, capturedUserId: string, capturedPlanSlug: string) => {
     const latestUser = useAuthStore.getState().user;
     if (
       !mountedRef.current ||
       !latestUser?.id ||
       latestUser.id !== capturedUserId ||
-      cancellationLockRef.current?.attemptId !== attemptId ||
-      cancellationLockRef.current.phase !== "confirming"
+      cancellationLockRef.current?.attemptId !== attemptId
     ) {
-      cancellationLockRef.current = null;
+      if (cancellationLockRef.current?.attemptId === attemptId) {
+        cancellationLockRef.current = null;
+      }
       return;
     }
 
-    // Check latest snapshot data available from query client
-    const freshPlan = entitlements.data;
-    const freshSlug = freshPlan?.plan_slug || "free";
-    const freshStatus = freshPlan?.subscription_status || "free";
-    const freshDate = parseAndFormatDate(freshPlan?.renewal_or_end_date);
-    const freshAccessUsable = freshSlug !== "free" && !freshDate.isPast;
-
-    const freshCanCancel =
-      (freshStatus === "active" || freshStatus === "trialing") &&
-      freshAccessUsable;
-
-    if (!freshCanCancel) {
-      cancellationLockRef.current = null;
-      setCancelError("Subscription state changed before cancellation could be sent.");
-      return;
-    }
-
-    // Transition lock from confirming to submitting
-    cancellationLockRef.current = {
-      phase: "submitting",
-      attemptId,
-      userId: capturedUserId,
-      planSlug: capturedPlanSlug,
-    };
-
+    cancellationLockRef.current.phase = "executing";
     setLoadingCancel(true);
     setCancelError(null);
     setCancelSuccessMsg(null);
 
     try {
-      const res = await cancelSubscriptionAtPeriodEnd();
+      await cancelSubscriptionAtPeriodEnd();
 
-      // 3. Post-response ownership verification
-      if (
-        !mountedRef.current ||
-        cancellationLockRef.current?.attemptId !== attemptId ||
-        useAuthStore.getState().user?.id !== capturedUserId
-      ) {
+      if (!mountedRef.current) return;
+      const currentUser = useAuthStore.getState().user;
+      if (currentUser?.id !== capturedUserId) {
+        setCancelError("Account context changed during request.");
         return;
       }
 
-      const resParsed = parseAndFormatDate(res.current_period_end);
-      const resDateFormatted = resParsed.formatted || freshDate.formatted;
-
-      const successText = resDateFormatted
-        ? `Cancellation scheduled. Your subscription will end on ${resDateFormatted}. Access remains active until then.`
-        : "Cancellation scheduled. Your subscription will end at period close. Access remains active until then.";
-
-      setCancelSuccessMsg(successText);
-
-      try {
-        await entitlements.refetch();
-      } catch (refreshErr) {
-        if (mountedRef.current) {
-          setCancelError(
-            `Cancellation scheduled, but account details could not be refreshed immediately (${getApiErrorMessage(refreshErr, "Network error")}). Please pull down to refresh.`
-          );
-        }
-      }
+      setCancelSuccessMsg("Subscription cancellation scheduled. Your access remains active until the end of your billing period.");
+      await entitlements.refetch();
     } catch (err) {
-      if (
-        !mountedRef.current ||
-        cancellationLockRef.current?.attemptId !== attemptId ||
-        useAuthStore.getState().user?.id !== capturedUserId
-      ) {
-        return;
-      }
-
-      const rawErr = err as { response?: { status?: number; data?: { detail?: unknown } } };
-      const status = rawErr?.response?.status;
-      const detailObj = rawErr?.response?.data?.detail;
-      const errorCode =
-        detailObj && typeof detailObj === "object"
-          ? (detailObj as Record<string, unknown>).code
-          : null;
-
-      if (status === 404) {
-        setCancelError("No active subscription was found for this account.");
-        entitlements.refetch();
-      } else if (status === 409 || errorCode === "SUBSCRIPTION_CONFLICT") {
-        setCancelError("Your subscription requires review before it can be changed.");
-        entitlements.refetch();
-      } else if (status === 503) {
-        setCancelError("Subscription service is temporarily unavailable. Please try again later.");
-      } else {
-        setCancelError(getApiErrorMessage(err, "Subscription cancellation failed. Please try again later."));
-      }
+      if (!mountedRef.current) return;
+      const msg = getApiErrorMessage(err, "Failed to cancel subscription. Please try again.");
+      setCancelError(msg);
     } finally {
-      if (
-        mountedRef.current &&
-        cancellationLockRef.current?.attemptId === attemptId
-      ) {
-        cancellationLockRef.current = null;
+      if (mountedRef.current) {
         setLoadingCancel(false);
+      }
+      if (cancellationLockRef.current?.attemptId === attemptId) {
+        cancellationLockRef.current = null;
       }
     }
   };
 
-  return (
-    <Screen edges={["bottom"]}>
-      <Stack.Screen options={{ title: "Billing & credits" }} />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {isConflict ? (
-          <View style={[styles.banner, { backgroundColor: colors.warning + "20", borderColor: colors.warning }]}>
-            <Text style={[styles.bannerTitle, { color: colors.text }]}>Subscription Review Required</Text>
-            <Text style={[styles.bannerText, { color: colors.muted }]}>
-              Multiple active subscriptions require support review. Cancellation and new checkouts are temporarily disabled.
-            </Text>
-          </View>
-        ) : null}
+  const totalPurchases = purchaseHistory.data?.total_purchases || 0;
+  const validPurchaseCount = purchaseHistory.data?.purchases?.length || 0;
+  const purchaseCountText = validPurchaseCount < totalPurchases
+    ? `Showing ${validPurchaseCount} of ${totalPurchases} purchases`
+    : `${totalPurchases} ${totalPurchases === 1 ? "purchase" : "purchases"}`;
 
+  return (
+    <Screen style={{ backgroundColor: colors.background }}>
+      <Stack.Screen options={{ title: "Billing & Subscriptions" }} />
+
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         {cancelSuccessMsg ? (
-          <View style={[styles.banner, { backgroundColor: colors.success + "20", borderColor: colors.success }]}>
-            <Text style={[styles.bannerTitle, { color: colors.success }]}>Cancellation Scheduled</Text>
+          <View style={[styles.banner, { backgroundColor: colors.success + "15", borderColor: colors.success }]}>
+            <Text style={[styles.bannerTitle, { color: colors.success }]}>Cancellation scheduled</Text>
             <Text style={[styles.bannerText, { color: colors.text }]}>{cancelSuccessMsg}</Text>
           </View>
         ) : null}
 
         {cancelError ? (
-          <View style={[styles.banner, { backgroundColor: colors.danger + "20", borderColor: colors.danger }]}>
-            <Text style={[styles.bannerTitle, { color: colors.danger }]}>Notice</Text>
+          <View style={[styles.banner, { backgroundColor: colors.danger + "15", borderColor: colors.danger }]}>
+            <Text style={[styles.bannerTitle, { color: colors.danger }]}>Error</Text>
             <Text style={[styles.bannerText, { color: colors.text }]}>{cancelError}</Text>
           </View>
         ) : null}
 
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.label, { color: colors.muted }]}>Current plan</Text>
-          <Text style={[styles.plan, { color: colors.text }]}>{PLAN_NAMES[planSlug] || planSlug}</Text>
-
-          <View style={styles.statusRow}>
-            <Text
-              style={[
-                styles.statusBadge,
-                { color: isCancelingAtPeriodEnd ? colors.warning : isTrialing ? colors.primary : isFullyExpired ? colors.muted : colors.success },
-              ]}
-            >
-              {isCancelingAtPeriodEnd ? "Canceling" : isFullyExpired ? "Expired" : subStatus.replace(/_/g, " ")}
+        {hasDiscardedRows ? (
+          <View style={[styles.banner, { backgroundColor: "#fef3c7", borderColor: "#f59e0b" }]}>
+            <Text style={[styles.bannerTitle, { color: "#92400e" }]}>Notice</Text>
+            <Text style={[styles.bannerText, { color: "#78350f" }]}>
+              Some credit or purchase records could not be displayed.
             </Text>
-            {parsedDate.formatted ? (
-              <Text style={[styles.dateText, { color: colors.muted }]}>
-                {isCancelingAtPeriodEnd
-                  ? `Access ends ${parsedDate.formatted}`
-                  : isTrialing
-                  ? `Trial ends ${parsedDate.formatted}`
-                  : isPaidActive
-                  ? `Renews ${parsedDate.formatted}`
-                  : `Period ended ${parsedDate.formatted}`}
-              </Text>
-            ) : null}
           </View>
+        ) : null}
 
-          <View style={styles.actionRow}>
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.label, { color: colors.muted }]}>Current Plan</Text>
+
+          {entitlements.isLoading ? (
+            <ActivityIndicator size="small" color={colors.primary} style={{ alignSelf: "flex-start" }} />
+          ) : (
+            <Text style={[styles.plan, { color: colors.text }]}>
+              {isConflict ? "Subscription Review Required" : PLAN_NAMES[planSlug] || planSlug}
+            </Text>
+          )}
+
+          {isConflict ? (
+            <Text style={[styles.conflictText, { color: colors.danger }]}>
+              Multiple active subscriptions were detected. Please contact support.
+            </Text>
+          ) : null}
+
+          {!isConflict && !entitlements.isLoading ? (
+            <View style={styles.statusRow}>
+              <Text
+                style={[
+                  styles.statusBadge,
+                  {
+                    color: isPaidActive
+                      ? colors.success
+                      : isTrialing
+                      ? colors.primary
+                      : isCancelingAtPeriodEnd
+                      ? colors.warning
+                      : colors.muted,
+                  },
+                ]}
+              >
+                {isCancelingAtPeriodEnd
+                  ? "Cancellation Scheduled"
+                  : isTrialing
+                  ? "Active Trial"
+                  : isPaidActive
+                  ? "Active Paid"
+                  : isFullyExpired
+                  ? "Expired"
+                  : subStatus}
+              </Text>
+
+              {parsedDate.formatted ? (
+                <Text style={[styles.renewalDate, { color: colors.muted }]}>
+                  {isCancelingAtPeriodEnd
+                    ? `Access ends ${parsedDate.formatted}`
+                    : isTrialing
+                    ? `Trial ends ${parsedDate.formatted}`
+                    : isPaidActive
+                    ? `Renews ${parsedDate.formatted}`
+                    : `Ended ${parsedDate.formatted}`}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          <View style={styles.buttonRow}>
             <Pressable
-              style={[styles.button, { backgroundColor: colors.primary, flex: 1 }]}
-              onPress={() => router.push("/pricing")}
+              style={[styles.button, { backgroundColor: colors.primary }]}
+              onPress={() => router.push("/(tabs)/profile")}
               accessibilityRole="button"
               accessibilityLabel="View plans"
             >
@@ -347,17 +339,9 @@ export default function BillingScreen() {
 
             {canCancel ? (
               <Pressable
-                style={[
-                  styles.button,
-                  styles.cancelButton,
-                  { borderColor: colors.danger },
-                  loadingCancel && styles.buttonDisabled,
-                ]}
+                style={[styles.button, styles.cancelButton, { borderColor: colors.danger }]}
                 onPress={handleCancelPress}
                 disabled={loadingCancel}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel subscription at period end"
-                accessibilityState={{ disabled: loadingCancel, busy: loadingCancel }}
               >
                 {loadingCancel ? (
                   <ActivityIndicator size="small" color={colors.danger} />
@@ -369,32 +353,151 @@ export default function BillingScreen() {
           </View>
         </View>
 
-        <View style={styles.balanceGrid}>
-          {[
-            ["Monthly content", balances?.monthly_content_credits ?? 0],
-            ["Purchased", balances?.purchased_credits ?? 0],
-            ["Regeneration", balances?.monthly_regen_credits ?? 0],
-          ].map(([label, value]) => (
-            <View key={String(label)} style={[styles.balance, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[styles.balanceValue, { color: colors.text }]}>{value}</Text>
-              <Text style={[styles.label, { color: colors.muted }]}>{label}</Text>
-            </View>
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.heading, { color: colors.text }]}>Credit balances</Text>
+          <Pressable
+            style={[styles.buyCreditsButton, { backgroundColor: colors.primary }]}
+            onPress={() => setBuyCreditsModalVisible(true)}
+          >
+            <Text style={styles.buyCreditsButtonText}>Buy credits</Text>
+          </Pressable>
+        </View>
+
+        {entitlements.isLoading && !entitlements.data ? (
+          <View style={[styles.card, { alignItems: "center", paddingVertical: 24 }]}>
+            <ActivityIndicator size="small" color={colors.primary} />
+          </View>
+        ) : (
+          <View style={styles.balanceGrid}>
+            {[
+              ["Monthly content", balances?.monthly_content_credits ?? 0],
+              ["Purchased", balances?.purchased_credits ?? 0],
+              ["Regeneration", balances?.monthly_regen_credits ?? 0],
+            ].map(([label, value]) => (
+              <View key={String(label)} style={[styles.balance, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.balanceValue, { color: colors.text }]}>{value}</Text>
+                <Text style={[styles.label, { color: colors.muted }]}>{label}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        <BuyCreditsModal
+          visible={buyCreditsModalVisible}
+          onClose={() => setBuyCreditsModalVisible(false)}
+        />
+
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.heading, { color: colors.text }]}>Credit activity</Text>
+        </View>
+
+        <View style={[styles.filterContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          {(["all", "usage", "allowances", "purchases"] as CreditActivityFilter[]).map((f) => (
+            <Pressable
+              key={f}
+              style={[styles.filterTab, activityFilter === f && { backgroundColor: colors.primary }]}
+              onPress={() => setActivityFilter(f)}
+            >
+              <Text style={[styles.filterTabText, { color: activityFilter === f ? "#ffffff" : colors.muted }]}>
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </Text>
+            </Pressable>
           ))}
         </View>
 
-        <Text style={[styles.heading, { color: colors.text }]}>Credit usage history</Text>
-        {(usage.data?.entries || []).map((entry) => (
-          <View key={entry.id} style={[styles.row, { borderColor: colors.border }]}>
-            <View style={styles.rowText}>
-              <Text style={[styles.reason, { color: colors.text }]}>{entry.reason.replace(/_/g, " ")}</Text>
-              <Text style={[styles.label, { color: colors.muted }]}>{new Date(entry.created_at).toLocaleString()} · {entry.pool}</Text>
-            </View>
-            <Text style={[styles.amount, { color: entry.amount >= 0 ? colors.success : colors.warning }]}>
-              {entry.amount > 0 ? "+" : ""}{entry.amount}
-            </Text>
+        {usage.isLoading && !usage.data ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color={colors.primary} />
           </View>
-        ))}
-        {!usage.isLoading && !usage.data?.entries?.length ? <Text style={[styles.empty, { color: colors.muted }]}>No credit activity yet.</Text> : null}
+        ) : usage.isError && !usage.data ? (
+          <View style={[styles.errorCard, { borderColor: colors.danger }]}>
+            <Text style={[styles.errorText, { color: colors.danger }]}>Unable to load credit activity.</Text>
+            <Pressable style={[styles.retryButton, { backgroundColor: colors.primary }]} onPress={() => usage.refetch()}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            {filteredUsageEntries.map((entry) => {
+              const reasonLabel = getCreditReasonLabel(entry.reason);
+              const isPositive = entry.amount >= 0;
+              const formattedDate = parseAndFormatDate(entry.created_at).formatted;
+              const formattedExpiry = formatExpiryText(entry.expires_at);
+              const absAmount = Math.abs(entry.amount);
+
+              return (
+                <View key={entry.id} style={[styles.row, { borderColor: colors.border }]}>
+                  <View style={styles.rowText}>
+                    <Text style={[styles.reason, { color: colors.text }]}>{reasonLabel}</Text>
+                    <Text style={[styles.label, { color: colors.muted }]}>
+                      {formattedDate || entry.created_at} · Pool: {entry.pool}
+                      {formattedExpiry ? ` · ${formattedExpiry}` : ""}
+                    </Text>
+                  </View>
+                  <Text style={[styles.amount, { color: isPositive ? colors.success : colors.warning }]}>
+                    {isPositive ? "+" : "−"}{absAmount} {absAmount === 1 ? "credit" : "credits"}
+                  </Text>
+                </View>
+              );
+            })}
+            {!filteredUsageEntries.length ? (
+              <Text style={[styles.empty, { color: colors.muted }]}>{getEmptyStateText(activityFilter)}</Text>
+            ) : null}
+          </>
+        )}
+
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.heading, { color: colors.text }]}>Purchase history</Text>
+          {purchaseHistory.data ? (
+            <Text style={[styles.subheading, { color: colors.muted }]}>{purchaseCountText}</Text>
+          ) : null}
+        </View>
+
+        {purchaseHistory.isLoading && !purchaseHistory.data ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color={colors.primary} />
+          </View>
+        ) : purchaseHistory.isError && !purchaseHistory.data ? (
+          <View style={[styles.errorCard, { borderColor: colors.danger }]}>
+            <Text style={[styles.errorText, { color: colors.danger }]}>Unable to load purchase history.</Text>
+            <Pressable style={[styles.retryButton, { backgroundColor: colors.primary }]} onPress={() => purchaseHistory.refetch()}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            {(purchaseHistory.data?.purchases || []).map((p) => {
+              const formattedDate = parseAndFormatDate(p.created_at).formatted;
+              const totalPaidFormatted = formatCurrency(p.amount_paid_cents, p.currency) || `${p.currency.toUpperCase()} ${(p.amount_paid_cents / 100).toFixed(2)}`;
+              const unitPriceFormatted = formatCurrency(p.unit_price_cents, p.currency) || `${p.currency.toUpperCase()} ${(p.unit_price_cents / 100).toFixed(2)}`;
+              const statusCapitalized = p.status ? p.status.charAt(0).toUpperCase() + p.status.slice(1) : "Completed";
+
+              return (
+                <View key={p.id} style={[styles.purchaseCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <View style={styles.purchaseHeader}>
+                    <Text style={[styles.purchaseQuantity, { color: colors.text }]}>
+                      {p.quantity} {p.quantity === 1 ? "credit" : "credits"}
+                    </Text>
+                    <Text style={[styles.purchaseStatus, { color: colors.success }]}>
+                      {statusCapitalized}
+                    </Text>
+                  </View>
+                  <View style={styles.purchaseDetails}>
+                    <Text style={[styles.purchaseAmount, { color: colors.text }]}>
+                      {totalPaidFormatted} total
+                    </Text>
+                    <Text style={[styles.purchaseSubtext, { color: colors.muted }]}>
+                      {unitPriceFormatted} per credit · {formattedDate || p.created_at}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+            {!purchaseHistory.isLoading && !purchaseHistory.data?.purchases?.length ? (
+              <Text style={[styles.empty, { color: colors.muted }]}>No credit purchases yet.</Text>
+            ) : null}
+          </>
+        )}
       </ScrollView>
     </Screen>
   );
@@ -410,7 +513,10 @@ const styles = StyleSheet.create({
   plan: { fontSize: 26, fontWeight: "800" },
   statusRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 },
   statusBadge: { fontSize: 14, fontWeight: "700", textTransform: "capitalize" },
+  renewalDate: { fontSize: 13 },
   dateText: { fontSize: 13 },
+  conflictText: { fontSize: 13, fontWeight: "600" },
+  buttonRow: { flexDirection: "row", gap: 10, marginTop: 8 },
   actionRow: { flexDirection: "row", gap: 10, marginTop: 8 },
   button: { borderRadius: 10, minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   buttonDisabled: { opacity: 0.6 },
@@ -420,10 +526,30 @@ const styles = StyleSheet.create({
   balanceGrid: { flexDirection: "row", gap: 8 },
   balance: { flex: 1, borderWidth: 1, borderRadius: 14, padding: 12, minHeight: 90 },
   balanceValue: { fontSize: 24, fontWeight: "800", marginBottom: 6 },
+  infoNote: { fontSize: 12, lineHeight: 16 },
   heading: { fontSize: 19, fontWeight: "800", marginTop: 8 },
+  subheading: { fontSize: 13, fontWeight: "600" },
+  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
+  buyCreditsButton: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, justifyContent: "center", alignItems: "center" },
+  buyCreditsButtonText: { color: "#ffffff", fontWeight: "700", fontSize: 13 },
+  filterContainer: { flexDirection: "row", borderWidth: 1, borderRadius: 12, padding: 4, gap: 4 },
+  filterTab: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  filterTabText: { fontSize: 13, fontWeight: "600" },
   row: { borderBottomWidth: 1, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 12 },
   rowText: { flex: 1, gap: 3 },
-  reason: { fontSize: 14, fontWeight: "600", textTransform: "capitalize" },
-  amount: { fontSize: 16, fontWeight: "800" },
-  empty: { textAlign: "center", paddingVertical: 24 },
+  reason: { fontSize: 14, fontWeight: "600" },
+  amount: { fontSize: 15, fontWeight: "800" },
+  empty: { textAlign: "center", paddingVertical: 20, fontSize: 14 },
+  loadingContainer: { paddingVertical: 20, alignItems: "center" },
+  errorCard: { borderWidth: 1, borderRadius: 12, padding: 16, alignItems: "center", gap: 10, marginVertical: 8 },
+  errorText: { fontSize: 14, fontWeight: "600" },
+  retryButton: { borderRadius: 8, paddingHorizontal: 16, paddingVertical: 8 },
+  retryButtonText: { color: "#ffffff", fontWeight: "700", fontSize: 13 },
+  purchaseCard: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 8 },
+  purchaseHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  purchaseQuantity: { fontSize: 16, fontWeight: "700" },
+  purchaseStatus: { fontSize: 13, fontWeight: "700" },
+  purchaseDetails: { gap: 2 },
+  purchaseAmount: { fontSize: 15, fontWeight: "700" },
+  purchaseSubtext: { fontSize: 13 },
 });

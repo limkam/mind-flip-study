@@ -9,6 +9,10 @@ import type {
   BillingPricingResponse,
   CheckoutVerificationResponse,
   CreditPricingResponse,
+  CreditPurchaseRecord,
+  CreditUsageRecord,
+  CreditUsageResponse,
+  PurchaseHistoryResponse,
   SubscriptionCancelResponse,
   TrialEligibilityReason,
   TrialEligibilityResponse,
@@ -46,23 +50,16 @@ export type EntitlementsSnapshot = {
   raw_plan_features: Record<string, unknown>;
 };
 
-export type CreditUsageEntry = {
-  id: string;
-  amount: number;
-  pool: string;
-  reason: string;
-  created_at: string;
-  expires_at?: string | null;
-};
+export type CreditUsageEntry = CreditUsageRecord;
 
 export async function fetchEntitlementsSnapshot(): Promise<EntitlementsSnapshot> {
   const { data } = await api.get<EntitlementsSnapshot>("/billing/entitlements/me");
   return data;
 }
 
-export async function fetchCreditUsage(): Promise<{ entries: CreditUsageEntry[] }> {
-  const { data } = await api.get<{ entries: CreditUsageEntry[] }>("/credits/usage");
-  return data;
+export async function fetchCreditUsage(): Promise<CreditUsageResponse> {
+  const { data } = await api.get<unknown>("/credits/usage");
+  return parseCreditUsageResponse(data);
 }
 
 const RECOGNIZED_TRIAL_REASONS: Set<TrialEligibilityReason> = new Set([
@@ -540,4 +537,261 @@ export async function startCreditCheckout(
   }
 
   await validateAndOpenCheckoutUrl(data?.checkout_url, expectedUserId);
+}
+
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const VALID_POOLS = new Set(["content", "regen", "purchased"]);
+
+export function parseCreditUsageResponse(raw: unknown): CreditUsageResponse {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid credit usage response: expected plain object");
+  }
+  const obj = raw as Record<string, unknown>;
+
+  if (!Array.isArray(obj.entries)) {
+    throw new Error("Invalid credit usage response: entries must be an array");
+  }
+
+  const validEntries: CreditUsageRecord[] = [];
+  const seenIds = new Set<string>();
+  let discarded_count = 0;
+  let discarded_duplicates_count = 0;
+
+  for (const item of obj.entries) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parseCreditUsageResponse] Discarding non-object entry");
+      continue;
+    }
+    const row = item as Record<string, unknown>;
+
+    if (typeof row.id !== "string" || !UUID_REGEX.test(row.id)) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parseCreditUsageResponse] Discarding entry with invalid UUID id");
+      continue;
+    }
+    if (typeof row.amount !== "number" || !Number.isInteger(row.amount) || !Number.isSafeInteger(row.amount)) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parseCreditUsageResponse] Discarding entry with invalid amount");
+      continue;
+    }
+    if (typeof row.pool !== "string" || !VALID_POOLS.has(row.pool.trim())) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parseCreditUsageResponse] Discarding entry with invalid or unknown pool");
+      continue;
+    }
+    if (typeof row.reason !== "string" || row.reason.trim().length === 0) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parseCreditUsageResponse] Discarding entry with invalid reason");
+      continue;
+    }
+    if (typeof row.created_at !== "string" || Number.isNaN(Date.parse(row.created_at))) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parseCreditUsageResponse] Discarding entry with invalid created_at");
+      continue;
+    }
+
+    let expires_at: string | null = null;
+    if (row.expires_at !== null && row.expires_at !== undefined) {
+      if (typeof row.expires_at === "string" && !Number.isNaN(Date.parse(row.expires_at))) {
+        expires_at = row.expires_at;
+      } else {
+        discarded_count += 1;
+        if (__DEV__) console.warn("[parseCreditUsageResponse] Discarding entry with invalid expires_at");
+        continue;
+      }
+    }
+
+    let metadata: Record<string, unknown> | null = null;
+    if (row.metadata !== null && row.metadata !== undefined) {
+      if (typeof row.metadata === "object" && !Array.isArray(row.metadata)) {
+        metadata = row.metadata as Record<string, unknown>;
+      }
+    } else if (row.meta !== null && row.meta !== undefined) {
+      if (typeof row.meta === "object" && !Array.isArray(row.meta)) {
+        metadata = row.meta as Record<string, unknown>;
+      }
+    }
+
+    if (seenIds.has(row.id)) {
+      discarded_duplicates_count += 1;
+      if (__DEV__) console.warn("[parseCreditUsageResponse] Discarding duplicate entry ID", row.id);
+      continue;
+    }
+    seenIds.add(row.id);
+
+    validEntries.push({
+      id: row.id,
+      amount: row.amount,
+      pool: row.pool.trim(),
+      reason: row.reason.trim(),
+      metadata,
+      expires_at,
+      created_at: row.created_at,
+    });
+  }
+
+  return {
+    entries: validEntries,
+    discarded_count,
+    discarded_duplicates_count,
+  };
+}
+
+export function parsePurchaseHistoryResponse(raw: unknown): PurchaseHistoryResponse {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid purchase history response: expected plain object");
+  }
+  const obj = raw as Record<string, unknown>;
+
+  if (!Array.isArray(obj.purchases)) {
+    throw new Error("Invalid purchase history response: purchases must be an array");
+  }
+
+  let total_purchases = 0;
+  if (typeof obj.total_purchases === "number" && Number.isInteger(obj.total_purchases) && obj.total_purchases >= 0) {
+    total_purchases = obj.total_purchases;
+  } else {
+    total_purchases = obj.purchases.length;
+  }
+
+  const validPurchases: CreditPurchaseRecord[] = [];
+  const seenIds = new Set<string>();
+  let discarded_count = 0;
+  let discarded_duplicates_count = 0;
+
+  for (const item of obj.purchases) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parsePurchaseHistoryResponse] Discarding non-object purchase row");
+      continue;
+    }
+    const row = item as Record<string, unknown>;
+
+    if (typeof row.id !== "string" || !UUID_REGEX.test(row.id)) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parsePurchaseHistoryResponse] Discarding purchase with invalid UUID id");
+      continue;
+    }
+    if (typeof row.quantity !== "number" || !Number.isInteger(row.quantity) || row.quantity <= 0) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parsePurchaseHistoryResponse] Discarding purchase with invalid quantity");
+      continue;
+    }
+    if (typeof row.amount_paid_cents !== "number" || !Number.isInteger(row.amount_paid_cents) || row.amount_paid_cents < 0) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parsePurchaseHistoryResponse] Discarding purchase with invalid amount_paid_cents");
+      continue;
+    }
+    if (typeof row.unit_price_cents !== "number" || !Number.isInteger(row.unit_price_cents) || row.unit_price_cents <= 0) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parsePurchaseHistoryResponse] Discarding purchase with invalid unit_price_cents");
+      continue;
+    }
+    if (typeof row.currency !== "string" || row.currency.trim().length === 0) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parsePurchaseHistoryResponse] Discarding purchase with invalid currency");
+      continue;
+    }
+    if (typeof row.created_at !== "string" || Number.isNaN(Date.parse(row.created_at))) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parsePurchaseHistoryResponse] Discarding purchase with invalid created_at");
+      continue;
+    }
+    if (typeof row.status !== "string" || row.status.trim().length === 0) {
+      discarded_count += 1;
+      if (__DEV__) console.warn("[parsePurchaseHistoryResponse] Discarding purchase with invalid status");
+      continue;
+    }
+
+    if (seenIds.has(row.id)) {
+      discarded_duplicates_count += 1;
+      if (__DEV__) console.warn("[parsePurchaseHistoryResponse] Discarding duplicate purchase ID", row.id);
+      continue;
+    }
+    seenIds.add(row.id);
+
+    validPurchases.push({
+      id: row.id,
+      quantity: row.quantity,
+      amount_paid_cents: row.amount_paid_cents,
+      currency: row.currency.trim().toLowerCase(),
+      unit_price_cents: row.unit_price_cents,
+      created_at: row.created_at,
+      status: row.status.trim().toLowerCase(),
+    });
+  }
+
+  if (total_purchases < validPurchases.length) {
+    total_purchases = validPurchases.length;
+  }
+
+  return {
+    purchases: validPurchases,
+    total_purchases,
+    discarded_count,
+    discarded_duplicates_count,
+  };
+}
+
+export async function fetchCreditPurchaseHistory(): Promise<PurchaseHistoryResponse> {
+  const { data } = await api.get<unknown>("/credits/purchase-history");
+  return parsePurchaseHistoryResponse(data);
+}
+
+export function formatCurrency(cents: number | null | undefined, currencyStr: string = "usd"): string | null {
+  if (cents === null || cents === undefined || !Number.isInteger(cents) || cents < 0) {
+    return null;
+  }
+  const normCurrency = (currencyStr || "usd").trim().toUpperCase();
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: normCurrency,
+    }).format(cents / 100);
+  } catch {
+    const dollars = (cents / 100).toFixed(2);
+    return `${normCurrency} ${dollars}`;
+  }
+}
+
+export function formatExpiryText(expires_at: string | null | undefined): string | null {
+  if (!expires_at || typeof expires_at !== "string") return null;
+  const ms = Date.parse(expires_at);
+  if (Number.isNaN(ms)) return null;
+
+  try {
+    const formatted = new Date(ms).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+    if (ms < Date.now()) {
+      return `Expired ${formatted}`;
+    }
+    return `Expires ${formatted}`;
+  } catch {
+    return null;
+  }
+}
+
+export const REASON_LABELS: Record<string, string> = {
+  signup_free_grant: "Initial free credits granted",
+  monthly_allowance: "Monthly content allowance",
+  monthly_regen_allowance: "Monthly regeneration allowance",
+  purchased_credits: "Purchased credits added",
+  create_book: "Book processed",
+  create_set: "Flashcard set generated",
+  regen: "Content regenerated",
+  study_group_attachment: "Study-group material added",
+  accept_challenge: "Challenge accepted",
+};
+
+export function getCreditReasonLabel(reason: string): string {
+  if (!reason || typeof reason !== "string") return "Credit activity";
+  const trimmed = reason.trim();
+  if (REASON_LABELS[trimmed]) {
+    return REASON_LABELS[trimmed];
+  }
+  return "Credit activity";
 }

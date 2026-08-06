@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { Screen } from "../../../components/Screen";
 import { useTheme } from "../../../hooks/useTheme";
-import { fetchCreditUsage, fetchEntitlementsSnapshot, verifyCheckoutSession } from "../../../lib/billing";
+import { fetchCreditPurchaseHistory, fetchCreditUsage, fetchEntitlementsSnapshot, verifyCheckoutSession } from "../../../lib/billing";
 import { getCheckoutAttempt, releaseCheckoutAttempt } from "../../../lib/checkoutAttempt";
 import { mobileQueryClient } from "../../../lib/queryClient";
 import { useAuthStore } from "../../../store/authStore";
@@ -33,12 +33,14 @@ export default function CreditSuccessScreen() {
   const handleRefreshSync = async () => {
     setIsRefreshing(true);
     try {
-      const [entitlements, usageData] = await Promise.all([
+      const [entitlements, usageData, purchaseHistoryData] = await Promise.all([
         fetchEntitlementsSnapshot(),
         fetchCreditUsage(),
+        fetchCreditPurchaseHistory(),
       ]);
       mobileQueryClient.setQueryData(["billing-entitlements"], entitlements);
       mobileQueryClient.setQueryData(["credit-usage"], usageData);
+      mobileQueryClient.setQueryData(["credit-purchase-history"], purchaseHistoryData);
       setResultingBalance(entitlements.balances?.purchased_credits ?? null);
       setStep("credited");
     } catch (err: unknown) {
@@ -100,17 +102,19 @@ export default function CreditSuccessScreen() {
               releaseCheckoutAttempt(currentLock.attemptId, currentUser.id);
             }
 
-            // Refetch & synchronize authoritative entitlements and credit usage
+            // Refetch & synchronize authoritative entitlements, credit usage, and purchase history
             try {
-              const [entitlements, usageData] = await Promise.all([
+              const [entitlements, usageData, purchaseHistoryData] = await Promise.all([
                 fetchEntitlementsSnapshot(),
                 fetchCreditUsage(),
+                fetchCreditPurchaseHistory(),
               ]);
 
               if (!active) return;
 
               mobileQueryClient.setQueryData(["billing-entitlements"], entitlements);
               mobileQueryClient.setQueryData(["credit-usage"], usageData);
+              mobileQueryClient.setQueryData(["credit-purchase-history"], purchaseHistoryData);
 
               const extraBalance = entitlements.balances?.purchased_credits ?? null;
               setResultingBalance(extraBalance);
