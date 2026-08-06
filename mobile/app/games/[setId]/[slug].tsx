@@ -14,6 +14,7 @@ import { logStudyEvent, STUDY_EVENTS } from "../../../lib/studyEvents";
 import { submitQuizResult } from "../../../lib/quizResults";
 import { invalidateAfterQuizResult } from "../../../lib/quizResultInvalidation";
 import { useAuthStore } from "../../../store/authStore";
+import { useCelebration } from "../../../context/CelebrationContext";
 import type { GameSlug } from "../../../components/games/types";
 import type { GameRoundResult } from "../../../components/games/types";
 import type { FlashcardSetOut, QuizResultInput } from "../../../types/api";
@@ -24,6 +25,7 @@ export default function GamePlayScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const userId = useAuthStore((state) => state.user?.id);
+  const { requestMany: requestCelebrations } = useCelebration();
   const gameSlug = slug as GameSlug;
   const meta = GAMES.find((g) => g.slug === gameSlug);
   const GameComponent = GAME_COMPONENTS[gameSlug];
@@ -174,13 +176,20 @@ export default function GamePlayScreen() {
       },
     });
 
+    void requestCelebrations(submission.result, {
+      destination: {
+        type: "quiz-result",
+        resultId: submission.result.id,
+      },
+    });
+
     await invalidateAfterQuizResult(queryClient, userId, submission.result);
     try {
       router.replace(`/quiz-results/${submission.result.id}`);
     } catch {
       setNavigationError(true);
     }
-  }, [data, gameSlug, queryClient, router, setId, userId]);
+  }, [data, gameSlug, queryClient, requestCelebrations, router, setId, userId]);
 
   return (
     <GameShell

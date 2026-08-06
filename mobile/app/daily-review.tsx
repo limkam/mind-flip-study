@@ -23,6 +23,7 @@ import { hapticImpact, hapticSuccess } from "../lib/haptics";
 import { queueProgressSync } from "../lib/offlineStudy";
 import { invalidateAfterStudyProgress } from "../lib/studyInvalidation";
 import { submitStudyProgress } from "../lib/studyProgress";
+import { useCelebration } from "../context/CelebrationContext";
 import { useAuthStore } from "../store/authStore";
 import type { BookOut, DueFlashcardOut, Paginated, StudyProgressOut } from "../types/api";
 
@@ -68,6 +69,7 @@ export default function DailyReviewScreen() {
   const header = useScreenHeader("Daily Review");
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
+  const { requestMany: requestCelebrations } = useCelebration();
 
   const [currentIdx, setCurrentIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
@@ -271,6 +273,7 @@ export default function DailyReviewScreen() {
           if (result.status === "submitted") {
             serverProgress.current[result.progress.card_id] = result.progress;
             setSessionStats((s) => ({ ...s, submittedCount: s.submittedCount + 1 }));
+            void requestCelebrations(result.progress);
             await invalidateAfterStudyProgress(queryClient, {
               expectedUserId,
               setIds: [item.setId],

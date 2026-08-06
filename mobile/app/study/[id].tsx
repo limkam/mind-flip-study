@@ -28,6 +28,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { StudySkeleton } from "../../components/skeletons/StudySkeleton";
 import { api } from "../../api/client";
 import { useTheme } from "../../hooks/useTheme";
+import { useCelebration } from "../../context/CelebrationContext";
 import { MIN_GAME_CARDS } from "../../lib/gameUtils";
 import { fetchEntitlementsSnapshot } from "../../lib/billing";
 import {
@@ -217,6 +218,8 @@ export default function StudyByIdScreen() {
     };
   }, [ratings, cards.length]);
 
+  const { requestMany: requestCelebrations } = useCelebration();
+
   const submitProgress = useCallback(
     async (cardId: string, quality: number) => {
       const result = await submitStudyProgress(
@@ -226,6 +229,7 @@ export default function StudyByIdScreen() {
       if (result.status === "submitted") {
         serverProgress.current[result.progress.card_id] = result.progress;
         setOfflineNote(false);
+        void requestCelebrations(result.progress);
         if (user?.id) {
           await invalidateAfterStudyProgress(queryClient, {
             expectedUserId: user.id,
@@ -238,7 +242,7 @@ export default function StudyByIdScreen() {
       }
       return result;
     },
-    [id, queryClient, user?.id],
+    [id, queryClient, requestCelebrations, user?.id],
   );
 
   const rateAndAdvance = useCallback(

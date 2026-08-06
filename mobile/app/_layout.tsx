@@ -14,6 +14,7 @@ import { setNavigationRouteBridge } from "../api/client";
 
 import { GenerationJobPoller } from "../components/GenerationJobPoller";
 import { UpgradeLimitModal } from "../components/UpgradeLimitModal";
+import { CelebrationProvider } from "../context/CelebrationContext";
 import {
   discardLegacyPendingProgress,
   flushPendingProgress,
@@ -154,9 +155,11 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <QueryClientProvider client={mobileQueryClient}>
-          <AuthenticatedServices />
-          <BootstrapGate />
-          <UpgradeLimitModal />
+          <CelebrationProvider>
+            <AuthenticatedServices />
+            <BootstrapGate />
+            <UpgradeLimitModal />
+          </CelebrationProvider>
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
