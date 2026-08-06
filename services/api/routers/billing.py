@@ -1090,6 +1090,48 @@ async def verify_checkout_session(
 
     raw_status = str(session.get("status") or "open")
     checkout_status = "complete" if raw_status == "complete" else "expired" if raw_status == "expired" else "open"
+    mode = str(session.get("mode") or "subscription")
+
+    if mode == "payment":
+        # Check if credit purchase has been recorded by webhook
+        purchase_row = await db.scalar(
+            select(CreditPurchase).where(CreditPurchase.stripe_session_id == session_id).limit(1)
+        )
+        if purchase_row is not None and purchase_row.status == "completed":
+            purchase_state = "credited"
+        elif checkout_status == "complete":
+            purchase_state = "processing"
+        else:
+            purchase_state = "not_confirmed"
+
+        qty_raw = meta.get("credit_quantity") if isinstance(meta, dict) else None
+        price_raw = meta.get("unit_price_cents") if isinstance(meta, dict) else None
+        curr_raw = meta.get("currency") if isinstance(meta, dict) else None
+
+        try:
+            credit_quantity = int(qty_raw) if qty_raw is not None else (purchase_row.credit_quantity if purchase_row else None)
+        except (TypeError, ValueError):
+            credit_quantity = purchase_row.credit_quantity if purchase_row else None
+
+        try:
+            unit_price_cents = int(price_raw) if price_raw is not None else (purchase_row.unit_price_cents if purchase_row else None)
+        except (TypeError, ValueError):
+            unit_price_cents = purchase_row.unit_price_cents if purchase_row else None
+
+        currency = str(curr_raw) if curr_raw else (purchase_row.currency if purchase_row else None)
+
+        return CheckoutVerificationResponse(
+            checkout_kind="credit_purchase",
+            session_id=session_id,
+            checkout_status=checkout_status,
+            subscription_state=None,
+            purchase_state=purchase_state,
+            plan_slug=None,
+            interval=None,
+            credit_quantity=credit_quantity,
+            unit_price_cents=unit_price_cents,
+            currency=currency,
+        )
 
     resolution = await _resolve_stripe_subscription(db, current_user)
     if resolution["state"] == "subscription_conflict":
@@ -1105,11 +1147,16 @@ async def verify_checkout_session(
     interval = meta.get("interval") if isinstance(meta, dict) else None
 
     return CheckoutVerificationResponse(
+        checkout_kind="subscription",
         session_id=session_id,
         checkout_status=checkout_status,
         subscription_state=sub_state,
+        purchase_state=None,
         plan_slug=str(plan_slug) if plan_slug else None,
         interval=str(interval) if interval else None,
+        credit_quantity=None,
+        unit_price_cents=None,
+        currency=None,
     )
 
 
@@ -1118,6 +1165,7 @@ async def create_credit_checkout_session(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     quantity: Annotated[int, Query(ge=1, le=_CREDIT_MAX_QUANTITY, description="Number of credits to purchase")],
+    client: Annotated[CheckoutClient, Query(description="Client platform ('web' or 'mobile')")] = CheckoutClient.web,
 ) -> CheckoutUrlResponse:
     """Create a one-time Stripe Checkout session for quantity-based credit purchase.
 
@@ -1143,14 +1191,39 @@ async def create_credit_checkout_session(
         await db.commit()
         await db.refresh(user_row)
 
-    base = settings.FRONTEND_URL.rstrip("/")
+    if client == CheckoutClient.mobile:
+        base_success = getattr(settings, "MOBILE_CREDIT_CHECKOUT_SUCCESS_URL", None)
+        base_cancel = getattr(settings, "MOBILE_CREDIT_CHECKOUT_CANCEL_URL", None)
+        if not base_success or not base_cancel:
+            # Fallback to credit-specific endpoints under MOBILE_CHECKOUT_SUCCESS_URL host if available
+            default_mobile_base = settings.MOBILE_CHECKOUT_SUCCESS_URL.rsplit("/mobile/", 1)[0] if "/mobile/" in settings.MOBILE_CHECKOUT_SUCCESS_URL else "https://mindflip.app"
+            base_success = base_success or f"{default_mobile_base}/mobile/billing/credits/success"
+            base_cancel = base_cancel or f"{default_mobile_base}/mobile/billing/credits/cancel"
+
+        if not settings.ENVIRONMENT.lower().startswith("local") and not settings.ENVIRONMENT.lower().startswith("dev"):
+            if not base_success.startswith("https://") or not base_cancel.startswith("https://"):
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Mobile credit return URLs must use HTTPS in production",
+                )
+    else:
+        base_web = settings.FRONTEND_URL.rstrip("/")
+        base_success = f"{base_web}/billing/credits/success"
+        base_cancel = f"{base_web}/billing/credits/cancel"
+
+    if "?" in base_success:
+        success_url = f"{base_success}&session_id={{CHECKOUT_SESSION_ID}}"
+    else:
+        success_url = f"{base_success}?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = base_cancel
+
     unit_price_cents = _credit_unit_price_cents()
     session = stripe.checkout.Session.create(
         customer=user_row.stripe_customer_id,
         mode="payment",
         line_items=[_credit_checkout_line_item(quantity)],
-        success_url=f"{base}/billing/credits/success",
-        cancel_url=f"{base}/billing/credits/cancel",
+        success_url=success_url,
+        cancel_url=cancel_url,
         client_reference_id=str(user_row.id),
         metadata={
             "user_id": str(user_row.id),
@@ -1310,38 +1383,48 @@ async def stripe_webhook(
                         except (TypeError, ValueError):
                             quantity = 0
 
-                        if quantity > 0 and payment_status == "paid":
-                            # Award one-time purchased credits to shared purchased pool.
-                            # Expiry is tied to the user's current paid subscription period.
+                        unit_price_raw = meta.get("unit_price_cents") if isinstance(meta, dict) else None
+                        try:
+                            unit_price_cents = int(unit_price_raw) if unit_price_raw is not None else _credit_unit_price_cents()
+                        except (TypeError, ValueError):
+                            unit_price_cents = _credit_unit_price_cents()
+
+                        expected_amount_cents = quantity * unit_price_cents
+                        amount_total = session.get("amount_total")
+                        try:
+                            amount_paid_cents = int(amount_total) if amount_total is not None else expected_amount_cents
+                        except (TypeError, ValueError):
+                            amount_paid_cents = expected_amount_cents
+
+                        session_currency = str(session.get("currency") or (meta.get("currency") if isinstance(meta, dict) else None) or _credit_currency()).lower()
+                        expected_currency = _credit_currency().lower()
+
+                        # Validate payment integrity: mode == "payment", status == "paid", valid quantity, total amount match, matching currency
+                        is_valid_payment = (
+                            str(session.get("mode")) == "payment"
+                            and payment_status == "paid"
+                            and 1 <= quantity <= _CREDIT_MAX_QUANTITY
+                            and amount_paid_cents == expected_amount_cents
+                            and session_currency == expected_currency
+                        )
+
+                        if is_valid_payment:
+                            # Execute grant and CreditPurchase creation atomically within the same DB transaction
                             await credits_service.award_onetime_credits_for_user(db, uid, quantity)
 
                             payment_intent_id = session.get("payment_intent")
                             if isinstance(payment_intent_id, dict):
                                 payment_intent_id = payment_intent_id.get("id")
 
-                            unit_price_raw = meta.get("unit_price_cents") if isinstance(meta, dict) else None
-                            try:
-                                unit_price_cents = int(unit_price_raw) if unit_price_raw is not None else _credit_unit_price_cents()
-                            except (TypeError, ValueError):
-                                unit_price_cents = _credit_unit_price_cents()
-
-                            amount_total = session.get("amount_total")
-                            try:
-                                amount_paid_cents = int(amount_total) if amount_total is not None else quantity * unit_price_cents
-                            except (TypeError, ValueError):
-                                amount_paid_cents = quantity * unit_price_cents
-
                             invoice_id = session.get("invoice")
                             if isinstance(invoice_id, dict):
                                 invoice_id = invoice_id.get("id")
-
-                            currency = session.get("currency") or (meta.get("currency") if isinstance(meta, dict) else None) or _credit_currency()
 
                             purchase = CreditPurchase(
                                 user_id=uid,
                                 quantity=quantity,
                                 amount_paid_cents=amount_paid_cents,
-                                currency=str(currency).lower(),
+                                currency=session_currency,
                                 unit_price_cents=unit_price_cents,
                                 stripe_event_id=event_id,
                                 stripe_session_id=session_id,

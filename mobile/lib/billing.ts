@@ -8,6 +8,7 @@ import type {
   BillingPlanSlug,
   BillingPricingResponse,
   CheckoutVerificationResponse,
+  CreditPricingResponse,
   SubscriptionCancelResponse,
   TrialEligibilityReason,
   TrialEligibilityResponse,
@@ -356,16 +357,93 @@ export async function startTrialCheckout(expectedUserId?: string): Promise<void>
   await validateAndOpenCheckoutUrl(data?.checkout_url, expectedUserId);
 }
 
+export function parseCheckoutVerificationResponse(raw: unknown): CheckoutVerificationResponse {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid verification response: expected plain object");
+  }
+  const record = raw as Record<string, unknown>;
+
+  const kind = record.checkout_kind;
+  if (kind !== "subscription" && kind !== "credit_purchase") {
+    throw new Error(`Invalid verification response: unknown checkout_kind '${String(kind)}'`);
+  }
+
+  if (typeof record.session_id !== "string" || !record.session_id.startsWith("cs_")) {
+    throw new Error("Invalid verification response: session_id must be a valid cs_ string");
+  }
+
+  const checkout_status = record.checkout_status;
+  if (checkout_status !== "open" && checkout_status !== "complete" && checkout_status !== "expired") {
+    throw new Error(`Invalid verification response: unknown checkout_status '${String(checkout_status)}'`);
+  }
+
+  if (kind === "subscription") {
+    const subscription_state = record.subscription_state;
+    if (
+      subscription_state !== "active" &&
+      subscription_state !== "processing" &&
+      subscription_state !== "conflict" &&
+      subscription_state !== "not_confirmed"
+    ) {
+      throw new Error(`Invalid verification response: unknown subscription_state '${String(subscription_state)}'`);
+    }
+
+    return {
+      checkout_kind: "subscription",
+      session_id: record.session_id,
+      checkout_status,
+      subscription_state,
+      purchase_state: null,
+      plan_slug: (record.plan_slug as any) || null,
+      interval: (record.interval as any) || null,
+      credit_quantity: null,
+      unit_price_cents: null,
+      currency: null,
+    };
+  } else {
+    const purchase_state = record.purchase_state;
+    if (
+      purchase_state !== "processing" &&
+      purchase_state !== "credited" &&
+      purchase_state !== "not_confirmed"
+    ) {
+      throw new Error(`Invalid verification response: unknown purchase_state '${String(purchase_state)}'`);
+    }
+
+    const qty = record.credit_quantity;
+    const credit_quantity = typeof qty === "number" && Number.isInteger(qty) && qty > 0 ? qty : null;
+
+    const price = record.unit_price_cents;
+    const unit_price_cents = typeof price === "number" && Number.isInteger(price) && price > 0 ? price : null;
+
+    const curr = record.currency;
+    const currency = typeof curr === "string" && curr.trim() ? curr.trim().toLowerCase() : null;
+
+    return {
+      checkout_kind: "credit_purchase",
+      session_id: record.session_id,
+      checkout_status,
+      subscription_state: null,
+      purchase_state,
+      plan_slug: null,
+      interval: null,
+      credit_quantity,
+      unit_price_cents,
+      currency,
+    };
+  }
+}
+
 export async function verifyCheckoutSession(
   sessionId: string,
 ): Promise<CheckoutVerificationResponse> {
   if (!sessionId || !sessionId.startsWith("cs_")) {
     throw new Error("Invalid checkout session ID format");
   }
-  const { data } = await api.get<CheckoutVerificationResponse>(
+  const { data } = await api.get<unknown>(
     `/billing/checkout/sessions/${encodeURIComponent(sessionId)}`,
   );
-  return data;
+  return parseCheckoutVerificationResponse(data);
 }
 
 export function parseSubscriptionCancelResponse(raw: unknown): SubscriptionCancelResponse {
@@ -403,4 +481,63 @@ export function parseSubscriptionCancelResponse(raw: unknown): SubscriptionCance
 export async function cancelSubscriptionAtPeriodEnd(): Promise<SubscriptionCancelResponse> {
   const { data } = await api.post<unknown>("/billing/subscription/cancel");
   return parseSubscriptionCancelResponse(data);
+}
+
+export function parseCreditPricingResponse(raw: unknown): CreditPricingResponse {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid credit pricing response: expected plain object");
+  }
+  const record = raw as Record<string, unknown>;
+  if (!record.pricing || typeof record.pricing !== "object" || Array.isArray(record.pricing)) {
+    throw new Error("Invalid credit pricing response: pricing must be a plain object");
+  }
+  const pricing = record.pricing as Record<string, unknown>;
+
+  if (typeof pricing.unit_price_cents !== "number" || !Number.isInteger(pricing.unit_price_cents) || pricing.unit_price_cents < 1) {
+    throw new Error("Invalid credit pricing response: unit_price_cents must be a positive integer");
+  }
+  if (typeof pricing.currency !== "string" || !pricing.currency.trim()) {
+    throw new Error("Invalid credit pricing response: currency must be a non-empty string");
+  }
+  if (typeof pricing.unit_price_usd !== "number" || !Number.isFinite(pricing.unit_price_usd) || pricing.unit_price_usd <= 0) {
+    throw new Error("Invalid credit pricing response: unit_price_usd must be a positive finite number");
+  }
+  if (typeof pricing.minimum_quantity !== "number" || !Number.isInteger(pricing.minimum_quantity) || pricing.minimum_quantity < 1) {
+    throw new Error("Invalid credit pricing response: minimum_quantity must be a positive integer");
+  }
+
+  return {
+    pricing: {
+      unit_price_cents: pricing.unit_price_cents,
+      currency: pricing.currency.trim().toLowerCase(),
+      unit_price_usd: pricing.unit_price_usd,
+      minimum_quantity: pricing.minimum_quantity,
+    },
+  };
+}
+
+export async function fetchCreditPricing(): Promise<CreditPricingResponse> {
+  const { data } = await api.get<unknown>("/credits/pricing");
+  return parseCreditPricingResponse(data);
+}
+
+export async function startCreditCheckout(
+  quantity: number,
+  expectedUserId: string,
+): Promise<void> {
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10000) {
+    throw new Error("Quantity must be an integer between 1 and 10,000");
+  }
+  const currentUser = useAuthStore.getState().user;
+  if (!currentUser?.id || currentUser.id !== expectedUserId) {
+    throw new Error("User session changed before initiating credit checkout");
+  }
+
+  const { data } = await api.post<{ checkout_url?: string }>(`/billing/checkout/credits?quantity=${quantity}&client=mobile`);
+
+  if (useAuthStore.getState().user?.id !== expectedUserId) {
+    throw new Error("User identity changed during credit checkout request");
+  }
+
+  await validateAndOpenCheckoutUrl(data?.checkout_url, expectedUserId);
 }

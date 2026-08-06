@@ -47,6 +47,8 @@ import BillingSuccess from "./pages/BillingSuccess";
 import BillingCancel from "./pages/BillingCancel";
 import MobileBillingSuccess from "./pages/MobileBillingSuccess";
 import MobileBillingCancel from "./pages/MobileBillingCancel";
+import MobileCreditBillingSuccess from "./pages/MobileCreditBillingSuccess";
+import MobileCreditBillingCancel from "./pages/MobileCreditBillingCancel";
 import Pricing from "./pages/Pricing";
 import BillingUsage from "./pages/BillingUsage";
 import Onboarding from "./pages/Onboarding";
@@ -138,7 +140,9 @@ function AppRoutes() {
       <Route path="/billing/cancel" element={<BillingCancel />} />
       <Route path="/billing/credits/cancel" element={<BillingCancel />} />
       <Route path="/mobile/billing/success" element={<MobileBillingSuccess />} />
+      <Route path="/mobile/billing/credits/success" element={<MobileCreditBillingSuccess />} />
       <Route path="/mobile/billing/cancel" element={<MobileBillingCancel />} />
+      <Route path="/mobile/billing/credits/cancel" element={<MobileCreditBillingCancel />} />
       <Route element={<RequireAuth />}>
         <Route path="/onboarding" element={<Onboarding />} />
         <Route element={<RequireOnboarding />}>

@@ -14,11 +14,16 @@ class CheckoutUrlResponse(BaseModel):
 
 
 class CheckoutVerificationResponse(BaseModel):
+    checkout_kind: str = Field("subscription", description="'subscription' or 'credit_purchase'")
     session_id: str
     checkout_status: str = Field(..., description="'open', 'complete', or 'expired'")
-    subscription_state: str = Field(..., description="'active', 'processing', 'conflict', or 'not_confirmed'")
+    subscription_state: str | None = Field(None, description="'active', 'processing', 'conflict', or 'not_confirmed'")
+    purchase_state: str | None = Field(None, description="'processing', 'credited', or 'not_confirmed'")
     plan_slug: str | None = None
     interval: str | None = None
+    credit_quantity: int | None = None
+    unit_price_cents: int | None = None
+    currency: str | None = None
 
 
 class EntitlementActionDecision(BaseModel):

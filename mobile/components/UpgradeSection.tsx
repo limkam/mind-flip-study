@@ -29,6 +29,12 @@ import {
 import { useTheme } from "../hooks/useTheme";
 import { hapticImpact } from "../lib/haptics";
 import { getApiErrorMessage } from "../lib/apiErrors";
+import {
+  claimCheckoutAttempt,
+  clearCheckoutAttemptForUser,
+  getCheckoutAttempt,
+  releaseCheckoutAttempt,
+} from "../lib/checkoutAttempt";
 import { useAuthStore } from "../store/authStore";
 import type { BillingInterval, BillingPlanSlug, TrialEligibilityReason } from "../types/api";
 
@@ -49,22 +55,14 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
   const [interval, setInterval] = useState<BillingInterval>("monthly");
   const [loadingSlug, setLoadingSlug] = useState<BillingPlanSlug | "trial_checkout" | null>(null);
 
-  // Synchronous lock ref to prevent rapid double-taps before React state updates
-  const checkoutLockRef = useRef<{
-    attemptId: number;
-    slug: BillingPlanSlug | "trial_checkout";
-    interval: BillingInterval;
-    userId: string | null;
-  } | null>(null);
-
-  const attemptIdCounterRef = useRef(0);
+  const activeAttempt = getCheckoutAttempt();
+  const isLockActive = activeAttempt !== null;
 
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      checkoutLockRef.current = null;
     };
   }, []);
 
@@ -114,16 +112,17 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       if (nextAppState !== "active") return;
-      const pendingAttempt = checkoutLockRef.current;
+      const pendingAttempt = getCheckoutAttempt();
       if (!pendingAttempt) return;
+      const currentUid = useAuthStore.getState().user?.id;
       // Identity guard
-      if (pendingAttempt.userId && useAuthStore.getState().user?.id !== pendingAttempt.userId) {
-        checkoutLockRef.current = null;
+      if (pendingAttempt.userId && currentUid !== pendingAttempt.userId) {
+        clearCheckoutAttemptForUser(pendingAttempt.userId);
         return;
       }
       Promise.all([refetchEntitlements(), refetchTrial()]).then(() => {
-        if (checkoutLockRef.current?.attemptId === pendingAttempt.attemptId) {
-          checkoutLockRef.current = null;
+        if (pendingAttempt.userId) {
+          releaseCheckoutAttempt(pendingAttempt.attemptId, pendingAttempt.userId);
         }
         if (mountedRef.current) {
           setLoadingSlug(null);
@@ -140,7 +139,7 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
   const isConflict = entitlementsData?.subscription_status === "subscription_conflict";
 
   const handleStartTrial = async () => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !userId) {
       router.push("/(auth)/login");
       return;
     }
@@ -150,38 +149,27 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
       isEntitlementsError ||
       isPaidSubscriber ||
       isConflict ||
-      !trialData?.eligible
+      !trialData?.eligible ||
+      isLockActive
     ) {
       return;
     }
 
-    if (checkoutLockRef.current !== null) {
-      return;
-    }
+    const attempt = claimCheckoutAttempt("trial", userId, { interval: "monthly" });
+    if (!attempt) return;
 
-    const currentAttemptId = ++attemptIdCounterRef.current;
-    const capturedUserId = userId || null;
-
-    checkoutLockRef.current = {
-      attemptId: currentAttemptId,
-      slug: "trial_checkout",
-      interval: "monthly",
-      userId: capturedUserId,
-    };
     setLoadingSlug("trial_checkout");
 
     try {
-      await startTrialCheckout(capturedUserId || undefined);
+      await startTrialCheckout(userId);
     } catch (e: unknown) {
-      if (checkoutLockRef.current?.attemptId === currentAttemptId) {
-        checkoutLockRef.current = null;
-      }
+      releaseCheckoutAttempt(attempt.attemptId, userId);
       if (mountedRef.current) {
         setLoadingSlug(null);
       }
       if (
         mountedRef.current &&
-        (!capturedUserId || useAuthStore.getState().user?.id === capturedUserId)
+        (useAuthStore.getState().user?.id === userId)
       ) {
         const errorMsg = getApiErrorMessage(e);
         if (errorMsg.includes("TRIAL_NOT_ELIGIBLE") || errorMsg.includes("not eligible")) {
@@ -218,46 +206,34 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
   const checkout = async (slug: BillingPlanSlug) => {
     if (slug === "free") return;
 
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !userId) {
       router.push("/(auth)/login");
       return;
     }
 
-    if (isEntitlementsLoading || isEntitlementsError || isPaidSubscriber || isConflict) {
+    if (isEntitlementsLoading || isEntitlementsError || isPaidSubscriber || isConflict || isLockActive) {
       return;
     }
 
-    if (checkoutLockRef.current !== null) {
-      return;
-    }
-
-    const currentAttemptId = ++attemptIdCounterRef.current;
-    const capturedUserId = userId || null;
     const capturedInterval = interval;
+    const attempt = claimCheckoutAttempt("subscription", userId, { planSlug: slug, interval: capturedInterval });
+    if (!attempt) return;
 
-    checkoutLockRef.current = {
-      attemptId: currentAttemptId,
-      slug,
-      interval: capturedInterval,
-      userId: capturedUserId,
-    };
     setLoadingSlug(slug);
 
     try {
-      await startCheckout(slug, capturedInterval, capturedUserId || undefined);
+      await startCheckout(slug, capturedInterval, userId);
       // Browser opened successfully — keep lock alive for foreground recovery.
       // Loading spinner is cleared by the AppState listener when the user returns.
     } catch (e: unknown) {
-      // Release lock on error only
-      if (checkoutLockRef.current?.attemptId === currentAttemptId) {
-        checkoutLockRef.current = null;
-      }
+      // Release lock on error
+      releaseCheckoutAttempt(attempt.attemptId, userId);
       if (mountedRef.current) {
         setLoadingSlug(null);
       }
       if (
         mountedRef.current &&
-        (!capturedUserId || useAuthStore.getState().user?.id === capturedUserId)
+        (useAuthStore.getState().user?.id === userId)
       ) {
         const errorMsg = getApiErrorMessage(e);
         if (errorMsg.includes("ALREADY_SUBSCRIBED") || errorMsg.includes("active subscription")) {

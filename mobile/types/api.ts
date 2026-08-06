@@ -389,13 +389,35 @@ export type BillingPricingResponse = {
   plans: Record<string, BillingPlanPrice>;
 };
 
-export type CheckoutVerificationResponse = {
+export type SubscriptionCheckoutVerificationResponse = {
+  checkout_kind: "subscription";
   session_id: string;
   checkout_status: "open" | "complete" | "expired";
   subscription_state: "active" | "processing" | "conflict" | "not_confirmed";
+  purchase_state: null;
   plan_slug: BillingPlanSlug | null;
   interval: BillingInterval | null;
+  credit_quantity: null;
+  unit_price_cents: null;
+  currency: null;
 };
+
+export type CreditCheckoutVerificationResponse = {
+  checkout_kind: "credit_purchase";
+  session_id: string;
+  checkout_status: "open" | "complete" | "expired";
+  subscription_state: null;
+  purchase_state: "processing" | "credited" | "not_confirmed";
+  plan_slug: null;
+  interval: null;
+  credit_quantity: number | null;
+  unit_price_cents: number | null;
+  currency: string | null;
+};
+
+export type CheckoutVerificationResponse =
+  | SubscriptionCheckoutVerificationResponse
+  | CreditCheckoutVerificationResponse;
 
 export type TrialEligibilityReason =
   | "trial_disabled"
@@ -421,4 +443,25 @@ export type TrialEligibilityResponse = {
 export type SubscriptionCancelResponse = {
   canceled_at_period_end: boolean;
   current_period_end: string | null;
+};
+
+export type CreditPricing = {
+  unit_price_cents: number;
+  currency: string;
+  unit_price_usd: number;
+  minimum_quantity: number;
+};
+
+export type CreditPricingResponse = {
+  pricing: CreditPricing;
+};
+
+export type CreditBalance = {
+  total: number;
+  monthly: number;
+  purchased: number;
+};
+
+export type CreditBalanceResponse = {
+  balance: CreditBalance;
 };
