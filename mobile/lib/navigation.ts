@@ -6,7 +6,7 @@ export type AppNavItem = {
   href: Href;
   /** Shown in bottom tab bar (max ~5). */
   tab?: boolean;
-  feature?: "challenges";
+  feature?: "challenges" | "scorecards";
 };
 
 /** Mirrors web `Sidebar.jsx` nav order and labels. */
@@ -15,6 +15,7 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { label: "Library", icon: "library-outline", href: "/(tabs)/library", tab: true },
   { label: "My Flashcards", icon: "school-outline", href: "/(tabs)/flashcards", tab: true },
   { label: "Achievements", icon: "medal-outline", href: "/achievements" },
+  { label: "Scorecards", icon: "stats-chart-outline", href: "/scorecards", feature: "scorecards" },
   { label: "Quiz Results", icon: "trophy-outline", href: "/quiz-history" },
   { label: "Challenges", icon: "flash-outline", href: "/(tabs)/challenges", tab: true, feature: "challenges" },
   { label: "Study Groups", icon: "people-outline", href: "/study-groups" },
@@ -23,6 +24,8 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
   { label: "Analytics", icon: "bar-chart-outline", href: "/analytics" },
   { label: "Leaderboard", icon: "flame-outline", href: "/leaderboard" },
   { label: "Collections", icon: "folder-open-outline", href: "/folders" },
+  { label: "Plans & Pricing", icon: "pricetags-outline", href: "/pricing" },
+  { label: "Billing & Credits", icon: "card-outline", href: "/billing" },
   { label: "My Profile", icon: "person-circle-outline", href: "/profile" },
   { label: "Settings", icon: "settings-outline", href: "/settings" },
   { label: "Feedback", icon: "chatbubble-outline", href: "/feedback" },

@@ -15,4 +15,8 @@ export const mobileFeatures = {
     process.env.EXPO_PUBLIC_ENGAGEMENT_NUDGES_ENABLED,
     true,
   ),
+  scorecards: parseBoolFlag(
+    process.env.EXPO_PUBLIC_ENGAGEMENT_SCORECARDS_ENABLED,
+    true,
+  ),
 } as const;

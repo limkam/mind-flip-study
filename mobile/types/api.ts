@@ -504,3 +504,29 @@ export type CreditActivityFilter =
   | "usage"
   | "allowances"
   | "purchases";
+
+export type ScorecardPeriodType = "weekly" | "monthly" | "course";
+
+export type ScorecardDataState = "empty" | "partial" | "complete";
+
+export type ScorecardMetrics = {
+  data_state?: ScorecardDataState;
+  course_title?: string;
+  assessments_completed?: number;
+  cards_reviewed?: number;
+  current_streak?: number;
+  learning_minutes?: number;
+  average_assessment_score?: number | null;
+  personal_best?: boolean;
+};
+
+export type ScorecardOut = {
+  id: string;
+  period_type: ScorecardPeriodType;
+  entity_id: string;
+  period_start: string;
+  period_end: string;
+  score: number;
+  formula_version: string;
+  metrics: ScorecardMetrics;
+};

@@ -22,6 +22,7 @@ import { WeakTopicsChips } from "../../components/WeakTopicsChips";
 import { DashboardSkeleton } from "../../components/skeletons/DashboardSkeleton";
 import { useTheme } from "../../hooks/useTheme";
 import { fetchEntitlementsSnapshot } from "../../lib/billing";
+import { mobileFeatures } from "../../lib/featureFlags";
 import { fetchFlashcardSetsList } from "../../lib/flashcardSets";
 import { hapticImpact } from "../../lib/haptics";
 import { useAuthStore } from "../../store/authStore";
@@ -903,13 +904,17 @@ export default function DashboardTab() {
                 icon: "refresh-circle",
                 color: "#10b981",
               },
-              {
-                label: "Scorecards",
-                caption: "Share your progress",
-                href: "/scorecards",
-                icon: "stats-chart",
-                color: "#ec4899",
-              },
+              ...(mobileFeatures.scorecards
+                ? [
+                    {
+                      label: "Scorecards",
+                      caption: "Share your progress",
+                      href: "/scorecards",
+                      icon: "stats-chart",
+                      color: "#ec4899",
+                    },
+                  ]
+                : []),
               {
                 label: "Quiz results",
                 caption: "See recent scores",
