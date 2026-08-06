@@ -10,6 +10,7 @@ import { api } from "../../../api/client";
 import { cacheStudySet, getCachedStudySet } from "../../../lib/offlineStudy";
 import { MIN_GAME_CARDS, toGameCards } from "../../../lib/gameUtils";
 import { logGameEvent } from "../../../lib/gameLifecycle";
+import { logStudyEvent, STUDY_EVENTS } from "../../../lib/studyEvents";
 import { submitQuizResult } from "../../../lib/quizResults";
 import { invalidateAfterQuizResult } from "../../../lib/quizResultInvalidation";
 import { useAuthStore } from "../../../store/authStore";
@@ -98,6 +99,26 @@ export default function GamePlayScreen() {
 
   const cards = toGameCards(data?.cards ?? []);
 
+  // Emit game_start once per mounted game instance when set and cards are ready
+  const startEmittedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const resolvedSetId = Array.isArray(setId) ? setId[0] : setId;
+    if (!resolvedSetId || !data || !userId || cards.length < MIN_GAME_CARDS) return;
+
+    const instanceKey = `${userId}:${resolvedSetId}:${gameSlug}:${startedAt.current}`;
+    if (startEmittedRef.current === instanceKey) return;
+    startEmittedRef.current = instanceKey;
+
+    void logStudyEvent({
+      eventType: STUDY_EVENTS.GAME_START,
+      setId: resolvedSetId,
+      metadata: {
+        game_type: gameSlug,
+        mode: "game",
+      },
+    });
+  }, [data, gameSlug, setId, userId, cards.length]);
+
   const persistCompletion = useCallback(async (result: GameRoundResult) => {
     const resolvedSetId = Array.isArray(setId) ? setId[0] : setId;
     if (!resolvedSetId || !data || !userId || submissionInFlight.current || submittedResultId.current) return;
@@ -139,12 +160,20 @@ export default function GamePlayScreen() {
 
     submittedResultId.current = submission.result.id;
     if (useAuthStore.getState().user?.id !== userId) return;
-    logGameEvent("continue", {
-      game: gameSlug,
-      set_id: resolvedSetId,
-      score: submission.result.score,
-      quiz_result_id: submission.result.id,
+
+    // Telemetry emission upon authoritative persistence success
+    void logStudyEvent({
+      eventType: STUDY_EVENTS.GAME_FINISH,
+      setId: resolvedSetId,
+      metadata: {
+        game_type: gameSlug,
+        mode: "game",
+        result_id: submission.result.id,
+        percentage: submission.result.percentage ?? percentage,
+        duration_seconds: submission.result.time_taken_seconds,
+      },
     });
+
     await invalidateAfterQuizResult(queryClient, userId, submission.result);
     try {
       router.replace(`/quiz-results/${submission.result.id}`);
@@ -185,6 +214,15 @@ export default function GamePlayScreen() {
           message="Your score was saved, but the result page could not be opened."
           actionLabel="Open saved result"
           onAction={() => {
+            const resolvedSetId = Array.isArray(setId) ? setId[0] : setId;
+            void logStudyEvent({
+              eventType: STUDY_EVENTS.GAME_CONTINUE,
+              setId: typeof resolvedSetId === "string" ? resolvedSetId : undefined,
+              metadata: {
+                game_type: gameSlug,
+                result_id: submittedResultId.current,
+              },
+            });
             try {
               router.replace(`/quiz-results/${submittedResultId.current}`);
             } catch {
