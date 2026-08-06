@@ -546,3 +546,7 @@ export type ShareOut = {
   expires_at: string;
   show_display_name: boolean;
 };
+
+export type ShareRevokeOut = {
+  revoked: true;
+};

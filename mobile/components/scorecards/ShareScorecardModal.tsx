@@ -5,6 +5,8 @@ import * as Clipboard from "expo-clipboard";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  AppState,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -23,6 +25,7 @@ import { useTheme } from "../../hooks/useTheme";
 import { mobileFeatures } from "../../lib/featureFlags";
 import {
   createScorecardShare,
+  revokeScorecardShare,
   validatePublicDisplayName,
   validateScorecardShareUrl,
   type ParsedScorecardsResponse,
@@ -40,6 +43,14 @@ type ShareScorecardModalProps = {
   scorecard: ScorecardOut | null;
   onClose: () => void;
 };
+
+type ShareLifecyclePhase =
+  | "idle"
+  | "confirming_revoke"
+  | "revoking"
+  | "confirming_regenerate"
+  | "regenerating"
+  | "creating";
 
 const EXPIRY_OPTIONS: Array<{ key: ScorecardShareExpiryDays; label: string }> = [
   { key: 7, label: "7 days" },
@@ -60,33 +71,48 @@ export function ShareScorecardModal({
     useState<ScorecardShareExpiryDays>(30);
   const [showDisplayName, setShowDisplayName] = useState(false);
   const [publicDisplayName, setPublicDisplayName] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
+  const [lifecyclePhase, setLifecyclePhase] =
+    useState<ShareLifecyclePhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [shareState, setShareState] = useState<ShareOut | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [, setNowTick] = useState(0);
 
-  const isCreatingRef = useRef(false);
+  const lifecycleLockRef = useRef(false);
   const attemptIdRef = useRef(0);
   const mountedRef = useRef(true);
 
   useEffect(() => {
     mountedRef.current = true;
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active" && mountedRef.current) {
+        setNowTick(Date.now());
+      }
+    });
+
     return () => {
       mountedRef.current = false;
+      subscription.remove();
     };
   }, []);
 
   useEffect(() => {
     attemptIdRef.current++;
-    isCreatingRef.current = false;
-    setIsCreating(false);
+    lifecycleLockRef.current = false;
+    setLifecyclePhase("idle");
     setError(null);
     setShareState(null);
     setActionNotice(null);
     setExpiresInDays(30);
     setShowDisplayName(false);
     setPublicDisplayName(user?.full_name || "");
+    setNowTick(Date.now());
   }, [scorecard?.id, visible, user?.full_name]);
+
+  const isBusy = lifecyclePhase !== "idle" || lifecycleLockRef.current;
+  const isExpired = shareState
+    ? Date.parse(shareState.expires_at) <= Date.now()
+    : false;
 
   const nameValidation = validatePublicDisplayName(
     publicDisplayName,
@@ -94,7 +120,7 @@ export function ShareScorecardModal({
   );
 
   const handleCreateShare = async () => {
-    if (!scorecard || isCreatingRef.current) return;
+    if (!scorecard || isBusy) return;
 
     if (!mobileFeatures.scorecards) {
       setError("Scorecards are not currently available.");
@@ -135,8 +161,8 @@ export function ShareScorecardModal({
     const capturedUserId = authUser.id;
     const capturedScorecardId = currentCard.id;
 
-    isCreatingRef.current = true;
-    setIsCreating(true);
+    lifecycleLockRef.current = true;
+    setLifecyclePhase("creating");
     setError(null);
     setActionNotice(null);
 
@@ -191,14 +217,338 @@ export function ShareScorecardModal({
       setError(errorMsg);
     } finally {
       if (mountedRef.current && attemptIdRef.current === currentAttemptId) {
-        isCreatingRef.current = false;
-        setIsCreating(false);
+        lifecycleLockRef.current = false;
+        setLifecyclePhase("idle");
+      }
+    }
+  };
+
+  const confirmRevokeShare = () => {
+    if (!scorecard || !shareState || isBusy) return;
+
+    const currentAttemptId = ++attemptIdRef.current;
+    lifecycleLockRef.current = true;
+    setLifecyclePhase("confirming_revoke");
+    setError(null);
+    setActionNotice(null);
+
+    Alert.alert(
+      "Revoke public link?",
+      "Anyone using this link will no longer be able to view the scorecard.",
+      [
+        {
+          text: "Keep link",
+          style: "cancel",
+          onPress: () => {
+            if (mountedRef.current && attemptIdRef.current === currentAttemptId) {
+              lifecycleLockRef.current = false;
+              setLifecyclePhase("idle");
+            }
+          },
+        },
+        {
+          text: "Revoke link",
+          style: "destructive",
+          onPress: () => {
+            void executeRevokeShare(currentAttemptId);
+          },
+        },
+      ],
+      {
+        cancelable: true,
+        onDismiss: () => {
+          if (mountedRef.current && attemptIdRef.current === currentAttemptId) {
+            lifecycleLockRef.current = false;
+            setLifecyclePhase("idle");
+          }
+        },
+      }
+    );
+  };
+
+  const executeRevokeShare = async (attemptId: number) => {
+    if (
+      !mountedRef.current ||
+      attemptIdRef.current !== attemptId ||
+      !scorecard ||
+      !shareState
+    ) {
+      if (mountedRef.current && attemptIdRef.current === attemptId) {
+        lifecycleLockRef.current = false;
+        setLifecyclePhase("idle");
+      }
+      return;
+    }
+
+    if (!mobileFeatures.scorecards) {
+      setError("Scorecards are not currently available.");
+      lifecycleLockRef.current = false;
+      setLifecyclePhase("idle");
+      return;
+    }
+
+    const authUser = useAuthStore.getState().user;
+    if (!authUser?.id) {
+      setError("Authentication required to revoke a share link.");
+      lifecycleLockRef.current = false;
+      setLifecyclePhase("idle");
+      return;
+    }
+
+    const cachedResponse =
+      queryClient.getQueryData<ParsedScorecardsResponse>(["scorecards"]);
+    const currentCard = cachedResponse?.scorecards.find(
+      (c) => c.id === scorecard.id,
+    );
+    if (!currentCard) {
+      setError("This scorecard is no longer available.");
+      lifecycleLockRef.current = false;
+      setLifecyclePhase("idle");
+      return;
+    }
+
+    const capturedUserId = authUser.id;
+    const capturedScorecardId = currentCard.id;
+    const capturedShareId = shareState.id;
+
+    setLifecyclePhase("revoking");
+
+    try {
+      await revokeScorecardShare(capturedScorecardId, capturedShareId);
+
+      if (!mountedRef.current || attemptIdRef.current !== attemptId) {
+        return;
+      }
+
+      const activeAuthUser = useAuthStore.getState().user;
+      if (activeAuthUser?.id !== capturedUserId) {
+        return;
+      }
+
+      setShareState(null);
+      setActionNotice("Share link revoked");
+    } catch (err: unknown) {
+      if (!mountedRef.current || attemptIdRef.current !== attemptId) {
+        return;
+      }
+
+      let errorMsg = "This share link could not be revoked.";
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status;
+        const detail = err.response?.data?.detail;
+
+        if (status === 404) {
+          errorMsg = "This share link could not be revoked.";
+        } else if (status === 409) {
+          errorMsg = "This share link cannot be changed right now.";
+        } else if (status === 422) {
+          errorMsg = "The share link information is invalid.";
+        } else if (status === 429) {
+          errorMsg = "Too many share requests. Please try again later.";
+        } else if (typeof detail === "string") {
+          errorMsg = detail;
+        } else {
+          errorMsg =
+            "Unable to revoke the share link. Check your connection and try again.";
+        }
+      } else if (err instanceof Error) {
+        errorMsg = err.message;
+      }
+
+      setError(errorMsg);
+    } finally {
+      if (mountedRef.current && attemptIdRef.current === attemptId) {
+        lifecycleLockRef.current = false;
+        setLifecyclePhase("idle");
+      }
+    }
+  };
+
+  const confirmRegenerateShare = () => {
+    if (!scorecard || !shareState || isBusy) return;
+    if (!nameValidation.valid) {
+      setError(nameValidation.message);
+      return;
+    }
+
+    const currentAttemptId = ++attemptIdRef.current;
+    lifecycleLockRef.current = true;
+    setLifecyclePhase("confirming_regenerate");
+    setError(null);
+    setActionNotice(null);
+
+    Alert.alert(
+      "Create a new public link?",
+      "The current link will stop working and a replacement link will be created.",
+      [
+        {
+          text: "Keep current link",
+          style: "cancel",
+          onPress: () => {
+            if (mountedRef.current && attemptIdRef.current === currentAttemptId) {
+              lifecycleLockRef.current = false;
+              setLifecyclePhase("idle");
+            }
+          },
+        },
+        {
+          text: "Create new link",
+          style: "destructive",
+          onPress: () => {
+            void executeRegenerateShare(currentAttemptId);
+          },
+        },
+      ],
+      {
+        cancelable: true,
+        onDismiss: () => {
+          if (mountedRef.current && attemptIdRef.current === currentAttemptId) {
+            lifecycleLockRef.current = false;
+            setLifecyclePhase("idle");
+          }
+        },
+      }
+    );
+  };
+
+  const executeRegenerateShare = async (attemptId: number) => {
+    if (
+      !mountedRef.current ||
+      attemptIdRef.current !== attemptId ||
+      !scorecard ||
+      !shareState
+    ) {
+      if (mountedRef.current && attemptIdRef.current === attemptId) {
+        lifecycleLockRef.current = false;
+        setLifecyclePhase("idle");
+      }
+      return;
+    }
+
+    if (!mobileFeatures.scorecards) {
+      setError("Scorecards are not currently available.");
+      lifecycleLockRef.current = false;
+      setLifecyclePhase("idle");
+      return;
+    }
+
+    const authUser = useAuthStore.getState().user;
+    if (!authUser?.id) {
+      setError("Authentication required to regenerate a share link.");
+      lifecycleLockRef.current = false;
+      setLifecyclePhase("idle");
+      return;
+    }
+
+    const cachedResponse =
+      queryClient.getQueryData<ParsedScorecardsResponse>(["scorecards"]);
+    const currentCard = cachedResponse?.scorecards.find(
+      (c) => c.id === scorecard.id,
+    );
+    if (!currentCard) {
+      setError("This scorecard is no longer available.");
+      lifecycleLockRef.current = false;
+      setLifecyclePhase("idle");
+      return;
+    }
+
+    if (!nameValidation.valid) {
+      setError(nameValidation.message);
+      lifecycleLockRef.current = false;
+      setLifecyclePhase("idle");
+      return;
+    }
+
+    const capturedUserId = authUser.id;
+    const capturedScorecardId = currentCard.id;
+    const capturedShareId = shareState.id;
+
+    const payload: ShareCreateIn = {
+      expires_in_days: expiresInDays,
+      show_display_name: showDisplayName,
+      public_display_name: showDisplayName ? nameValidation.value : null,
+    };
+
+    setLifecyclePhase("regenerating");
+
+    // Step 1: Revoke old share
+    try {
+      await revokeScorecardShare(capturedScorecardId, capturedShareId);
+    } catch (err: unknown) {
+      if (!mountedRef.current || attemptIdRef.current !== attemptId) {
+        return;
+      }
+
+      let errorMsg =
+        "The current link could not be revoked, so no replacement was created.";
+      if (axios.isAxiosError(err)) {
+        const detail = err.response?.data?.detail;
+        if (typeof detail === "string") {
+          errorMsg = detail;
+        }
+      }
+      setError(errorMsg);
+      lifecycleLockRef.current = false;
+      setLifecyclePhase("idle");
+      return;
+    }
+
+    if (!mountedRef.current || attemptIdRef.current !== attemptId) {
+      return;
+    }
+
+    // Revoke succeeded! Clear old share state locally immediately
+    setShareState(null);
+
+    // Preflight re-check scorecard availability before Step 2
+    const recheckedResponse =
+      queryClient.getQueryData<ParsedScorecardsResponse>(["scorecards"]);
+    const recheckedCard = recheckedResponse?.scorecards.find(
+      (c) => c.id === capturedScorecardId,
+    );
+    if (!recheckedCard) {
+      setError(
+        "The old share link was revoked, but a new link could not be created because the scorecard is no longer available."
+      );
+      lifecycleLockRef.current = false;
+      setLifecyclePhase("idle");
+      return;
+    }
+
+    // Step 2: Create replacement share
+    try {
+      const result = await createScorecardShare(capturedScorecardId, payload);
+
+      if (!mountedRef.current || attemptIdRef.current !== attemptId) {
+        return;
+      }
+
+      const activeAuthUser = useAuthStore.getState().user;
+      if (activeAuthUser?.id !== capturedUserId) {
+        return;
+      }
+
+      setShareState(result);
+      setActionNotice("Share link regenerated");
+    } catch (err: unknown) {
+      if (!mountedRef.current || attemptIdRef.current !== attemptId) {
+        return;
+      }
+
+      // Step 1 succeeded, but Step 2 failed! Old share is revoked on backend.
+      setError(
+        "The old share link was revoked, but a new link could not be created. You can create a new link at any time."
+      );
+    } finally {
+      if (mountedRef.current && attemptIdRef.current === attemptId) {
+        lifecycleLockRef.current = false;
+        setLifecyclePhase("idle");
       }
     }
   };
 
   const handleShareLink = async () => {
-    if (!shareState?.share_url) return;
+    if (!shareState?.share_url || isExpired || isBusy) return;
     try {
       const validUrl = validateScorecardShareUrl(shareState.share_url);
       await Share.share({
@@ -211,7 +561,7 @@ export function ShareScorecardModal({
   };
 
   const handleCopyLink = async () => {
-    if (!shareState?.share_url) return;
+    if (!shareState?.share_url || isExpired || isBusy) return;
     try {
       const validUrl = validateScorecardShareUrl(shareState.share_url);
       await Clipboard.setStringAsync(validUrl);
@@ -222,7 +572,7 @@ export function ShareScorecardModal({
   };
 
   const handleOpenLink = async () => {
-    if (!shareState?.share_url) return;
+    if (!shareState?.share_url || isExpired || isBusy) return;
     try {
       const validUrl = validateScorecardShareUrl(shareState.share_url);
       const canOpen = await Linking.canOpenURL(validUrl);
@@ -252,7 +602,7 @@ export function ShareScorecardModal({
   };
 
   const handleDismiss = () => {
-    if (isCreating) return;
+    if (isBusy) return;
     attemptIdRef.current++;
     onClose();
   };
@@ -276,7 +626,11 @@ export function ShareScorecardModal({
           <View style={styles.headerRow}>
             <View style={styles.titleContainer}>
               <Text style={[styles.title, { color: colors.text }]}>
-                {shareState ? "Public link created" : "Create Public Link"}
+                {shareState
+                  ? isExpired
+                    ? "Public link expired"
+                    : "Public link active"
+                  : "Create Public Link"}
               </Text>
               <Text style={[styles.subtitle, { color: colors.muted }]}>
                 Anyone with the link can view this scorecard until it expires.
@@ -284,8 +638,8 @@ export function ShareScorecardModal({
             </View>
             <Pressable
               onPress={handleDismiss}
-              disabled={isCreating}
-              style={[styles.closeButton, { opacity: isCreating ? 0.4 : 1 }]}
+              disabled={isBusy}
+              style={[styles.closeButton, { opacity: isBusy ? 0.4 : 1 }]}
               accessibilityLabel="Close share modal"
               accessibilityRole="button"
               hitSlop={8}
@@ -338,178 +692,152 @@ export function ShareScorecardModal({
               </View>
             )}
 
-            {!shareState ? (
-              <View style={styles.formContainer}>
-                <Text style={[styles.fieldLabel, { color: colors.text }]}>
-                  Link expires after
-                </Text>
-                <View style={styles.expiryRow}>
-                  {EXPIRY_OPTIONS.map((opt) => {
-                    const selected = expiresInDays === opt.key;
-                    return (
-                      <Pressable
-                        key={opt.key}
-                        onPress={() => setExpiresInDays(opt.key)}
-                        disabled={isCreating}
-                        style={[
-                          styles.expiryChip,
-                          {
-                            borderColor: selected
-                              ? colors.primary
-                              : colors.border,
-                            backgroundColor: selected
-                              ? `${colors.primary}15`
-                              : colors.background,
-                          },
-                        ]}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected }}
-                        accessibilityLabel={`Expires after ${opt.label}`}
-                      >
-                        <Text
-                          style={[
-                            styles.expiryChipText,
-                            {
-                              color: selected ? colors.primary : colors.muted,
-                              fontWeight: selected ? "700" : "500",
-                            },
-                          ]}
-                        >
-                          {opt.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-                <Text style={[styles.fieldHint, { color: colors.muted }]}>
-                  Link expires after {expiresInDays} days
-                </Text>
-
-                <View
-                  style={[
-                    styles.toggleRow,
-                    { borderTopColor: colors.border },
-                  ]}
-                >
-                  <View style={styles.toggleTextContainer}>
-                    <Text style={[styles.toggleLabel, { color: colors.text }]}>
-                      Show my public display name
-                    </Text>
-                    <Text
-                      style={[styles.toggleSublabel, { color: colors.muted }]}
-                    >
-                      Display your name on the public scorecard
-                    </Text>
-                  </View>
-                  <Switch
-                    value={showDisplayName}
-                    onValueChange={setShowDisplayName}
-                    disabled={isCreating}
-                    trackColor={{ false: colors.border, true: colors.primary }}
-                    accessibilityLabel="Show my public display name"
-                  />
-                </View>
-
-                {showDisplayName && (
-                  <View style={styles.inputSection}>
-                    <View style={styles.inputHeaderRow}>
-                      <Text
-                        style={[styles.fieldLabel, { color: colors.text }]}
-                      >
-                        Public display name
-                      </Text>
-                      <Text
-                        style={[
-                          styles.charCounter,
-                          {
-                            color:
-                              publicDisplayName.length > 80
-                                ? colors.danger
-                                : colors.muted,
-                          },
-                        ]}
-                      >
-                        {publicDisplayName.length} / 80
-                      </Text>
-                    </View>
-                    <TextInput
-                      value={publicDisplayName}
-                      onChangeText={setPublicDisplayName}
-                      placeholder="Enter a public name or alias"
-                      placeholderTextColor={colors.muted}
-                      maxLength={80}
-                      editable={!isCreating}
+            {/* Form Options Section */}
+            <View style={styles.formContainer}>
+              <Text style={[styles.fieldLabel, { color: colors.text }]}>
+                Link expires after
+              </Text>
+              <View style={styles.expiryRow}>
+                {EXPIRY_OPTIONS.map((opt) => {
+                  const selected = expiresInDays === opt.key;
+                  return (
+                    <Pressable
+                      key={opt.key}
+                      onPress={() => setExpiresInDays(opt.key)}
+                      disabled={isBusy}
                       style={[
-                        styles.textInput,
+                        styles.expiryChip,
                         {
-                          color: colors.text,
-                          borderColor: !nameValidation.valid
-                            ? colors.danger
+                          borderColor: selected
+                            ? colors.primary
                             : colors.border,
-                          backgroundColor: colors.background,
+                          backgroundColor: selected
+                            ? `${colors.primary}15`
+                            : colors.background,
                         },
                       ]}
-                      accessibilityLabel="Public display name"
-                    />
-                    {!nameValidation.valid && (
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={`Expires after ${opt.label}`}
+                    >
                       <Text
                         style={[
-                          styles.validationError,
-                          { color: colors.danger },
+                          styles.expiryChipText,
+                          {
+                            color: selected ? colors.primary : colors.muted,
+                            fontWeight: selected ? "700" : "500",
+                          },
                         ]}
                       >
-                        {nameValidation.message}
+                        {opt.label}
                       </Text>
-                    )}
-                  </View>
-                )}
-
-                <Pressable
-                  onPress={handleCreateShare}
-                  disabled={
-                    isCreating || (showDisplayName && !nameValidation.valid)
-                  }
-                  style={({ pressed }) => [
-                    styles.primaryButton,
-                    {
-                      backgroundColor: colors.primary,
-                      opacity:
-                        isCreating ||
-                        (showDisplayName && !nameValidation.valid) ||
-                        pressed
-                          ? 0.6
-                          : 1,
-                    },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel="Create public share link"
-                >
-                  {isCreating ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Ionicons name="link-outline" size={20} color="#FFFFFF" />
-                      <Text style={styles.primaryButtonText}>
-                        Create Public Link
-                      </Text>
-                    </>
-                  )}
-                </Pressable>
+                    </Pressable>
+                  );
+                })}
               </View>
-            ) : (
+              <Text style={[styles.fieldHint, { color: colors.muted }]}>
+                Link expires after {expiresInDays} days
+              </Text>
+
+              <View
+                style={[
+                  styles.toggleRow,
+                  { borderTopColor: colors.border },
+                ]}
+              >
+                <View style={styles.toggleTextContainer}>
+                  <Text style={[styles.toggleLabel, { color: colors.text }]}>
+                    Show my public display name
+                  </Text>
+                  <Text
+                    style={[styles.toggleSublabel, { color: colors.muted }]}
+                  >
+                    Display your name on the public scorecard
+                  </Text>
+                </View>
+                <Switch
+                  value={showDisplayName}
+                  onValueChange={setShowDisplayName}
+                  disabled={isBusy}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  accessibilityLabel="Show my public display name"
+                />
+              </View>
+
+              {showDisplayName && (
+                <View style={styles.inputSection}>
+                  <View style={styles.inputHeaderRow}>
+                    <Text style={[styles.fieldLabel, { color: colors.text }]}>
+                      Public display name
+                    </Text>
+                    <Text
+                      style={[
+                        styles.charCounter,
+                        {
+                          color:
+                            publicDisplayName.length > 80
+                              ? colors.danger
+                              : colors.muted,
+                        },
+                      ]}
+                    >
+                      {publicDisplayName.length} / 80
+                    </Text>
+                  </View>
+                  <TextInput
+                    value={publicDisplayName}
+                    onChangeText={setPublicDisplayName}
+                    placeholder="Enter a public name or alias"
+                    placeholderTextColor={colors.muted}
+                    maxLength={80}
+                    editable={!isBusy}
+                    style={[
+                      styles.textInput,
+                      {
+                        color: colors.text,
+                        borderColor: !nameValidation.valid
+                          ? colors.danger
+                          : colors.border,
+                        backgroundColor: colors.background,
+                      },
+                    ]}
+                    accessibilityLabel="Public display name"
+                  />
+                  {!nameValidation.valid && (
+                    <Text
+                      style={[
+                        styles.validationError,
+                        { color: colors.danger },
+                      ]}
+                    >
+                      {nameValidation.message}
+                    </Text>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Created / Active Share Link Section */}
+            {shareState ? (
               <View style={styles.createdContainer}>
                 <View
                   style={[
                     styles.shareUrlBox,
                     {
                       backgroundColor: colors.background,
-                      borderColor: colors.border,
+                      borderColor: isExpired ? colors.danger : colors.border,
                     },
                   ]}
                 >
                   <Text
-                    style={[styles.shareUrlText, { color: colors.text }]}
-                    selectable
+                    style={[
+                      styles.shareUrlText,
+                      {
+                        color: isExpired ? colors.muted : colors.text,
+                        textDecorationLine: isExpired ? "line-through" : "none",
+                      },
+                    ]}
+                    selectable={!isExpired}
                     numberOfLines={2}
                   >
                     {shareState.share_url}
@@ -521,10 +849,20 @@ export function ShareScorecardModal({
                     <Ionicons
                       name="time-outline"
                       size={14}
-                      color={colors.muted}
+                      color={isExpired ? colors.danger : colors.muted}
                     />
-                    <Text style={[styles.metaText, { color: colors.muted }]}>
-                      Expires {formatExpiryDate(shareState.expires_at)}
+                    <Text
+                      style={[
+                        styles.metaText,
+                        {
+                          color: isExpired ? colors.danger : colors.muted,
+                          fontWeight: isExpired ? "600" : "400",
+                        },
+                      ]}
+                    >
+                      {isExpired
+                        ? "This public link has expired"
+                        : `Expires ${formatExpiryDate(shareState.expires_at)}`}
                     </Text>
                   </View>
 
@@ -546,14 +884,16 @@ export function ShareScorecardModal({
                   </View>
                 </View>
 
+                {/* Main Action Buttons */}
                 <View style={styles.actionButtonsRow}>
                   <Pressable
                     onPress={handleShareLink}
+                    disabled={isExpired || isBusy}
                     style={({ pressed }) => [
                       styles.actionButton,
                       {
                         backgroundColor: colors.primary,
-                        opacity: pressed ? 0.8 : 1,
+                        opacity: isExpired || isBusy || pressed ? 0.5 : 1,
                       },
                     ]}
                     accessibilityRole="button"
@@ -567,13 +907,14 @@ export function ShareScorecardModal({
 
                   <Pressable
                     onPress={handleCopyLink}
+                    disabled={isExpired || isBusy}
                     style={({ pressed }) => [
                       styles.actionButton,
                       {
                         backgroundColor: colors.surface,
                         borderColor: colors.border,
                         borderWidth: 1,
-                        opacity: pressed ? 0.8 : 1,
+                        opacity: isExpired || isBusy || pressed ? 0.5 : 1,
                       },
                     ]}
                     accessibilityRole="button"
@@ -584,22 +925,111 @@ export function ShareScorecardModal({
                       size={18}
                       color={colors.text}
                     />
-                    <Text style={[styles.actionButtonText, { color: colors.text }]}>
+                    <Text
+                      style={[styles.actionButtonText, { color: colors.text }]}
+                    >
                       Copy Link
                     </Text>
                   </Pressable>
                 </View>
 
+                {/* Revoke and Regenerate Buttons */}
+                <View style={styles.actionButtonsRow}>
+                  <Pressable
+                    onPress={confirmRevokeShare}
+                    disabled={isBusy}
+                    style={({ pressed }) => [
+                      styles.actionButton,
+                      {
+                        backgroundColor: `${colors.danger}12`,
+                        borderColor: `${colors.danger}40`,
+                        borderWidth: 1,
+                        opacity: isBusy || pressed ? 0.6 : 1,
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Revoke public share link"
+                  >
+                    {lifecyclePhase === "revoking" ||
+                    lifecyclePhase === "confirming_revoke" ? (
+                      <ActivityIndicator size="small" color={colors.danger} />
+                    ) : (
+                      <>
+                        <Ionicons
+                          name="trash-outline"
+                          size={18}
+                          color={colors.danger}
+                        />
+                        <Text
+                          style={[
+                            styles.actionButtonText,
+                            { color: colors.danger },
+                          ]}
+                        >
+                          Revoke Link
+                        </Text>
+                      </>
+                    )}
+                  </Pressable>
+
+                  <Pressable
+                    onPress={confirmRegenerateShare}
+                    disabled={
+                      isBusy || (showDisplayName && !nameValidation.valid)
+                    }
+                    style={({ pressed }) => [
+                      styles.actionButton,
+                      {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.primary,
+                        borderWidth: 1.5,
+                        opacity:
+                          isBusy ||
+                          (showDisplayName && !nameValidation.valid) ||
+                          pressed
+                            ? 0.5
+                            : 1,
+                      },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Regenerate public share link"
+                  >
+                    {lifecyclePhase === "regenerating" ||
+                    lifecyclePhase === "confirming_regenerate" ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <>
+                        <Ionicons
+                          name="refresh-outline"
+                          size={18}
+                          color={colors.primary}
+                        />
+                        <Text
+                          style={[
+                            styles.actionButtonText,
+                            { color: colors.primary },
+                          ]}
+                        >
+                          Regenerate Link
+                        </Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+
                 <Pressable
                   onPress={handleOpenLink}
+                  disabled={isExpired || isBusy}
                   style={({ pressed }) => [
                     styles.openButton,
-                    { opacity: pressed ? 0.7 : 1 },
+                    { opacity: isExpired || isBusy || pressed ? 0.4 : 1 },
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel="Open public link in browser"
                 >
-                  <Text style={[styles.openButtonText, { color: colors.primary }]}>
+                  <Text
+                    style={[styles.openButtonText, { color: colors.primary }]}
+                  >
                     Open link in external browser
                   </Text>
                   <Ionicons
@@ -609,6 +1039,38 @@ export function ShareScorecardModal({
                   />
                 </Pressable>
               </View>
+            ) : (
+              <Pressable
+                onPress={handleCreateShare}
+                disabled={
+                  isBusy || (showDisplayName && !nameValidation.valid)
+                }
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  {
+                    backgroundColor: colors.primary,
+                    opacity:
+                      isBusy ||
+                      (showDisplayName && !nameValidation.valid) ||
+                      pressed
+                        ? 0.6
+                        : 1,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Create public share link"
+              >
+                {lifecyclePhase === "creating" ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="link-outline" size={20} color="#FFFFFF" />
+                    <Text style={styles.primaryButtonText}>
+                      Create Public Link
+                    </Text>
+                  </>
+                )}
+              </Pressable>
             )}
           </ScrollView>
         </View>
@@ -691,6 +1153,7 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     gap: 14,
+    marginBottom: 16,
   },
   fieldLabel: {
     fontSize: 14,

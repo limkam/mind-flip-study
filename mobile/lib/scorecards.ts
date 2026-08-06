@@ -422,3 +422,34 @@ export async function createScorecardShare(
   const res = await api.post(`/scorecards/${scorecardId}/share`, payload);
   return parseShareOutResponse(res.data);
 }
+
+export function parseShareRevokeResponse(
+  raw: unknown,
+): import("../types/api").ShareRevokeOut {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error("Invalid share revocation response: expected object");
+  }
+
+  const obj = raw as Record<string, unknown>;
+
+  if (obj.revoked !== true) {
+    throw new Error("Invalid share revocation response: expected revoked=true");
+  }
+
+  return { revoked: true };
+}
+
+export async function revokeScorecardShare(
+  scorecardId: string,
+  shareId: string,
+): Promise<import("../types/api").ShareRevokeOut> {
+  if (!UUID_REGEX.test(scorecardId)) {
+    throw new Error("Invalid scorecard ID");
+  }
+  if (!UUID_REGEX.test(shareId)) {
+    throw new Error("Invalid share ID");
+  }
+
+  const res = await api.delete(`/scorecards/${scorecardId}/share/${shareId}`);
+  return parseShareRevokeResponse(res.data);
+}
