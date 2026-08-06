@@ -4,11 +4,31 @@ import { api } from "../api/client";
 import { useAuthStore } from "../store/authStore";
 import type { CelebrationEventOut, QuizResultInput, QuizResultOut } from "../types/api";
 import { getApiErrorMessage } from "./apiErrors";
+import {
+  getQuizSubmissionMode,
+  getSaveErrorCategory,
+  logStudyEvent,
+  STUDY_EVENTS,
+  type SaveErrorCategory,
+} from "./studyEvents";
 
 export type QuizResultSubmissionResult =
   | { status: "submitted"; result: QuizResultOut }
-  | { status: "rejected"; reason: string; httpStatus?: number; retryable: boolean }
-  | { status: "authentication"; reason: string; httpStatus?: number };
+  | { status: "response_contract_error"; reason: string; requestDispatched: true }
+  | {
+      status: "rejected";
+      reason: string;
+      httpStatus?: number;
+      retryable: boolean;
+      requestDispatched: true;
+      errorCategory: SaveErrorCategory;
+    }
+  | {
+      status: "authentication";
+      reason: string;
+      httpStatus?: number;
+      requestDispatched: boolean;
+    };
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
@@ -56,15 +76,22 @@ export async function submitQuizResult(
 ): Promise<QuizResultSubmissionResult> {
   const requestingUserId = useAuthStore.getState().user?.id;
   if (!requestingUserId || !useAuthStore.getState().accessToken) {
-    return { status: "authentication", reason: "Sign in again to save your result." };
+    // Preflight auth check: persistence never attempted. No telemetry.
+    return {
+      status: "authentication",
+      reason: "Sign in again to save your result.",
+      requestDispatched: false,
+    };
   }
+
   try {
     const { data } = await api.post<unknown>("/quiz-results/", input);
     if (!isQuizResultOut(data)) {
+      // 2xx response received; persistence may have succeeded on backend. No save-error telemetry.
       return {
-        status: "rejected",
+        status: "response_contract_error",
         reason: "The server returned an invalid quiz result.",
-        retryable: false,
+        requestDispatched: true,
       };
     }
     if (
@@ -75,28 +102,39 @@ export async function submitQuizResult(
       || data.total_questions !== input.total_questions
       || data.time_taken_seconds !== input.time_taken_seconds
     ) {
+      // 2xx response received; response data mismatch. No save-error telemetry.
       return {
-        status: "rejected",
+        status: "response_contract_error",
         reason: "The saved result did not match this game attempt.",
-        retryable: false,
+        requestDispatched: true,
       };
     }
     return { status: "submitted", result: data };
   } catch (error: unknown) {
+    const isCanceled = axios.isCancel(error);
     const httpStatus = axios.isAxiosError(error) ? error.response?.status : undefined;
+    const noResponse = axios.isAxiosError(error) && !error.response && !isCanceled;
+
     const reason = getApiErrorMessage(error, "Your result could not be saved.");
     const auth = useAuthStore.getState();
     if (httpStatus === 401 || !auth.accessToken || auth.bootstrapStatus === "terminated") {
-      return { status: "authentication", reason, httpStatus };
+      return { status: "authentication", reason, httpStatus, requestDispatched: true };
     }
     const timeout = axios.isAxiosError(error)
       && (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT");
-    const noResponse = axios.isAxiosError(error) && !error.response;
     const retryable = timeout
       || noResponse
       || httpStatus === 408
       || httpStatus === 429
       || (httpStatus !== undefined && httpStatus >= 500 && httpStatus <= 599);
-    return { status: "rejected", reason, httpStatus, retryable };
+    const errorCategory = getSaveErrorCategory(httpStatus, noResponse);
+    return {
+      status: "rejected",
+      reason,
+      httpStatus,
+      retryable,
+      requestDispatched: true,
+      errorCategory,
+    };
   }
 }

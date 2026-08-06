@@ -8,9 +8,48 @@ export const STUDY_EVENTS = {
   GAME_START: "game_start",
   GAME_FINISH: "game_finish",
   GAME_CONTINUE: "game_continue",
+  GAME_SAVE_ERROR: "game_save_error",
+  GAME_QUIZ_SAVE_ERROR: "game_quiz_save_error",
 } as const;
 
 export type StudyEventName = (typeof STUDY_EVENTS)[keyof typeof STUDY_EVENTS];
+
+export type QuizSubmissionMode = "game" | "quiz" | null;
+
+export function getQuizSubmissionMode(extras: unknown): QuizSubmissionMode {
+  if (!extras || typeof extras !== "object" || Array.isArray(extras)) {
+    return null;
+  }
+
+  const mode = (extras as Record<string, unknown>).mode;
+
+  if (mode === "game" || mode === "quiz") {
+    return mode;
+  }
+
+  return null;
+}
+
+export type SaveErrorCategory =
+  | "network"
+  | "unauthorized"
+  | "conflict"
+  | "validation"
+  | "server"
+  | "unknown";
+
+export function getSaveErrorCategory(
+  httpStatus?: number,
+  isNetworkError?: boolean,
+): SaveErrorCategory {
+  if (isNetworkError) return "network";
+  if (!httpStatus) return "unknown";
+  if (httpStatus === 401 || httpStatus === 403) return "unauthorized";
+  if (httpStatus === 409) return "conflict";
+  if (httpStatus === 400 || httpStatus === 422) return "validation";
+  if (httpStatus >= 500 && httpStatus <= 599) return "server";
+  return "unknown";
+}
 
 const VALID_EVENT_TYPES = new Set<string>(Object.values(STUDY_EVENTS));
 

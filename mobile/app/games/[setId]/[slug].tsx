@@ -10,7 +10,7 @@ import { api } from "../../../api/client";
 import { cacheStudySet, getCachedStudySet } from "../../../lib/offlineStudy";
 import { MIN_GAME_CARDS, toGameCards } from "../../../lib/gameUtils";
 import { logGameEvent } from "../../../lib/gameLifecycle";
-import { logStudyEvent, STUDY_EVENTS } from "../../../lib/studyEvents";
+import { getSaveErrorCategory, logStudyEvent, STUDY_EVENTS } from "../../../lib/studyEvents";
 import { submitQuizResult } from "../../../lib/quizResults";
 import { invalidateAfterQuizResult } from "../../../lib/quizResultInvalidation";
 import { useAuthStore } from "../../../store/authStore";
@@ -157,6 +157,30 @@ export default function GamePlayScreen() {
         message: submission.reason,
         retryable: submission.status === "rejected" && submission.retryable,
       });
+
+      // Perform stale identity check and verify request was actually dispatched over HTTP
+      const currentUserId = useAuthStore.getState().user?.id;
+      if (currentUserId !== userId) return;
+
+      const isDispatchedFailure = submission.requestDispatched === true
+        && (submission.status === "rejected"
+          || (submission.status === "authentication" && submission.httpStatus === 401));
+
+      if (isDispatchedFailure) {
+        const errorCategory = submission.status === "rejected"
+          ? submission.errorCategory
+          : "unauthorized";
+
+        void logStudyEvent({
+          eventType: STUDY_EVENTS.GAME_SAVE_ERROR,
+          setId: resolvedSetId,
+          metadata: {
+            game_type: gameSlug,
+            mode: "game",
+            error_category: errorCategory,
+          },
+        });
+      }
       return;
     }
 
