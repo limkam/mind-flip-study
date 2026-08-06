@@ -5,22 +5,22 @@
 - **Mobile application:** `mobile/`
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
-- **Current parity phase:** Phase E — Billing and credits.
-- **Next recommended action:** Execute PAR-038 (Credit usage and purchase history).
+- **Current parity phase:** Phase F — Scorecards and sharing.
+- **Next recommended action:** Execute PAR-040 (Scorecard rollout gating).
 
-Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-037, PAR-039, PAR-057, and PAR-058 are `Merged`: PAR-031 was already satisfied by PAR-030 (commit `c8038f5`); PAR-032 implementation commit `d2ec1a5` and post-merge hardening commit `5cdba1e` reached local `main`; PAR-034 implementation commit `d414fdd` reached local `main`; PAR-035 implementation and post-review hardening commit `23a4602` reached local `main`; PAR-036 and PAR-037 combined implementation and hardening commit `3f04c1d` reached local `main` with server-driven credit pricing (`GET /credits/pricing`), integer quantity range validation ($1 \le Q \le 10,000$), central checkout attempt lock coordinator (`checkoutAttempt.ts`), dedicated mobile return routes (`mobile/app/billing/credits/success.tsx` & `cancel.tsx`), dedicated web return bridge pages (`/mobile/billing/credits/success` & `cancel`), discriminated tagged verification response (`checkout_kind: "credit_purchase"` & `purchase_state: "credited"`), strict runtime API parser `parseCheckoutVerificationResponse`, webhook amount/currency integrity checks, atomic database-level grant deduplication, and cache-success display error handling (`"sync_failed"` state with refresh-only retry). Passed 40 backend unit tests across 4 suites, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), Vite web build passed (0 errors), and clean git diff check (0 errors). Purchase history UI remains in PAR-038. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-039, PAR-057, and PAR-058 are `Merged`: PAR-031 was already satisfied by PAR-030 (commit `c8038f5`); PAR-032 implementation commit `d2ec1a5` and post-merge hardening commit `5cdba1e` reached local `main`; PAR-034 implementation commit `d414fdd` reached local `main`; PAR-035 implementation commit `23a4602` reached local `main`; PAR-036 and PAR-037 commit `3f04c1d` reached local `main`; PAR-038 implementation commit `9fb59e7` reached local `main` with backend public DTO narrowing (omitting internal Stripe identifiers), strict runtime response parsing (`parseCreditUsageResponse` and `parsePurchaseHistoryResponse`), diagnostic counts (`discarded_count` and `discarded_duplicates_count`), pool validation (`VALID_POOLS`), independent price/amount validation, partial-data UI notice banner, truthful purchase count copy (`Showing X of Y purchases`), activity filters (`All`, `Usage`, `Allowances`, `Purchases`), synchronous `refreshingRef` pull-to-refresh lock, and post-purchase query cache synchronization in `CreditSuccessScreen`. Passed 12 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), Vite web build passed (0 errors), and clean git diff check (0 errors). No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 37 |
+| Merged | 38 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
-| Not started | 10 |
+| Not started | 9 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -29,10 +29,10 @@ All status rows sum to 58. Decision records and technical-debt records are not t
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 70.2% (66 / 94 effort points) |
+| Executable roadmap progress | 72.3% (68 / 94 effort points) |
 | Critical-ticket executable progress | 73.7% (14 / 19 effort points) |
-| High-priority executable progress | 60.8% (31 / 51 effort points) |
-| Disposition progress | 74.1% (43 / 58 tickets) |
+| High-priority executable progress | 64.7% (33 / 51 effort points) |
+| Disposition progress | 75.9% (44 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -123,7 +123,7 @@ Celebration presentation remains separate from study/quiz persistence.
 | PAR-035 | Subscription cancellation | High | M | Merged | Commit `23a4602`: Native mobile subscription cancellation (`POST /billing/subscription/cancel`), period-end cancellation semantics (`cancel_at_period_end=True`), strict runtime response validator `parseSubscriptionCancelResponse` (`mobile/lib/billing.ts`), tagged-union double-tap/confirmation lock (`CancellationLock`), pre-request entitlement freshness recheck, post-response identity/unmount guards, date past detection (`parseAndFormatDate`), authoritative `["billing-entitlements"]` query snapshot synchronization (`mobile/app/billing.tsx`), error classification (404, 409 conflict, 503 unavailable), 36 passing backend unit tests across 3 suites, 0 mobile TypeScript errors, Android/iOS Expo exports passed with 0 errors, clean git diff check. Customer portal and credit purchasing remain separate. | Technical dependency: PAR-030 catalog/types. |
 | PAR-036 | Credit pricing | High | S | Merged | Commit `3f04c1d`: Server-driven credit unit price endpoint (`GET /credits/pricing`), DTO typing (`CreditPricing`, `CreditPricingResponse`), strict schema parser (`parseCreditPricingResponse`), React Query `["credit-pricing"]` integration, quantity input validation ($1 \le Q \le 10,000$), safe integer total calculation (`unit_price_cents * quantity`), dynamic pricing UI presentation in `BuyCreditsModal.tsx`. Passed 40 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed with 0 errors. | Recommended sequence: PAR-030 first for billing conventions; no API dependency. |
 | PAR-037 | Credit purchase | Critical | M | Merged | Commit `3f04c1d`: Native credit purchasing flow (`POST /billing/checkout/credits`), central checkout lock coordinator (`checkoutAttempt.ts`), dedicated credit return screens (`mobile/app/billing/credits/success.tsx` & `cancel.tsx`), dedicated web return bridge pages (`/mobile/billing/credits/success` & `cancel`), strict tagged verification parser (`parseCheckoutVerificationResponse`), webhook payment integrity checks (Stripe mode `payment`, payment status `paid`, quantity range, amount matching, currency matching), atomic database transaction grant deduplication (`CreditPurchase` unique `stripe_session_id`), bounds-controlled entitlement & usage cache synchronization, `"sync_failed"` display state with refresh-only retry. Passed 40 backend unit tests across 4 suites, 0 mobile TypeScript errors, Android/iOS Expo exports passed, Vite web build passed, clean git diff check. | Technical dependency: PAR-036 pricing, PAR-032 return architecture. |
-| PAR-038 | Credit usage and purchase history | High | M | Not started | Billing/usage screen; usage plus paginated purchase history | Recommended sequence: PAR-036 first; history is not technically dependent on pricing. |
+| PAR-038 | Credit usage and purchase history | High | M | Merged | Commit `9fb59e7`: Native credit usage & purchase history parity. Public DTO narrowing (`GET /credits/purchase-history` omits internal `stripe_` fields); runtime response parsers (`parseCreditUsageResponse`, `parsePurchaseHistoryResponse`) with `discarded_count` and `discarded_duplicates_count` diagnostic metadata; partial-data notice banner (`Notice: Some credit or purchase records could not be displayed.`); activity filtering (`All`, `Usage`, `Allowances`, `Purchases`); truthful purchase count header (`Showing X of Y purchases`); `VALID_POOLS` pool validation; independent price/amount validation; expiry past/future formatting (`Expired...` vs `Expires...`); synchronous pull-to-refresh lock (`refreshingRef`) refetching entitlements, usage, and purchase history; post-purchase query cache synchronization in `CreditSuccessScreen`. Passed 12 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), Vite web build passed (0 errors), clean git diff check (0 errors). | Recommended sequence: PAR-036 first; history is not technically dependent on pricing. |
 | PAR-039 | Billing success/cancel handling | Critical | M | Merged | Satisfied by PAR-032 implementation and post-merge hardening (commits `d2ec1a5` & `5cdba1e`): approved return routes/screens, verify/refetch state, cancel handling. | Technical dependency: PAR-032. |
  
  An annual option must never silently launch monthly checkout.
@@ -230,9 +230,9 @@ A parity ticket is complete only when:
 
 ## 8. Next Ticket
 
-PAR-036 and PAR-037 are **Merged** as commit `3f04c1d` on local `main`.
+PAR-038 is **Merged** as commit `9fb59e7` on local `main`.
 
-The next work ticket is PAR-038 (Credit usage and purchase history).
+The next executable work ticket is **PAR-040 (Scorecard rollout gating)**.
 
 ## Audit Reconciliation
 
