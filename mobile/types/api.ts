@@ -372,3 +372,19 @@ export type JobStatusResponse = {
   percent_complete?: number | null;
   current_chapter?: string | null;
 };
+export type BillingInterval = "monthly" | "annual";
+
+export type BillingPlanSlug = "free" | "quick_72" | "standard_15" | "premium_30";
+
+export type BillingPlanPrice = {
+  monthly_price_cents: number | null;
+  annual_price_cents: number | null;
+  annual_savings_cents: number | null;
+  stripe_price_id_monthly: string | null;
+  stripe_price_id_annual: string | null;
+};
+
+export type BillingPricingResponse = {
+  default_interval: BillingInterval;
+  plans: Record<string, BillingPlanPrice>;
+};
