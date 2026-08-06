@@ -6,21 +6,21 @@
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
 - **Current parity phase:** Phase F — Scorecards and sharing.
-- **Next recommended action:** Execute PAR-042 (Public share-link creation).
+- **Next recommended action:** Execute PAR-044 (Share revoke/regenerate).
 
-Status is evidence-based. PAR-001–PAR-041, PAR-057, and PAR-058 are `Merged`: PAR-031 was already satisfied by PAR-030 (commit `c8038f5`); PAR-032 implementation commit `d2ec1a5` and post-merge hardening commit `5cdba1e` reached local `main`; PAR-034 implementation commit `d414fdd` reached local `main`; PAR-035 implementation commit `23a4602` reached local `main`; PAR-036 and PAR-037 commit `3f04c1d` reached local `main`; PAR-038 implementation commit `9fb59e7` reached local `main`; PAR-040 and PAR-041 implementation commit `0ee15ee` reached local `main` with build-time feature flag `EXPO_PUBLIC_ENGAGEMENT_SCORECARDS_ENABLED` (default: `true`), navigation and direct-route guards, single query cache shape `ParsedScorecardsResponse`, strict DTO parsing and row-level validation (supporting empty string `entity_id` for weekly/monthly scorecards), `source_count` contract error handling for all-malformed responses, request sequence write-ownership race protection, synchronous `refreshingRef` pull-to-refresh locking, non-blocking stale/refresh error banners, retained cached data, truthful period empty states, and preserved native image sharing. Passed 22 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), and clean git diff check (0 errors). No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-043, PAR-057, and PAR-058 are `Merged`: PAR-031 was already satisfied by PAR-030 (commit `c8038f5`); PAR-032 implementation commit `d2ec1a5` and post-merge hardening commit `5cdba1e` reached local `main`; PAR-034 implementation commit `d414fdd` reached local `main`; PAR-035 implementation commit `23a4602` reached local `main`; PAR-036 and PAR-037 commit `3f04c1d` reached local `main`; PAR-038 implementation commit `9fb59e7` reached local `main`; PAR-040 and PAR-041 implementation commit `0ee15ee` reached local `main`; PAR-042 and PAR-043 implementation commit `eb8beda` reached local `main` with `ShareScorecardModal` native share creation modal, 7/30/90-day expiry controls, display-name opt-in and Unicode validation, strict DTO response parsing (`parseShareOutResponse`), strict URL security validation (`validateScorecardShareUrl`), actual device clipboard copying (`expo-clipboard` `Clipboard.setStringAsync`), native system share sheet (`Share.share`), preserved image export, duplicate/stale attempt protection (`attemptIdRef` / `isCreatingRef`), session-only share state model, and pre-flight eligibility checks. Passed 22 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), and clean git diff check (0 errors). No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 40 |
+| Merged | 42 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
-| Not started | 7 |
+| Not started | 5 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -29,10 +29,10 @@ All status rows sum to 58. Decision records and technical-debt records are not t
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 75.5% (71 / 94 effort points) |
+| Executable roadmap progress | 79.8% (75 / 94 effort points) |
 | Critical-ticket executable progress | 73.7% (14 / 19 effort points) |
-| High-priority executable progress | 70.6% (36 / 51 effort points) |
-| Disposition progress | 79.3% (46 / 58 tickets) |
+| High-priority executable progress | 78.4% (40 / 51 effort points) |
+| Disposition progress | 82.8% (48 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -134,8 +134,8 @@ Celebration presentation remains separate from study/quiz persistence.
  | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
  | PAR-040 | Scorecard rollout gating | High | S | Merged | Commit `0ee15ee`: Central feature flag `EXPO_PUBLIC_ENGAGEMENT_SCORECARDS_ENABLED` (default: `true`), gated More-menu nav item, gated Dashboard quick action card, guarded `/scorecards` direct route (renders "Scorecards unavailable" without issuing network requests). Backend 404 mapped to unavailable state. Passed 22 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean diff check. | None; public-token behavior is unrelated to rollout gating. |
  | PAR-041 | Cached-data and refresh-state parity | High | M | Merged | Commit `0ee15ee`: Native scorecard state management parity. Single cache key shape `ParsedScorecardsResponse`; strict runtime parsing (`parseScorecardsResponse`) with `source_count`, `discarded_count`, and `discarded_duplicates_count`; contract error for all-malformed responses (`source_count > 0 && scorecards.length === 0`); monotonic sequence number (`lastWriteSequenceRef`) write-ownership protection against stale GET overwrites; synchronous `refreshingRef` pull-to-refresh lock; retained cached data on background GET or POST refresh failure with non-blocking notice banners; period-specific empty states; preserved native image sharing (`captureRef`). Passed 22 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean diff check. | None |
- | PAR-042 | Public share-link creation | High | M | Not started | Scorecards/share types; create link and native share/copy | None |
- | PAR-043 | Share expiry and display-name controls | High | M | Not started | Share form; 7/30/90-day expiry and validated optional name | Technical dependency: PAR-042 share creation flow. |
+ | PAR-042 | Public share-link creation | High | M | Merged | Commit `eb8beda`: Native public share link creation (`POST /scorecards/{id}/share`). Strict DTO types (`ShareCreateIn`, `ShareOut`), runtime response parser (`parseShareOutResponse`), URL security validator (`validateScorecardShareUrl`), actual device clipboard write (`expo-clipboard`), native system share sheet (`Share.share`), preserved image export, pre-request eligibility checks, synchronous attempt lock (`attemptIdRef`), and clean 404/409 error copy. Passed 22 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean diff check. | None |
+ | PAR-043 | Share expiry and display-name controls | High | M | Merged | Commit `eb8beda`: Public share expiry and display-name controls (`ShareScorecardModal`). Touch chips for 7, 30, and 90 days (default 30), opt-in switch for display name, live character counter (<=80), ASCII control-character rejection, Unicode name preservation, and fallback to `user.full_name`. Passed 22 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean diff check. | Technical dependency: PAR-042 share creation flow. |
  | PAR-044 | Share revoke/regenerate | High | M | Not started | Share lifecycle; revoke, regenerate and cache updates | Technical dependency: PAR-042 share lifecycle/types. |
  | PAR-045 | Public-token mobile behavior decision | High | S | Blocked | Decide external browser versus in-app public route before implementing token navigation | Blocked by decision: DEC-004. |
  
@@ -230,9 +230,9 @@ A parity ticket is complete only when:
 
 ## 8. Next Ticket
 
-PAR-038 is **Merged** as commit `9fb59e7` on local `main`.
+PAR-042 and PAR-043 are **Merged** as commit `eb8beda` on local `main`.
 
-The next executable work ticket is **PAR-040 (Scorecard rollout gating)**.
+The next executable work ticket is **PAR-044 (Share revoke/regenerate)**.
 
 ## Audit Reconciliation
 
