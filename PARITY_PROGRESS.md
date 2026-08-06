@@ -6,21 +6,21 @@
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
 - **Current parity phase:** Phase D — Dashboard and learning UX.
-- **Next recommended action:** Execute PAR-027 (Daily-review refinements).
+- **Next recommended action:** Execute PAR-028 (Central study-event taxonomy and transport).
 
-Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-026, PAR-057, and PAR-058 are `Merged`: PAR-024–PAR-026 code commit `9256937` reached local `main` with `mobile/app/(tabs)/index.tsx`; mobile typecheck, Android export, iOS export, 47 adjacent backend unit tests, and cached diff check passed. Four database-backed endpoint suites (books list, analytics summary, quiz results list, quiz challenges list) are environment-blocked/missing as documented. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-015, PAR-017–PAR-027, PAR-057, and PAR-058 are `Merged`: PAR-027 code commit `622e25c` reached local `main` with `mobile/app/daily-review.tsx`; mobile typecheck, Android export, iOS export, 47 adjacent backend unit tests, and cached diff check passed. Direct HTTP/database integration coverage for `GET /study/daily-review` and `POST /study/progress` is environment-blocked/missing as documented. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 27 |
+| Merged | 28 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
-| Not started | 20 |
+| Not started | 19 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -29,10 +29,10 @@ All status rows sum to 58. Decision records and technical-debt records are not t
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 54.3% (51 / 94 effort points) |
+| Executable roadmap progress | 56.4% (53 / 94 effort points) |
 | Critical-ticket executable progress | 47.4% (9 / 19 effort points) |
 | High-priority executable progress | 54.9% (28 / 51 effort points) |
-| Disposition progress | 51.7% (30 / 58 tickets) |
+| Disposition progress | 53.4% (31 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -105,7 +105,7 @@ Unsupported top-level book title/author editing is intentionally absent: `BookPa
 | PAR-024 | Dashboard data composition | Medium | L | Merged | Authoritative books count from server envelope, `—` on error/loading; analytics summary validation; fail-closed loading/error state. Commit `9256937`. | Recommended sequence: PAR-025/PAR-026 composition point. |
 | PAR-025 | Recent quiz-result presentation | Medium | M | Merged | Page size 2, `["quiz-results", "dashboard-recent"]` key, retry UI on error, percentage text, canonical ID navigation. Commit `9256937`. | Technical dependency: PAR-024 dashboard composition point. |
 | PAR-026 | Pending challenge count and entitlement state | Medium | M | Merged | Entitlement loading/enabled/disabled/error state separation, recipient filtering, inline error/retry state. Commit `9256937`. | Technical dependency: PAR-004 entitlement guard and PAR-024 dashboard composition. |
-| PAR-027 | Daily-review remaining refinements | Medium | M | Not started | Daily review; returned state presentation, filters, queue completion and errors beyond PAR-005/006 | Technical dependency: PAR-005/PAR-006 authoritative mutation and invalidation. |
+| PAR-027 | Daily-review remaining refinements | Medium | M | Merged | Runtime `DueFlashcardOut` validation, duplicate card ID deduplication, synchronous attempt lock, submitted/queued/rejected result handling, truthful empty/error states, pull-to-refresh. Commit `622e25c`. | Technical dependency: PAR-005/PAR-006 authoritative mutation and invalidation. |
 | PAR-028 | Central study-event taxonomy and transport | Medium | M | Not started | New event module and learning call sites; shared names/schema, duplicate protection, non-blocking transport | None |
 | PAR-029 | Celebration policy and native presentation | Medium | L | Not started | Native provider plus portable policy/seen state; dedupe, bounds, reduced motion, haptics | Technical dependency: PAR-028 trusted event taxonomy/transport. |
 
@@ -230,9 +230,9 @@ A parity ticket is complete only when:
 
 ## 8. Next Ticket
 
-PAR-024, PAR-025, and PAR-026 are **Merged** as commit `9256937` on local `main`.
+PAR-027 is **Merged** as commit `622e25c` on local `main`.
 
-The next work batch is PAR-027 (Daily-review refinements).
+The next work batch is PAR-028 (Central study-event taxonomy and transport).
 
 ## Audit Reconciliation
 
