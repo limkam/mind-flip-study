@@ -5,22 +5,22 @@
 - **Mobile application:** `mobile/`
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
-- **Current parity phase:** Phase F — Scorecards and sharing.
-- **Next recommended action:** Execute PAR-046 (Legacy password screen removal or redirect).
+- **Current parity phase:** Phase G — Remaining feature and contract cleanup.
+- **Next recommended action:** Execute PAR-047 (Complete feature-flag parity).
 
-Status is evidence-based. PAR-001–PAR-044, PAR-057, and PAR-058 are `Merged`: PAR-031 was already satisfied by PAR-030 (commit `c8038f5`); PAR-032 implementation commit `d2ec1a5` and post-merge hardening commit `5cdba1e` reached local `main`; PAR-034 implementation commit `d414fdd` reached local `main`; PAR-035 implementation commit `23a4602` reached local `main`; PAR-036 and PAR-037 commit `3f04c1d` reached local `main`; PAR-038 implementation commit `9fb59e7` reached local `main`; PAR-040 and PAR-041 implementation commit `0ee15ee` reached local `main`; PAR-042 and PAR-043 implementation commit `eb8beda` reached local `main`; PAR-044 implementation commit `bd53c4e` reached local `main` with session-only public scorecard share lifecycle, native `ShareScorecardModal` Revoke Link (`DELETE /scorecards/{id}/share/{share_id}`) and Regenerate Link (sequential non-atomic `DELETE` then `POST`), strict response schema validation (`parseShareRevokeResponse` enforcing `revoked === true`), strict UUID parameter validation (`UUID_REGEX`), synchronous lifecycle locking (`ShareLifecyclePhase`: `idle`, `confirming_revoke`, `revoking`, `confirming_regenerate`, `regenerating`, `creating`), pre-dialog lock acquisition (`lifecycleLockRef`), stale-attempt protection (`attemptIdRef`), preflight scorecard freshness re-validation, partial-success error handling (if `DELETE` succeeds but `POST` fails, local `shareState` is cleared to `null` and explicit notice is shown), `AppState` foreground expiry recalculation, and zero bearer token URL persistence in `AsyncStorage`, `SecureStore`, React Query, Zustand, auth store, telemetry, or system logs. Passed 24 backend unit tests (including 2 direct revoke & public retrieval contract suites), 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), and clean git diff check (0 errors). No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-044, PAR-046, PAR-057, and PAR-058 are `Merged`: PAR-031 was already satisfied by PAR-030 (commit `c8038f5`); PAR-032 implementation commit `d2ec1a5` and post-merge hardening commit `5cdba1e` reached local `main`; PAR-034 implementation commit `d414fdd` reached local `main`; PAR-035 implementation commit `23a4602` reached local `main`; PAR-036 and PAR-037 commit `3f04c1d` reached local `main`; PAR-038 implementation commit `9fb59e7` reached local `main`; PAR-040 and PAR-041 implementation commit `0ee15ee` reached local `main`; PAR-042 and PAR-043 implementation commit `eb8beda` reached local `main`; PAR-044 implementation commit `bd53c4e` reached local `main`; PAR-046 implementation commit `f1a8a1c` reached local `main` with complete mobile passwordless-auth parity: legacy route files (`mobile/app/(auth)/register.tsx`, `mobile/app/(auth)/forgot-password.tsx`) verified as zero-overhead Expo Router `<Redirect href="/(auth)/login" />` compatibility routes discarding stale tokens/query params without form or network requests; hardened `safeReturnRoute()` in `mobile/lib/returnRoute.ts` with bounded single-pass URI decoding (`decodeURIComponent`), malformed percent-encoding safety (`URIError` caught -> `null`), scheme/authority marker rejection (`//`, `:`, `%2f%2f`, `%3a`, encoded in-path slashes `%2f`), and exact path-segment boundary matching (`path === prefix || path.startsWith("${prefix}/")`) rejecting 12 legacy route families/descendants while accepting valid internal paths (`/(tabs)`, `/profile`, `/settings`, `/daily-review`, `/scorecards`, `/help/password-security`); hardened `isAuthEndpoint()` in `mobile/api/client.ts` with exact root auth endpoint matching (`/auth/forgot-password`, `/auth/reset-password`) excluding 401 refresh loops while leaving protected resources refresh-eligible; zero active deprecated password calls in mobile; retained backend compatibility endpoints unchanged. Passed 47 pure helper tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), and clean git diff check. No remote push or remote-branch merge is implied.
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 43 |
+| Merged | 44 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
-| Not started | 4 |
+| Not started | 3 |
 | Blocked | 5 |
 | Deferred | 0 |
 | Not required | 6 |
@@ -29,10 +29,10 @@ All status rows sum to 58. Decision records and technical-debt records are not t
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 81.9% (77 / 94 effort points) |
+| Executable roadmap progress | 83.0% (78 / 94 effort points) |
 | Critical-ticket executable progress | 73.7% (14 / 19 effort points) |
 | High-priority executable progress | 82.4% (42 / 51 effort points) |
-| Disposition progress | 84.5% (49 / 58 tickets) |
+| Disposition progress | 86.2% (50 / 58 tickets) |
 
 Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
 
@@ -143,7 +143,7 @@ Celebration presentation remains separate from study/quiz persistence.
  
  | ID | Ticket | Priority | Effort | Status | Expected area / acceptance boundary | Relationship |
  | -- | ------ | -------- | ------ | ------ | ----------------------------------- | ------------ |
- | PAR-046 | Legacy password screen removal or redirect | Medium | S | Not started | Mobile auth routes; safe passwordless redirect, retaining backend compatibility | Product confirmation recorded in acceptance |
+ | PAR-046 | Legacy password screen removal or redirect | Medium | S | Merged | Commit `f1a8a1c`: Complete passwordless-auth routing parity. Zero-overhead Expo Router `<Redirect href="/(auth)/login" />` compatibility routes; hardened `safeReturnRoute()` in `mobile/lib/returnRoute.ts` with bounded single-pass URI decoding (`decodeURIComponent`), malformed percent-encoding safety (`URIError` caught -> `null`), scheme/authority marker rejection (`//`, `:`, `%2f%2f`, `%3a`, encoded in-path slashes `%2f`), and exact path-segment boundary matching (`path === prefix || path.startsWith("${prefix}/")`) rejecting 12 legacy route families/descendants while accepting valid internal paths (`/(tabs)`, `/profile`, `/settings`, `/daily-review`, `/scorecards`, `/help/password-security`); hardened `isAuthEndpoint()` in `mobile/api/client.ts` with exact root auth endpoint matching (`/auth/forgot-password`, `/auth/reset-password`) excluding 401 refresh loops while leaving protected resources refresh-eligible; zero active deprecated password calls in mobile; retained backend compatibility endpoints unchanged. Passed 47 pure helper tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean git diff check. | Product confirmation recorded in acceptance |
  | PAR-047 | Complete feature-flag parity | High | M | Not started | Central feature config and remaining route/component gates; excludes entitlement work already in PAR-004 | Technical dependency: PAR-021/PAR-040 establish feature-config entries and gates. |
  | PAR-048 | Analytics event parity | Medium | M | Not started | Learning call sites and payload fixtures | Technical dependency: PAR-028 taxonomy/transport. |
  | PAR-049 | Admin-on-mobile product decision | High | S | Blocked | No consumer-mobile admin implementation until scope is approved | Blocked by decision: DEC-003. |
