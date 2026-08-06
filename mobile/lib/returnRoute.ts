@@ -30,20 +30,48 @@ export function safeReturnRoute(
   // Extract path component before query or hash
   const pathOnly = normalized.split("?")[0].split("#")[0];
 
-  // Exclude auth routes, onboarding itself, and root index loops
+  // Decode URI encoding safely for inspection (bounded single-pass)
+  let decodedPath = pathOnly;
+  try {
+    decodedPath = decodeURIComponent(pathOnly);
+  } catch {
+    return null;
+  }
+
+  // Reject decoded paths containing scheme delimiters or authority markers
   if (
-    pathOnly === "/onboarding" ||
-    pathOnly.startsWith("/onboarding/") ||
-    pathOnly === "/(auth)" ||
-    pathOnly.startsWith("/(auth)/") ||
-    pathOnly === "/login" ||
-    pathOnly.startsWith("/login/") ||
-    pathOnly === "/register" ||
-    pathOnly.startsWith("/register/") ||
-    pathOnly === "/verify-email" ||
-    pathOnly.startsWith("/verify-email/") ||
-    pathOnly === "/"
+    decodedPath.startsWith("//") ||
+    decodedPath.includes(":") ||
+    decodedPath.toLowerCase().includes("%3a") ||
+    decodedPath.toLowerCase().includes("%2f%2f") ||
+    pathOnly.toLowerCase().includes("%2f")
   ) {
+    return null;
+  }
+
+  const isExcludedPath = (rawPath: string): boolean => {
+    const path = rawPath.length > 1 ? rawPath.replace(/\/+$/, "") : rawPath;
+    if (path === "/" || path === "") return true;
+
+    const forbiddenPrefixes = [
+      "/onboarding",
+      "/(auth)",
+      "/auth",
+      "/login",
+      "/register",
+      "/forgot-password",
+      "/reset-password",
+      "/change-password",
+      "/verify-email",
+    ];
+
+    return forbiddenPrefixes.some(
+      (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+    );
+  };
+
+  // Exclude auth/password routes, onboarding itself, and root index loops
+  if (isExcludedPath(pathOnly) || isExcludedPath(decodedPath)) {
     return null;
   }
 
