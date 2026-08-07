@@ -1,40 +1,40 @@
 # Mobile Parity Progress
 
-- **Last updated:** 2026-08-06
+- **Last updated:** 2026-08-07
 - **Source audit:** `MOBILE_PARITY_AUDIT.md`
 - **Mobile application:** `mobile/`
 - **Web reference:** `src/`
 - **Backend:** `services/api/`
-- **Current parity phase:** Phase G — Remaining feature and contract cleanup complete.
-- **Next recommended action:** All executable roadmap items complete. Retain blocked architecture/product decisions (PAR-016, PAR-045, PAR-049, PAR-050) until explicit product authorization.
+- **Current parity phase:** Phase G — All product decisions resolved; PAR-050 remains only unresolved architecture ticket.
+- **Next recommended action:** Evaluate PAR-050 native refresh token strategy architecture.
 
-Status is evidence-based. PAR-001–PAR-044, PAR-046–PAR-048, PAR-057, and PAR-058 are `Merged`: PAR-031 was already satisfied by PAR-030 (commit `c8038f5`); PAR-032 commit `d2ec1a5` & `5cdba1e`; PAR-034 commit `d414fdd`; PAR-035 commit `23a4602`; PAR-036 & PAR-037 commit `3f04c1d`; PAR-038 commit `9fb59e7`; PAR-040 & PAR-041 commit `0ee15ee`; PAR-042 & PAR-043 commit `eb8beda`; PAR-044 commit `bd53c4e`; PAR-046 commit `f1a8a1c`; PAR-047 commit `1e27950`; PAR-048 implementation commit `a22db3e` reached local `main` with authoritative game & learning telemetry parity (`mobile/lib/studyEvents.ts`, `mobile/lib/quizResults.ts`, `mobile/app/games/[setId]/[slug].tsx`, `services/api/tests/unit/test_study_events_validation.py`, `services/api/tests/integration/test_study_events_route.py`). Extended `STUDY_EVENTS` taxonomy with `GAME_SAVE_ERROR` and `GAME_QUIZ_SAVE_ERROR` (retained taxonomy constant for web compatibility). Established single reachable emitter `games/[setId]/[slug].tsx` emitting `game_save_error` for dispatched HTTP persistence failures (`POST /quiz-results/`). Excluded preflight auth failures, 2xx response contract errors, Axios cancellations, and unmounted/stale routes from error telemetry. Documented `game_quiz_save_error` as not applicable to mobile because all mobile quiz-result persistence is owned by the unified game engine (`mode: "game"`). Classified malformed 2xx as indeterminate response contract errors (`status: "response_contract_error"`), preserving raw 2xx client state without false failure reporting. Enforced strict metadata privacy (`game_type`, `mode: "game"`, sanitized `error_category`), excluding raw exception messages, stack traces, URLs, user IDs, or tokens. Retained backend ownership boundary for `review`, `ai_generation`, `lesson.started`, `lesson.completed`, `assessment.completed`, and `achievement.unlocked`. Passed 7 backend tests (4 unit, 3 route integration), 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean git diff check. No remote push or remote-branch merge is implied.
+Status is evidence-based. PAR-001–PAR-048, PAR-057, and PAR-058 are dispositioned: PAR-045 merged (commit `8cfba53`); PAR-016 resolved as `Not required` (DEC-005); PAR-049 resolved as `Not required` (DEC-003). PAR-050 is the sole remaining blocked ticket (DEC-001).
 
 ## 1. Executive Status
 
 | Metric | Count |
 | --- | ---: |
 | Total tracked tickets | 58 |
-| Merged | 48 |
+| Merged | 49 |
 | Ready to merge | 0 |
 | Implemented but unreviewed | 0 |
 | In progress | 0 |
 | Needs refinement | 0 |
 | Not started | 0 |
-| Blocked | 4 |
+| Blocked | 1 |
 | Deferred | 0 |
-| Not required | 6 |
+| Not required | 8 |
 
 All status rows sum to 58. Decision records and technical-debt records are not tickets and are excluded. No ticket is counted twice.
 
 | Reproducible progress measure | Result |
 | --- | ---: |
-| Executable roadmap progress | 100.0% (80 / 80 effort points) |
+| Executable roadmap progress | 100.0% (81 / 81 effort points) |
 | Critical-ticket executable progress | 100.0% (14 / 14 effort points) |
-| High-priority executable progress | 100.0% (44 / 44 effort points) |
-| Disposition progress | 93.1% (54 / 58 tickets) |
+| High-priority executable progress | 100.0% (45 / 45 effort points) |
+| Disposition progress | 98.3% (57 / 58 tickets) |
 
-Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. The five blocked tickets are reported separately and remain disposition-incomplete. These measures are neither test coverage nor release readiness.
+Effort weights are S=1, M=2, L=3, XL=5. Status completion weights are Not started=0, In progress=.25, Implemented=.6, Under review=.75, Needs refinement=.75, Ready to merge=.9, and Merged=1. Executable progress is `sum(effort × status weight) / sum(executable effort)`; Blocked, Deferred, and Not required are excluded. Critical and High use the same formula on their priority subset. Disposition progress is the count of `Ready to merge`, `Merged`, and `Not required` tickets divided by all tickets. PAR-050 is the sole remaining blocked ticket. These measures are neither test coverage nor release readiness.
 
 ## 2. Completed and Active Tickets
 
@@ -82,7 +82,7 @@ Integration evidence: `93954a0` contains the coherent 30-file PAR-001–PAR-008 
 | PAR-013 | Reused flashcard-generation response handling | High | S | Merged | Book generation DTO/route; honor `reused` and `set_id`, navigate directly without starting background poller | Commit `320b6de`; runtime response validation of reused set_id, user/book scoping, query invalidation, and direct navigation without poller mount. Typecheck, Android export, iOS export, 7 backend unit tests, and diff check passed. |
 | PAR-014 | Book processing and generation completion behavior | High | M | Merged | Book detail/generation phases; polling, recovery, defensive observation bound, atomic completion claim, and invalidation | Commit `320b6de`; 10-min defensive observation window (unsupported process/restart recovery documented gap), 15-error threshold, 401/403/404 handling, atomic claimCompletedJob, invalidates flashcard-sets/book/billing-entitlements/credit-usage. Typecheck, Android export, iOS export, 7 backend unit tests, and diff check passed. |
 | PAR-015 | Flashcard tag editing | High | M | Merged | Native tag editing modal (`TagEditModal.tsx`), tag normalization (`tagUtils.ts`), `PUT /flashcard-sets/{id}` helper (`flashcardSets.ts`), list UI (`flashcards.tsx`); runtime response validation, identity/attempt locks, exact cache updates, and zero hard count/length limits to match web/backend. | Commit `e312476`; mobile typecheck, Android export, iOS export, 6 backend unit tests, and scoped diff check passed. Route/DB integration tests are environment-blocked. | None |
-| PAR-016 | Folder metadata clarification and conditional implementation | Low | S/M | Blocked | Folder form/types only if DEC-005 requires description/color/icon/parent parity | Blocked by decision: DEC-005. |
+| PAR-016 | Folder metadata clarification and conditional implementation | Low | S/M | Not required | DEC-005 resolved: Core mobile folder CRUD and membership behavior is sufficient for current mobile scope. Additional folder description, color, icon, and parent/nesting metadata are not required for mobile parity at this stage. Backend metadata and web support remain intact. | None |
 
 Unsupported top-level book title/author editing is intentionally absent: `BookPatch` supports only `extras`, so the audit's earlier claim was withdrawn. Subject/tag behavior must follow supported `extras` contracts, not invent top-level fields.
 
@@ -137,7 +137,7 @@ Celebration presentation remains separate from study/quiz persistence.
  | PAR-042 | Public share-link creation | High | M | Merged | Commit `eb8beda`: Native public share link creation (`POST /scorecards/{id}/share`). Strict DTO types (`ShareCreateIn`, `ShareOut`), runtime response parser (`parseShareOutResponse`), URL security validator (`validateScorecardShareUrl`), actual device clipboard write (`expo-clipboard`), native system share sheet (`Share.share`), preserved image export, pre-request eligibility checks, synchronous attempt lock (`attemptIdRef`), and clean 404/409 error copy. Passed 22 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean diff check. | None |
  | PAR-043 | Share expiry and display-name controls | High | M | Merged | Commit `eb8beda`: Public share expiry and display-name controls (`ShareScorecardModal`). Touch chips for 7, 30, and 90 days (default 30), opt-in switch for display name, live character counter (<=80), ASCII control-character rejection, Unicode name preservation, and fallback to `user.full_name`. Passed 22 backend unit tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean diff check. | Technical dependency: PAR-042 share creation flow. |
  | PAR-044 | Share revoke/regenerate | High | M | Merged | Commit `bd53c4e`: Session-only public scorecard share lifecycle (`ShareScorecardModal`). Revoke Link (`DELETE /scorecards/{id}/share/{share_id}`), Regenerate Link (sequential non-atomic `DELETE` then `POST`), strict response schema validation (`parseShareRevokeResponse` enforcing `revoked === true`), strict UUID parameter validation, synchronous tagged lifecycle locking (`ShareLifecyclePhase`: `idle`, `confirming_revoke`, `revoking`, `confirming_regenerate`, `regenerating`, `creating`), pre-dialog lock acquisition (`lifecycleLockRef`), stale-attempt protection (`attemptIdRef`), preflight scorecard freshness re-validation, partial-success error handling (if `DELETE` succeeds but `POST` fails, local `shareState` is cleared to `null` and explicit notice is shown), `AppState` foreground expiry recalculation, and zero bearer token URL persistence. Passed 24 backend unit tests (including 2 direct revoke & public retrieval contract suites), 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean git diff check. | Technical dependency: PAR-042 share lifecycle/types. |
- | PAR-045 | Public-token mobile behavior decision | High | S | Blocked | Decide external browser versus in-app public route before implementing token navigation | Blocked by decision: DEC-004. |
+ | PAR-045 | Public-token mobile behavior decision | High | S | Merged | Commit `8cfba53`: Resolved DEC-004. Public scorecard bearer URLs open in the web browser (`PUBLIC_APP_URL`). MindFlip does not implement a native public-token viewer. Social sharing is image-first; public bearer links remain a separate deliberate sharing mechanism. Public HTML matches authenticated scorecard metrics (Cards reviewed, Day streak, Time studied, Mastery), CTA points to account-neutral `PUBLIC_APP_URL`, formula debug lines stripped, privacy opt-in respected, 31 backend scorecard unit tests passed, mobile typecheck (0 errors), Android & iOS Expo exports passed (0 errors), clean git diff check. | Technical dependency: PAR-044 share lifecycle/types. |
  
  ### Phase G — Remaining feature and contract cleanup
  
@@ -146,8 +146,8 @@ Celebration presentation remains separate from study/quiz persistence.
  | PAR-046 | Legacy password screen removal or redirect | Medium | S | Merged | Commit `f1a8a1c`: Complete passwordless-auth routing parity. Zero-overhead Expo Router `<Redirect href="/(auth)/login" />` compatibility routes; hardened `safeReturnRoute()` in `mobile/lib/returnRoute.ts` with bounded single-pass URI decoding (`decodeURIComponent`), malformed percent-encoding safety (`URIError` caught -> `null`), scheme/authority marker rejection (`//`, `:`, `%2f%2f`, `%3a`, encoded in-path slashes `%2f`), and exact path-segment boundary matching (`path === prefix || path.startsWith("${prefix}/")`) rejecting 12 legacy route families/descendants while accepting valid internal paths (`/(tabs)`, `/profile`, `/settings`, `/daily-review`, `/scorecards`, `/help/password-security`); hardened `isAuthEndpoint()` in `mobile/api/client.ts` with exact root auth endpoint matching (`/auth/forgot-password`, `/auth/reset-password`) excluding 401 refresh loops while leaving protected resources refresh-eligible; zero active deprecated password calls in mobile; retained backend compatibility endpoints unchanged. Passed 47 pure helper tests, 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean git diff check. | Product confirmation recorded in acceptance |
  | PAR-047 | Complete feature-flag parity | High | M | Merged | Commit `1e27950`: Centralized feature flag `mobileFeatures.subscriptions` (`EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED`, default `false`) in `mobile/lib/featureFlags.ts`; `.env.example` documented. Disabled `/pricing` direct-route fallback renders "Subscriptions unavailable" with safe `router.replace` actions (`/billing` & `/(tabs)/more`). `UpgradeSection` mount/hook boundary suppresses pricing, trial, and entitlement queries, checkout `AppState` listeners, and interval initialization when disabled. Transport-level defense-in-depth checks added to `startCheckout` & `startTrialCheckout`. Existing subscribers retain full account management and cancellation on `/billing`. Credit commerce catalog (`GET /credits/pricing`), usage (`GET /credits/usage`), history (`GET /credits/purchase-history`), and checkout (`POST /billing/checkout/credits`) remain 100% independent. Navigation audit gated `/pricing` from More menu, `UpgradeLimitModal`, cancel/success screens. Typecheck (0 errors), Android Expo export (0 errors), iOS Expo export (0 errors), git diff check passed. | Technical dependency: PAR-021/PAR-040 establish feature-config entries and gates. |
  | PAR-048 | Analytics event parity | Medium | M | Merged | Commit `a22db3e`: Authoritative game & learning telemetry parity (`mobile/lib/studyEvents.ts`, `mobile/lib/quizResults.ts`, `mobile/app/games/[setId]/[slug].tsx`, `services/api/tests/unit/test_study_events_validation.py`, `services/api/tests/integration/test_study_events_route.py`). Extended `STUDY_EVENTS` taxonomy with `GAME_SAVE_ERROR` and `GAME_QUIZ_SAVE_ERROR` (retained taxonomy constant for web compatibility). Established single reachable emitter `games/[setId]/[slug].tsx` emitting `game_save_error` for dispatched HTTP persistence failures (`POST /quiz-results/`). Excluded preflight auth failures, 2xx response contract errors, Axios cancellations, and unmounted/stale routes from error telemetry. Documented `game_quiz_save_error is not applicable to the current mobile product because all mobile quiz-result persistence is owned by the unified game engine.` Classified malformed 2xx as indeterminate response contract errors (`status: "response_contract_error"`), preserving raw 2xx client state without false failure reporting. Enforced strict metadata privacy (`game_type`, `mode: "game"`, sanitized `error_category`), excluding raw exception messages, stack traces, URLs, user IDs, or tokens. Retained backend ownership boundary for `review`, `ai_generation`, `lesson.started`, `lesson.completed`, `assessment.completed`, and `achievement.unlocked`. Passed 7 backend tests (4 unit, 3 route integration), 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean git diff check. | Technical dependency: PAR-028 taxonomy/transport. |
- | PAR-049 | Admin-on-mobile product decision | High | S | Blocked | No consumer-mobile admin implementation until scope is approved | Blocked by decision: DEC-003. |
- | PAR-050 | Native refresh-token strategy decision | Critical | L | Blocked | Architecture decision only; do not invent refresh-token body support | Blocked by decision: DEC-001. |
+ | PAR-049 | Admin-on-mobile product decision | High | S | Not required | DEC-003 resolved: Backend remains authoritative for achievement, completion, and celebration-domain business events. Mobile renders celebrations based on authoritative backend responses/state but must not independently emit duplicate authoritative events. Consumer-mobile admin functionality is not required. | None |
+ | PAR-050 | Native refresh-token strategy decision | Critical | L | Blocked | Architecture decision only; sole remaining unresolved roadmap ticket. | Blocked by decision: DEC-001. |
  
  Folder metadata product scope is tracked once as PAR-016/DEC-005 rather than duplicated in this phase.
  
@@ -168,9 +168,9 @@ Celebration presentation remains separate from study/quiz persistence.
  | ----------- | -------- | ----------- | ---------------- | -------------- | ------------------- |
  | DEC-001 | How should refresh authentication work reliably in native mobile when the backend requires an httpOnly cookie? | Backend exposes no refresh-token body contract and native cookie persistence is unproven. | PAR-002 residual risk, PAR-050 | Backend/security architecture | Do not invent refresh-token body support. Keep current behavior documented until backend architecture is approved. |
  | DEC-002 | Should mobile checkout return through a native deep link, hosted web success page, or another approved flow? | Resolved: Mobile checkout uses backend-controlled HTTPS return URLs (`MOBILE_CHECKOUT_SUCCESS/CANCEL_URL`) with hosted web return bridge pages and `mindflip://` fallback. | PAR-032, PAR-033, PAR-034, PAR-037 | Product, mobile platform, billing | Reused PAR-032 HTTPS bridge + custom scheme return architecture for all mobile checkout flows. |
-| DEC-003 | Does admin functionality belong in the consumer mobile app? | A separate admin application exists and consumer-mobile scope is unknown. | PAR-049 | Product/security | Keep admin functions out of consumer mobile unless explicitly approved. |
-| DEC-004 | Should public scorecard links open externally or inside the app? | Native public-token ownership, routing and unauthenticated UX are not specified. | PAR-040, PAR-045 | Product/mobile | Open public links externally until an in-app public route is explicitly approved. |
-| DEC-005 | Is the simplified mobile folder form intentional? | Core CRUD aligns, but web exposes description/color/icon/parent metadata. | PAR-016 | Product/design | Preserve the simpler native form unless full metadata parity is requested. |
+| DEC-003 | Does admin functionality belong in the consumer mobile app? | Resolved: Backend remains authoritative for business/celebration events. Admin functionality remains in separate admin app and is not required in consumer mobile app. | PAR-049 | Product/security | Keep admin functions out of consumer mobile. |
+| DEC-004 | Should public scorecard links open externally or inside the app? | Resolved: Public scorecard bearer URLs open in the web browser (`PUBLIC_APP_URL`). MindFlip does not implement a native public-token viewer. Social sharing is image-first; public bearer links remain a separate deliberate sharing mechanism. | PAR-040, PAR-045 | Product/mobile | Open public links externally via web app. |
+| DEC-005 | Is the simplified mobile folder form intentional? | Resolved: Core mobile folder CRUD and membership behavior is sufficient for current mobile scope. Additional folder description, color, icon, and parent/nesting metadata are not required for mobile parity at this stage. | PAR-016 | Product/design | Preserve the simpler native form. |
 
 ## 5. Technical-Debt Register
 
@@ -230,13 +230,13 @@ A parity ticket is complete only when:
 
 ## 8. Next Ticket
 
-PAR-047 is **Merged** as commit `1e27950` on local `main`.
+PAR-045 is **Merged** as commit `8cfba53` on local `main`.
 
-PAR-049 is **Blocked** by decision DEC-003 (admin scope).
+PAR-016 and PAR-049 are resolved as **Not required** (DEC-005 and DEC-003).
 
-PAR-050 is **Blocked** by decision DEC-001 (refresh token strategy).
+PAR-050 is **Blocked** by decision DEC-001 (native refresh-token strategy) and is the sole remaining unresolved ticket on the roadmap.
 
-The next executable work ticket is **PAR-048 (Analytics event parity)**.
+The next recommended action is to inspect the native authentication architecture for PAR-050.
 
 ## Audit Reconciliation
 
