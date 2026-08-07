@@ -1,58 +1,39 @@
 import { useColorScheme } from "react-native";
 
+import { TOKENS, type ThemeColorTokens } from "../theme/tokens";
 import { useStorageString } from "./useStorageString";
+import { useAuthStore } from "../store/authStore";
 
 export type ThemeColors = {
-  background: string;
-  surface: string;
+  [K in keyof ThemeColorTokens]: string;
+} & {
   text: string;
   muted: string;
-  primary: string;
-  border: string;
-  success: string;
-  warning: string;
-  danger: string;
-  skeleton: string;
-  cardFront: string;
-  cardBack: string;
 };
 
 const LIGHT: ThemeColors = {
-  background: "#ffffff",
-  surface: "#f8fafc",
-  text: "#0f172a",
-  muted: "#64748b",
-  primary: "#6366f1",
-  border: "#e2e8f0",
-  success: "#047857",
-  warning: "#b45309",
-  danger: "#b91c1c",
-  skeleton: "#e2e8f0",
-  cardFront: "#ffffff",
-  cardBack: "#f0f4ff",
+  ...TOKENS.colors.light,
+  text: TOKENS.colors.light.textPrimary,
+  muted: TOKENS.colors.light.textMuted,
 };
 
 const DARK: ThemeColors = {
-  background: "#0f172a",
-  surface: "#1e293b",
-  text: "#f1f5f9",
-  muted: "#94a3b8",
-  primary: "#818cf8",
-  border: "#334155",
-  success: "#34d399",
-  warning: "#fbbf24",
-  danger: "#f87171",
-  skeleton: "#334155",
-  cardFront: "#1e293b",
-  cardBack: "#312e81",
+  ...TOKENS.colors.dark,
+  text: TOKENS.colors.dark.textPrimary,
+  muted: TOKENS.colors.dark.textMuted,
 };
 
 export function useTheme() {
   const systemScheme = useColorScheme();
-  const [savedScheme, setSavedScheme] = useStorageString("color-scheme");
+  const user = useAuthStore((state) => state.user);
+  const userId = user?.id ?? "anonymous";
+  const preferredScheme = user?.preferences?.color_scheme;
+  const [savedScheme, setSavedScheme] = useStorageString(`color-scheme:${userId}`);
 
   const scheme = (savedScheme === "dark" || savedScheme === "light"
     ? savedScheme
+    : preferredScheme === "dark" || preferredScheme === "light"
+      ? preferredScheme
     : systemScheme) || "light";
 
   const colors = scheme === "dark" ? DARK : LIGHT;
@@ -60,6 +41,7 @@ export function useTheme() {
   return {
     scheme: scheme as "light" | "dark",
     colors,
+    tokens: TOKENS,
     isDark: scheme === "dark",
     toggleScheme: () => setSavedScheme(scheme === "dark" ? "light" : "dark"),
     setScheme: (next: "light" | "dark" | "system") => {

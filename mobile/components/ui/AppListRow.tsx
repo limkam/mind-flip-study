@@ -1,0 +1,190 @@
+import { Ionicons } from "@expo/vector-icons";
+import { type ReactNode } from "react";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
+
+import { useTheme } from "../../hooks/useTheme";
+import { hapticImpact } from "../../lib/haptics";
+import { TOKENS } from "../../theme/tokens";
+
+type Props = {
+  title: string;
+  subtitle?: string;
+  icon?: keyof typeof Ionicons.glyphMap | ReactNode;
+  iconColor?: string;
+  iconBgColor?: string;
+  trailing?: ReactNode;
+  showChevron?: boolean;
+  onPress?: () => void;
+  active?: boolean;
+  disabled?: boolean;
+  enableHaptics?: boolean;
+  accessibilityLabel?: string;
+  style?: StyleProp<ViewStyle>;
+};
+
+export function AppListRow({
+  title,
+  subtitle,
+  icon,
+  iconColor,
+  iconBgColor,
+  trailing,
+  showChevron = true,
+  onPress,
+  active = false,
+  disabled = false,
+  enableHaptics = false,
+  accessibilityLabel,
+  style,
+}: Props) {
+  const { colors, isDark } = useTheme();
+
+  const handlePress = () => {
+    if (disabled || !onPress) return;
+    if (enableHaptics) {
+      void hapticImpact("light");
+    }
+    onPress();
+  };
+
+  const renderLeading = () => {
+    if (!icon) return null;
+    if (typeof icon === "string") {
+      const defaultIconColor = active
+        ? "#ffffff"
+        : iconColor ?? colors.primary;
+      const defaultBg = active
+        ? "rgba(255,255,255,0.2)"
+        : iconBgColor ?? `${colors.primary}18`;
+
+      return (
+        <View style={[styles.iconWrap, { backgroundColor: defaultBg }]}>
+          <Ionicons
+            name={icon as keyof typeof Ionicons.glyphMap}
+            size={20}
+            color={defaultIconColor}
+          />
+        </View>
+      );
+    }
+    return icon;
+  };
+
+  const rowContent = (pressed: boolean) => {
+    const bgColor = active
+      ? colors.primary
+      : pressed
+      ? isDark
+        ? colors.surfaceElevated
+        : colors.surfaceMuted
+      : colors.surface;
+    const textColor = active ? "#ffffff" : colors.textPrimary;
+    const subColor = active ? "rgba(255,255,255,0.8)" : colors.textMuted;
+    const chevronColor = active ? "#ffffff" : colors.textMuted;
+
+    return (
+      <View
+        style={[
+          styles.row,
+          {
+            backgroundColor: bgColor,
+            borderColor: colors.border,
+            opacity: disabled ? 0.5 : 1,
+          },
+          style,
+        ]}
+      >
+        {renderLeading()}
+        <View style={styles.textContainer}>
+          <Text
+            style={[styles.title, { color: textColor }]}
+            numberOfLines={1}
+          >
+            {title}
+          </Text>
+          {subtitle ? (
+            <Text
+              style={[styles.subtitle, { color: subColor }]}
+              numberOfLines={1}
+            >
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+        {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
+        {showChevron && onPress && !trailing ? (
+          <Ionicons
+            name="chevron-forward"
+            size={18}
+            color={chevronColor}
+            style={styles.chevron}
+          />
+        ) : null}
+      </View>
+    );
+  };
+
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={handlePress}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? title}
+        accessibilityState={{ disabled }}
+      >
+        {({ pressed }) => rowContent(pressed)}
+      </Pressable>
+    );
+  }
+
+  return rowContent(false);
+}
+
+const styles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: TOKENS.spacing.lg,
+    paddingVertical: TOKENS.spacing.md,
+    borderRadius: TOKENS.radii.md,
+    borderWidth: 1,
+    minHeight: 52, // Touch target requirement
+    marginBottom: TOKENS.spacing.sm,
+  },
+  iconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: TOKENS.radii.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: TOKENS.spacing.md,
+  },
+  textContainer: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  title: {
+    fontSize: TOKENS.typography.bodyEmphasis.fontSize,
+    fontWeight: TOKENS.typography.bodyEmphasis.fontWeight,
+    lineHeight: TOKENS.typography.bodyEmphasis.lineHeight,
+  },
+  subtitle: {
+    fontSize: TOKENS.typography.caption.fontSize,
+    lineHeight: TOKENS.typography.caption.lineHeight,
+    marginTop: 2,
+  },
+  trailing: {
+    marginLeft: TOKENS.spacing.md,
+  },
+  chevron: {
+    marginLeft: TOKENS.spacing.sm,
+  },
+});

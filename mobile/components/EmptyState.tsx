@@ -1,12 +1,13 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "../hooks/useTheme";
-import { hapticImpact } from "../lib/haptics";
+import { TOKENS } from "../theme/tokens";
+import { AppButton } from "./ui/AppButton";
 
 type Props = {
   icon: string;
   title: string;
-  message: string;
+  message?: string;
   actionLabel?: string;
   onAction?: () => void;
 };
@@ -17,18 +18,16 @@ export function EmptyState({ icon, title, message, actionLabel, onAction }: Prop
   return (
     <View style={styles.wrap}>
       <Text style={styles.icon}>{icon}</Text>
-      <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-      <Text style={[styles.message, { color: colors.muted }]}>{message}</Text>
+      <Text style={[styles.title, { color: colors.textPrimary }]}>{title}</Text>
+      {message ? <Text style={[styles.message, { color: colors.textMuted }]}>{message}</Text> : null}
       {actionLabel && onAction ? (
-        <Pressable
-          style={[styles.action, { backgroundColor: colors.primary }]}
-          onPress={() => {
-            void hapticImpact("light");
-            onAction();
-          }}
-        >
-          <Text style={styles.actionText}>{actionLabel}</Text>
-        </Pressable>
+        <AppButton
+          label={actionLabel}
+          onPress={onAction}
+          variant="primary"
+          size="md"
+          style={styles.actionBtn}
+        />
       ) : null}
     </View>
   );
@@ -39,19 +38,23 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 32,
+    padding: TOKENS.spacing.xxl,
   },
   icon: { fontSize: 48 },
-  title: { fontSize: 20, fontWeight: "700", marginTop: 16, textAlign: "center" },
-  message: { fontSize: 15, textAlign: "center", marginTop: 8, lineHeight: 22 },
-  action: {
-    marginTop: 24,
-    minHeight: 44,
-    minWidth: 120,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
+  title: {
+    fontSize: TOKENS.typography.screenTitle.fontSize - 4,
+    fontWeight: TOKENS.typography.screenTitle.fontWeight,
+    marginTop: TOKENS.spacing.lg,
+    textAlign: "center",
   },
-  actionText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  message: {
+    fontSize: TOKENS.typography.body.fontSize,
+    textAlign: "center",
+    marginTop: TOKENS.spacing.sm,
+    lineHeight: TOKENS.typography.body.lineHeight,
+  },
+  actionBtn: {
+    marginTop: TOKENS.spacing.xl,
+    minWidth: 140,
+  },
 });
