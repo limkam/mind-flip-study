@@ -1,6 +1,7 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
 import { router } from "expo-router";
 
+import { clearNativeRefreshToken, getNativeRefreshToken, setNativeRefreshToken } from "../lib/nativeSession";
 import { useAuthStore } from "../store/authStore";
 import { emitUpgradeLimit } from "../lib/upgradeLimitEvents";
 import { clearMobileQueryCache } from "../lib/queryClient";
@@ -21,14 +22,10 @@ export function setNavigationRouteBridge(pathname: string | null | undefined) {
 /**
  * Pure predicate for authenticating endpoints that legitimately return 401
  * and should NOT trigger token refresh or refresh-queueing.
- *
- * Handles relative and absolute URLs, strips protocol/origin/API prefix,
- * query strings, hashes, and normalizes trailing slashes.
  */
 export function isAuthEndpoint(url: string | undefined): boolean {
   if (!url || typeof url !== "string") return false;
 
-  // Extract path from absolute or relative URL
   let path = url;
   if (path.includes("://")) {
     try {
@@ -40,13 +37,8 @@ export function isAuthEndpoint(url: string | undefined): boolean {
     }
   }
 
-  // Strip query strings and hash
-  path = path.split("?")[0].split("#")[0];
+  path = path.split("?")[0].split("#")[0].replace(/\/+$/, "");
 
-  // Strip trailing slashes
-  path = path.replace(/\/+$/, "");
-
-  // Match exact backend auth endpoints
   const AUTH_PATHS = new Set([
     "/auth/refresh",
     "/auth/email/start",
@@ -64,9 +56,6 @@ export function isAuthEndpoint(url: string | undefined): boolean {
   return AUTH_PATHS.has(path);
 }
 
-/**
- * Mirrors the web SPA client: Bearer access token + refresh on 401.
- */
 export const api = axios.create({
   baseURL,
   withCredentials: true,
@@ -87,7 +76,7 @@ const NO_TERMINATED_TOKEN = Symbol("no-terminated-token");
 let lastTerminatedToken: string | null | typeof NO_TERMINATED_TOKEN = NO_TERMINATED_TOKEN;
 
 export function terminateSession(accessToken: string | null) {
-  if (lastTerminatedToken === accessToken) return;
+  if (lastTerminatedToken === accessToken && accessToken !== null) return;
   lastTerminatedToken = accessToken;
   clearMobileQueryCache();
   useAuthStore.getState().terminateAuthSession();
@@ -137,9 +126,9 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // Excluded authentication endpoints: reject immediately without calling refresh
     if (isAuthEndpoint(original.url)) {
       if (original.url?.includes("/auth/refresh")) {
+        await clearNativeRefreshToken();
         terminateSession(useAuthStore.getState().accessToken);
       }
       return Promise.reject(error);
@@ -155,18 +144,67 @@ api.interceptors.response.use(
         queue.push({ resolve, reject });
       }).then(() => api(original));
     }
+
     isRefreshing = true;
-    const refreshingAccessToken = useAuthStore.getState().accessToken;
+    const initialGen = useAuthStore.getState().authGeneration;
+
     try {
-      const { data } = await api.post<{ access_token: string }>("/auth/refresh");
+      const nativeRefreshToken = await getNativeRefreshToken();
+      if (!nativeRefreshToken) {
+        throw new Error("No native refresh token available");
+      }
+
+      const { data } = await api.post<{ access_token: string; refresh_token?: string }>("/auth/refresh", {
+        refresh_token: nativeRefreshToken,
+      });
+
+      // Generation Guard: Account switched or user logged out during in-flight refresh call
+      if (useAuthStore.getState().authGeneration !== initialGen) {
+        throw new Error("Session generation changed during refresh");
+      }
+
+      // Credential Storage: Write new rotated refresh token (SecureStore if keepSignedIn, memory only if false) BEFORE installing new access token
+      if (data.refresh_token) {
+        const keepSignedIn = useAuthStore.getState().keepSignedIn;
+        const written = await setNativeRefreshToken(data.refresh_token, { persistent: keepSignedIn });
+        if (!written) {
+          await clearNativeRefreshToken();
+          throw new Error("Failed to store updated native refresh credential");
+        }
+      }
+
+      // Generation Guard 2: Verify auth generation again after async SecureStore operation
+      if (useAuthStore.getState().authGeneration !== initialGen) {
+        throw new Error("Session generation changed after secure store update");
+      }
+
       useAuthStore.getState().setAccessToken(data.access_token);
+
       queue.forEach(({ resolve }) => resolve());
       queue.length = 0;
       return api(original);
-    } catch (e) {
+    } catch (e: unknown) {
       queue.forEach(({ reject }) => reject(e));
       queue.length = 0;
-      terminateSession(refreshingAccessToken);
+
+      const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+      const isTerminalError =
+        status === 400 ||
+        status === 401 ||
+        status === 403 ||
+        status === 422 ||
+        (e instanceof Error && (
+          e.message.includes("No native refresh token") ||
+          e.message.includes("Failed to store")
+        ));
+
+      // Terminal authentication failures: purge credentials & force signout
+      if (isTerminalError) {
+        await clearNativeRefreshToken();
+        terminateSession(useAuthStore.getState().accessToken);
+      }
+      // Transient failures (5xx, 429, timeout, offline): preserve refresh credential for next attempt
+
       return Promise.reject(e);
     } finally {
       isRefreshing = false;

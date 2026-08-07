@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import appleAuth, { AppleButton, AppleError } from "@invertase/react-native-apple-authentication";
-import { Link, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useState } from "react";
@@ -15,7 +14,6 @@ import {
   View,
 } from "react-native";
 
-import { PasswordInput } from "../../components/PasswordInput";
 import { MindFlipBrand } from "../../components/brand/MindFlipBrand";
 import { Screen } from "../../components/Screen";
 import { api } from "../../api/client";
@@ -27,13 +25,14 @@ import { type User, useAuthStore } from "../../store/authStore";
 WebBrowser.maybeCompleteAuthSession();
 
 function isGoogleAuthConfigured(): boolean {
+  const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
   if (Platform.OS === "ios") {
-    return !!process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+    return !!(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || webClientId);
   }
   if (Platform.OS === "android") {
-    return !!process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+    return !!(process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || webClientId);
   }
-  return !!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  return !!webClientId;
 }
 
 function postLoginRoute(user: User): "/onboarding" | "/(tabs)" {
@@ -46,11 +45,17 @@ function GoogleSignInButton({ colors }: { colors: ThemeColors }) {
   const webId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
   const iosId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
   const androidId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+  const platformId = Platform.select({
+    ios: iosId || webId,
+    android: androidId || webId,
+    default: webId,
+  });
 
   const [request, response, promptAsync] = Google.useAuthRequest({
+    clientId: platformId,
     webClientId: webId,
-    iosClientId: iosId,
-    androidClientId: androidId,
+    iosClientId: iosId || webId,
+    androidClientId: androidId || webId,
   });
   const [busy, setBusy] = useState(false);
 
@@ -64,10 +69,18 @@ function GoogleSignInButton({ colors }: { colors: ThemeColors }) {
     setBusy(true);
     void (async () => {
       try {
-        const { data } = await api.post<{ access_token: string; user: User }>("/auth/google", {
+        const { setNativeRefreshToken, clearNativeRefreshToken } = await import("../../lib/nativeSession");
+        const keepSignedIn = useAuthStore.getState().keepSignedIn;
+        const { data } = await api.post<{ access_token: string; refresh_token?: string; user: User }>("/auth/google", {
           id_token: idToken,
-          remember_me: useAuthStore.getState().keepSignedIn,
+          remember_me: keepSignedIn,
+          client: "mobile",
         });
+        if (data.refresh_token) {
+          await setNativeRefreshToken(data.refresh_token, { persistent: keepSignedIn });
+        } else {
+          await clearNativeRefreshToken();
+        }
         setAuth(data.user, data.access_token);
         router.replace(postLoginRoute(data.user));
       } catch (e: unknown) {
@@ -103,62 +116,29 @@ export default function LoginScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const setAuth = useAuthStore((s) => s.setAuth);
-  const keepSignedIn = useAuthStore((s) => s.keepSignedIn);
-  const setKeepSignedIn = useAuthStore((s) => s.setKeepSignedIn);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
   const emailLogin = async () => {
-    if (!email.trim() || !password) {
-      Alert.alert("Missing fields", "Enter email and password.");
+    if (!email.trim()) {
+      Alert.alert("Email required", "Enter your email address.");
       return;
     }
     setBusy(true);
     try {
-      const { data } = await api.post<{ access_token: string; user: User }>("/auth/login", {
-        email: email.trim().toLowerCase(),
-        password,
-        remember_me: keepSignedIn,
+      const normalizedEmail = email.trim().toLowerCase();
+      const { data } = await api.post<{ challenge_id: string; resend_after: number }>("/auth/email/start", {
+        email: normalizedEmail,
       });
-      setAuth(data.user, data.access_token);
-      router.replace(postLoginRoute(data.user));
+      router.push({
+        pathname: "/(auth)/verify-email",
+        params: { email: normalizedEmail, challengeId: data.challenge_id, resendAfter: String(data.resend_after) },
+      });
     } catch (e: unknown) {
-      Alert.alert("Login failed", getApiErrorMessage(e, "Invalid credentials"));
+      Alert.alert("Could not send code", getApiErrorMessage(e, "Please try again shortly."));
     } finally {
       setBusy(false);
-    }
-  };
-
-  const onApple = async () => {
-    if (Platform.OS !== "ios") {
-      Alert.alert("Apple sign-in", "Available on iOS only.");
-      return;
-    }
-    try {
-      const credential = await appleAuth.performRequest({
-        requestedOperation: appleAuth.Operation.LOGIN,
-        requestedScopes: [appleAuth.Scope.EMAIL, appleAuth.Scope.FULL_NAME],
-      });
-      if (!credential.identityToken) {
-        Alert.alert("Apple sign-in failed", "No identity token returned.");
-        return;
-      }
-      const { data } = await api.post<{ access_token: string; user: User }>("/auth/apple", {
-        identity_token: credential.identityToken,
-        full_name: credential.fullName
-          ? [credential.fullName.givenName, credential.fullName.familyName].filter(Boolean).join(" ")
-          : undefined,
-        nonce: credential.nonce,
-        remember_me: keepSignedIn,
-      });
-      setAuth(data.user, data.access_token);
-      router.replace(postLoginRoute(data.user));
-    } catch (err: unknown) {
-      if (typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === AppleError.CANCELED) {
-        return;
-      }
-      Alert.alert("Apple sign-in failed", getApiErrorMessage(err));
     }
   };
 
@@ -168,48 +148,38 @@ export default function LoginScreen() {
     <Screen keyboard style={styles.root}>
       <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <MindFlipBrand centered style={{ marginBottom: 16 }} />
-        <Text style={[styles.title, { color: colors.text }]}>Sign in</Text>
-        <Text style={[styles.subtitle, { color: colors.muted }]}>Welcome back to MindFlip</Text>
-        <TextInput
-          style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
-          placeholder="Email"
-          placeholderTextColor={colors.muted}
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
-        <PasswordInput
-          placeholder="Password"
-          value={password}
-          onChangeText={setPassword}
-        />
-        <Link href="/(auth)/forgot-password" asChild>
-          <Pressable style={styles.forgotWrap}>
-            <Text style={[styles.forgot, { color: colors.primary }]}>Forgot password?</Text>
+        <Text style={[styles.title, { color: colors.text }]}>
+          {authMode === "signup" ? "Create your account" : "Welcome back"}
+        </Text>
+        <Text style={[styles.subtitle, { color: colors.muted }]}>
+          {authMode === "signup" ? "Start learning with MindFlip" : "Continue your learning journey"}
+        </Text>
+
+        <View style={[styles.modeSwitch, { borderColor: colors.border, backgroundColor: colors.background }]}>
+          {(["signin", "signup"] as const).map((mode) => (
+            <Pressable
+              key={mode}
+              style={[styles.modeButton, authMode === mode && { backgroundColor: colors.surface }]}
+              onPress={() => setAuthMode(mode)}
+            >
+              <Text style={{ color: authMode === mode ? colors.text : colors.muted, fontWeight: "600" }}>
+                {mode === "signin" ? "Sign in" : "Sign up"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {googleConfigured ? (
+          <GoogleSignInButton colors={colors} />
+        ) : (
+          <Pressable
+            style={[styles.altButton, { borderColor: colors.border, backgroundColor: colors.background }]}
+            onPress={() => Alert.alert("Google sign-in is not configured", "Add a Google OAuth client ID to the mobile environment and restart Expo.")}
+          >
+            <Ionicons name="logo-google" size={20} color={colors.text} />
+            <Text style={[styles.altButtonText, { color: colors.text }]}>Continue with Google</Text>
           </Pressable>
-        </Link>
-        <Pressable
-          style={styles.keepRow}
-          onPress={() => setKeepSignedIn(!keepSignedIn)}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: keepSignedIn }}
-        >
-          <View style={[styles.checkbox, { borderColor: colors.border, backgroundColor: keepSignedIn ? colors.primary : colors.background }]}>
-            {keepSignedIn ? <Text style={styles.checkMark}>✓</Text> : null}
-          </View>
-          <Text style={[styles.keepLabel, { color: colors.muted }]}>Keep me signed in</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.button, { backgroundColor: colors.primary }, busy && styles.buttonDisabled]}
-          onPress={() => {
-            void hapticImpact("light");
-            void emailLogin();
-          }}
-          disabled={busy}
-        >
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign in</Text>}
-        </Pressable>
+        )}
 
         <View style={styles.divider}>
           <View style={styles.line} />
@@ -217,39 +187,30 @@ export default function LoginScreen() {
           <View style={styles.line} />
         </View>
 
-        {googleConfigured ? (
-          <GoogleSignInButton colors={colors} />
-        ) : (
-          <Pressable
-            style={[
-              styles.altButton,
-              { borderColor: colors.border, backgroundColor: colors.background },
-              styles.altButtonDisabled,
-            ]}
-            disabled
-          >
-            <Ionicons name="logo-google" size={20} color="#1e293b" />
-            <Text style={[styles.altButtonText, { color: colors.text }]}>
-              Google (set OAuth client ID in .env)
-            </Text>
-          </Pressable>
-        )}
-
-        {Platform.OS === "ios" && appleAuth.isSupported ? (
-          <AppleButton
-            buttonType={AppleButton.Type.SIGN_IN}
-            buttonStyle={AppleButton.Style.BLACK}
-            cornerRadius={10}
-            style={{ width: "100%", height: 48 }}
-            onPress={onApple}
-          />
-        ) : null}
-
-        <Link href="/(auth)/register" asChild>
-          <Pressable style={styles.linkWrap}>
-            <Text style={[styles.link, { color: colors.primary }]}>Create an account</Text>
-          </Pressable>
-        </Link>
+        <TextInput
+          style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
+          placeholder="Email address"
+          placeholderTextColor={colors.muted}
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+        />
+        <Pressable
+          style={[styles.altButton, { borderColor: colors.border, backgroundColor: colors.background }, busy && styles.buttonDisabled]}
+          onPress={() => {
+            void hapticImpact("light");
+            void emailLogin();
+          }}
+          disabled={busy}
+        >
+          {busy ? <ActivityIndicator color={colors.text} /> : (
+            <>
+              <Ionicons name="mail-outline" size={20} color={colors.text} />
+              <Text style={[styles.altButtonText, { color: colors.text }]}>Continue with Email</Text>
+            </>
+          )}
+        </Pressable>
       </View>
     </Screen>
   );
@@ -265,6 +226,8 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 4, textAlign: "center" },
   subtitle: { fontSize: 14, textAlign: "center", marginBottom: 8 },
+  modeSwitch: { flexDirection: "row", borderWidth: 1, borderRadius: 10, padding: 4 },
+  modeButton: { flex: 1, minHeight: 36, borderRadius: 7, alignItems: "center", justifyContent: "center" },
   input: {
     borderWidth: 1,
     borderRadius: 10,
@@ -273,19 +236,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     minHeight: 44,
   },
-  forgotWrap: { alignSelf: "flex-end", minHeight: 32, justifyContent: "center" },
-  forgot: { fontSize: 13, fontWeight: "600" },
-  keepRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkMark: { color: "#fff", fontSize: 12, fontWeight: "700" },
-  keepLabel: { fontSize: 14 },
   button: {
     borderRadius: 10,
     paddingVertical: 14,
@@ -309,8 +259,5 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     minHeight: 44,
   },
-  altButtonDisabled: { opacity: 0.55 },
   altButtonText: { fontSize: 16, fontWeight: "600" },
-  linkWrap: { paddingVertical: 8, minHeight: 44, justifyContent: "center" },
-  link: { textAlign: "center", fontSize: 15 },
 });

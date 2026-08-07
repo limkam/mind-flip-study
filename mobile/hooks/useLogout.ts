@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { Alert } from "react-native";
 
 import { api } from "../api/client";
+import { clearNativeRefreshToken, getNativeRefreshToken } from "../lib/nativeSession";
 import { clearMobileQueryCache } from "../lib/queryClient";
 import { useAuthStore } from "../store/authStore";
 
@@ -10,11 +11,19 @@ export function useLogout() {
   const logout = useAuthStore((s) => s.logout);
 
   const performLogout = async () => {
+    const refreshToken = await getNativeRefreshToken();
     try {
-      await api.post("/auth/logout");
+      if (refreshToken) {
+        await api.post("/auth/logout", { refresh_token: refreshToken });
+      } else {
+        await api.post("/auth/logout");
+      }
     } catch {
-      /* refresh cookie may be absent on native */
+      /* server revocation is best-effort; local logout remains authoritative */
+    } finally {
+      await clearNativeRefreshToken();
     }
+
     const sessionAlreadyTerminated =
       useAuthStore.getState().user === null
       && useAuthStore.getState().accessToken === null;

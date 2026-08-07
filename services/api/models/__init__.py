@@ -16,6 +16,17 @@ from models.quiz import CardProgress, QuizChallenge, QuizResult, StudyEvent
 from models.study_group import StudyGroup, StudyGroupMaterial, StudyGroupMember
 from models.user import User
 from models.feedback import Feedback
+from models.plan import Plan
+from models.user_subscription import UserSubscription
+from models.credit_ledger import CreditLedger
+from models.credit_purchase import CreditPurchase
+from models.token_usage import TokenUsage
+from models.billing_analytics import BillingEvent, BillingInvoice
+from models.engagement import EngagementEvent, EngagementPreference, LearningStreak, Notification, NudgeState, Scorecard, ScorecardShare
+from models.email import EmailContact, EmailDeliveryLog, EmailJob, EmailProviderEvent, EmailSuppression
+from models.automation import EngagementAutomationRun, EngagementAutomationSchedule
+from models.native_session import NativeRefreshSession
+from models.xp import XPTransaction
 
 __all__ = [
     "Achievement",
@@ -24,13 +35,30 @@ __all__ = [
     "Base",
     "Book",
     "BookStatus",
+    "BillingEvent",
+    "BillingInvoice",
     "CardProgress",
+    "CreditLedger",
+    "CreditPurchase",
     "Feedback",
     "FeedbackStatus",
+    "EngagementEvent",
+    "EngagementPreference",
+    "EngagementAutomationRun",
+    "EngagementAutomationSchedule",
+    "EmailDeliveryLog",
+    "EmailContact",
+    "EmailJob",
+    "EmailProviderEvent",
+    "EmailSuppression",
     "Flashcard",
     "FlashcardSet",
     "Folder",
     "License",
+    "LearningStreak",
+    "NativeRefreshSession",
+    "Notification",
+    "NudgeState",
     "QuizChallenge",
     "QuizChallengeStatus",
     "QuizResult",
@@ -38,9 +66,14 @@ __all__ = [
     "StudyGroup",
     "StudyGroupMaterial",
     "StudyGroupMember",
+    "Scorecard",
+    "ScorecardShare",
     "TokenUsage",
+    "Plan",
+    "UserSubscription",
     "User",
     "UserRole",
     "Workbook",
     "WorkbookStatus",
+    "XPTransaction",
 ]

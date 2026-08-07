@@ -1,7 +1,8 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
 from jose import JWTError
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -28,24 +29,54 @@ from models.user import User
 from passwords import hash_password, verify_password
 from schemas.auth import (
     AppleLoginRequest,
+    EmailAuthStartRequest,
+    EmailAuthStartResponse,
+    EmailAuthVerifyRequest,
     ForgotPasswordBody,
     GoogleLoginRequest,
     LoginRequest,
     LoginResponse,
+    LogoutRequest,
     MessageResponse,
     OnboardingRequest,
+    RefreshTokenRequest,
     RefreshTokenResponse,
     RegisterRequest,
     ResetPasswordBody,
 )
 from schemas.user import UserPublic
-from age_utils import validate_date_of_birth
-from countries import continent_for_country
+from services.native_session_service import (
+    create_native_refresh_session,
+    revoke_native_refresh_session,
+    rotate_native_refresh_session,
+)
 from services.oauth_auth import verify_apple_identity_token, verify_google_id_token
+from services.passwordless_auth import (
+    CODE_TTL_SECONDS,
+    RESEND_COOLDOWN_SECONDS,
+    claim_email_challenge,
+    create_email_challenge,
+    finalize_email_challenge,
+    release_email_challenge_claim,
+    revoke_email_challenge,
+)
+from emails.sender import EmailDeliveryError, send_email_or_raise
+from emails.templates.sign_in_code import sign_in_code_email
 
 router = APIRouter(tags=["auth"])
 
 _REFRESH_COOKIE_NAME = "refresh_token"
+
+
+def _is_web_browser_request(request: Request | None) -> bool:
+    if request is None:
+        return False
+    origin = request.headers.get("origin")
+    referer = request.headers.get("referer")
+    sec_fetch_mode = request.headers.get("sec-fetch-mode")
+    if origin or referer or sec_fetch_mode:
+        return True
+    return False
 
 
 def _refresh_cookie_kwargs(*, remember_me: bool = True) -> dict:
@@ -76,30 +107,65 @@ def _clear_refresh_cookie(response: Response) -> None:
     )
 
 
-def _issue_login_response(
+async def _issue_login_response(
     *,
     user: User,
     response: Response,
+    db: AsyncSession,
+    request: Request | None = None,
     remember_me: bool = True,
+    client: str | None = None,
 ) -> LoginResponse:
     if user.is_banned:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account suspended",
         )
+    if client == "mobile":
+        if _is_web_browser_request(request):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Native refresh token issuance is forbidden for web browser requests",
+            )
+        _session, raw_native_refresh = await create_native_refresh_session(
+            db,
+            user.id,
+            client_platform="mobile",
+            remember_me=remember_me,
+        )
+        return LoginResponse(
+            access_token=create_access_token(subject=user.id),
+            user=UserPublic.model_validate(user),
+            refresh_token=raw_native_refresh,
+        )
+
     access = create_access_token(subject=user.id)
     refresh = create_refresh_token(subject=user.id)
     _set_refresh_cookie(response, refresh, remember_me=remember_me)
-    return LoginResponse(access_token=access, user=UserPublic.model_validate(user))
+    return LoginResponse(access_token=access, user=UserPublic.model_validate(user), refresh_token=None)
 
 
-async def _get_or_create_google_user(db: AsyncSession, email: str, full_name: str) -> User:
+async def _get_or_create_google_user(
+    db: AsyncSession,
+    email: str,
+    full_name: str,
+    avatar_url: str | None,
+) -> User:
     email = email.strip().lower()
     result = await db.execute(select(User).where(User.email == email))
     existing = result.scalar_one_or_none()
     if existing is not None:
+        changed = False
         if full_name and existing.full_name.strip() != full_name.strip():
             existing.full_name = full_name.strip()[:255]
+            changed = True
+        if avatar_url and existing.avatar_url != avatar_url:
+            existing.avatar_url = avatar_url[:1024]
+            changed = True
+        if existing.auth_provider != "google":
+            existing.auth_provider = "google"
+            changed = True
+        if changed:
             await db.commit()
             await db.refresh(existing)
         return existing
@@ -109,6 +175,8 @@ async def _get_or_create_google_user(db: AsyncSession, email: str, full_name: st
         hashed_password=None,
         role=UserRole.student,
         full_name=display,
+        avatar_url=avatar_url[:1024] if avatar_url else None,
+        auth_provider="google",
         preferences={},
         subscription_tier="free",
     )
@@ -127,6 +195,120 @@ async def _get_or_create_google_user(db: AsyncSession, email: str, full_name: st
         return found
     await db.refresh(user)
     return user
+
+
+async def _get_or_create_email_user(db: AsyncSession, email: str) -> tuple[User, bool]:
+    normalized = email.strip().lower()
+    result = await db.execute(select(User).where(User.email == normalized))
+    existing = result.scalar_one_or_none()
+    if existing is not None:
+        return existing, False
+
+    user = User(
+        email=normalized,
+        hashed_password=None,
+        role=UserRole.student,
+        full_name=normalized.split("@", 1)[0],
+        auth_provider="email",
+        preferences={},
+        subscription_tier="free",
+    )
+    db.add(user)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        result = await db.execute(select(User).where(User.email == normalized))
+        existing = result.scalar_one_or_none()
+        if existing is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Could not create user",
+            ) from None
+        return existing, False
+    await db.refresh(user)
+    return user, True
+
+
+@router.post(
+    "/email/start",
+    response_model=EmailAuthStartResponse,
+    dependencies=[Depends(enforce_auth_rate_limit())],
+)
+async def start_email_auth(
+    body: EmailAuthStartRequest,
+    redis: Annotated[Redis, Depends(get_redis)],
+) -> EmailAuthStartResponse:
+    email = str(body.email).strip().lower()
+    challenge = await create_email_challenge(redis, email)
+    if challenge is None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Please wait before requesting another code.",
+            headers={"Retry-After": str(RESEND_COOLDOWN_SECONDS)},
+        )
+    challenge_id, code = challenge
+    try:
+        await run_in_threadpool(
+            send_email_or_raise,
+            email,
+            "Your MindFlip Verification Code",
+            sign_in_code_email(code),
+        )
+    except EmailDeliveryError:
+        await revoke_email_challenge(redis, challenge_id, email)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We could not send your verification code. Please try again.",
+        ) from None
+    return EmailAuthStartResponse(
+        message="If an account exists for this email address, we've sent a verification code.",
+        challenge_id=challenge_id,
+        expires_in=CODE_TTL_SECONDS,
+        resend_after=RESEND_COOLDOWN_SECONDS,
+    )
+
+
+@router.post(
+    "/email/verify",
+    response_model=LoginResponse,
+    dependencies=[Depends(enforce_auth_rate_limit())],
+)
+async def verify_email_auth(
+    body: EmailAuthVerifyRequest,
+    request: Request,
+    response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis, Depends(get_redis)],
+) -> LoginResponse:
+    claim = await claim_email_challenge(redis, body.challenge_id, body.code)
+    if claim is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification code",
+        )
+    email, claim_token = claim
+    try:
+        user, created = await _get_or_create_email_user(db, email)
+    except Exception:
+        await release_email_challenge_claim(redis, body.challenge_id, claim_token)
+        raise
+    await finalize_email_challenge(redis, body.challenge_id, claim_token)
+    if created:
+        try:
+            from tasks.email_tasks import schedule_welcome_email_task
+
+            schedule_welcome_email_task.delay(str(user.id))
+        except Exception:
+            pass
+    return await _issue_login_response(
+        user=user,
+        response=response,
+        db=db,
+        request=request,
+        remember_me=body.remember_me,
+        client=body.client,
+    )
 
 
 async def _get_or_create_apple_user(
@@ -172,6 +354,7 @@ async def _get_or_create_apple_user(
             full_name=name_hint or "Apple user",
             preferences={},
             oauth_apple_sub=sub,
+            auth_provider="apple",
             subscription_tier="free",
         )
         db.add(user)
@@ -212,8 +395,9 @@ async def _get_or_create_apple_user(
 )
 async def google_login(
     body: GoogleLoginRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
     response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> LoginResponse:
     if not settings.GOOGLE_CLIENT_ID:
         raise HTTPException(
@@ -230,9 +414,17 @@ async def google_login(
     if idinfo.get("email_verified") is False:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Google email not verified")
     full_name = str(idinfo.get("name") or "").strip()
+    avatar_url = str(idinfo.get("picture") or "").strip() or None
     email_norm = str(email).strip().lower()
-    user = await _get_or_create_google_user(db, email_norm, full_name)
-    return _issue_login_response(user=user, response=response, remember_me=body.remember_me)
+    user = await _get_or_create_google_user(db, email_norm, full_name, avatar_url)
+    return await _issue_login_response(
+        user=user,
+        response=response,
+        db=db,
+        request=request,
+        remember_me=body.remember_me,
+        client=body.client,
+    )
 
 
 @router.post(
@@ -242,8 +434,9 @@ async def google_login(
 )
 async def apple_login(
     body: AppleLoginRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
     response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> LoginResponse:
     if not settings.APPLE_BUNDLE_ID:
         raise HTTPException(
@@ -259,7 +452,14 @@ async def apple_login(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Apple token") from exc
     user = await _get_or_create_apple_user(db, claims, body.full_name)
-    return _issue_login_response(user=user, response=response, remember_me=body.remember_me)
+    return await _issue_login_response(
+        user=user,
+        response=response,
+        db=db,
+        request=request,
+        remember_me=body.remember_me,
+        client=body.client,
+    )
 
 
 @router.post(
@@ -289,9 +489,9 @@ async def register(body: RegisterRequest, db: Annotated[AsyncSession, Depends(ge
     await db.refresh(user)
 
     try:
-        from tasks.email_tasks import send_welcome_email_task
+        from tasks.email_tasks import schedule_welcome_email_task
 
-        send_welcome_email_task.delay(user.full_name, str(user.email))
+        schedule_welcome_email_task.delay(str(user.id))
     except Exception:
         pass
 
@@ -304,34 +504,8 @@ async def complete_onboarding(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserPublic:
-    country = body.country.strip()
-    custom_country = body.custom_country.strip() if body.custom_country else None
-    if country.lower() == "other":
-        if not custom_country:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="custom_country is required when country is Other",
-            )
-    else:
-        custom_country = None
-
-    continent = (
-        body.continent.strip()
-        if body.continent
-        else continent_for_country(country, custom_country=custom_country)
-    )
-
-    try:
-        current_user.date_of_birth = validate_date_of_birth(body.date_of_birth)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
-        ) from exc
-    current_user.country = country
-    current_user.custom_country = custom_country
-    current_user.continent = continent
-    current_user.occupation = body.occupation.strip()
+    if body.full_name and body.full_name.strip():
+        current_user.full_name = body.full_name.strip()[:255]
     current_user.onboarding_completed = True
     await db.commit()
     await db.refresh(current_user)
@@ -442,8 +616,9 @@ async def reset_password(
 )
 async def login(
     body: LoginRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
     response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> LoginResponse:
     result = await db.execute(select(User).where(User.email == str(body.email)))
     user = result.scalar_one_or_none()
@@ -462,15 +637,40 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
-    return _issue_login_response(user=user, response=response, remember_me=body.remember_me)
+    return await _issue_login_response(
+        user=user,
+        response=response,
+        db=db,
+        request=request,
+        remember_me=body.remember_me,
+        client=body.client,
+    )
 
 
 @router.post("/refresh", response_model=RefreshTokenResponse)
 async def refresh_tokens(
+    request: Request,
     response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[Redis, Depends(get_redis)],
+    body: RefreshTokenRequest | None = None,
     refresh_token: Annotated[str | None, Cookie(alias=_REFRESH_COOKIE_NAME)] = None,
 ) -> RefreshTokenResponse:
+    # 1. Native Mobile Refresh (if body with refresh_token provided)
+    if body is not None and body.refresh_token:
+        if _is_web_browser_request(request):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Native refresh token rotation is forbidden for web browser requests",
+            )
+        user_id, rotated_native_refresh = await rotate_native_refresh_session(db, body.refresh_token)
+        access = create_access_token(subject=user_id)
+        return RefreshTokenResponse(
+            access_token=access,
+            refresh_token=rotated_native_refresh,
+        )
+
+    # 2. Web Cookie Refresh
     if not refresh_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -499,7 +699,7 @@ async def refresh_tokens(
         access = create_access_token(subject=sub)
         new_refresh = create_refresh_token(subject=sub)
         _set_refresh_cookie(response, new_refresh)
-        return RefreshTokenResponse(access_token=access)
+        return RefreshTokenResponse(access_token=access, refresh_token=None)
     except HTTPException:
         _clear_refresh_cookie(response)
         raise
@@ -514,9 +714,14 @@ async def refresh_tokens(
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
     response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[Redis, Depends(get_redis)],
+    body: LogoutRequest | None = None,
     refresh_token: Annotated[str | None, Cookie(alias=_REFRESH_COOKIE_NAME)] = None,
 ) -> MessageResponse:
+    if body is not None and body.refresh_token:
+        await revoke_native_refresh_session(db, body.refresh_token)
+
     try:
         if refresh_token:
             try:

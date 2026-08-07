@@ -9,6 +9,9 @@ export type User = {
   email: string;
   role: "admin" | "student";
   full_name: string;
+  avatar_url?: string | null;
+  auth_provider?: string;
+  is_banned?: boolean;
   subscription_tier?: string;
   preferences?: Record<string, unknown>;
   date_of_birth?: string | null;
@@ -37,6 +40,7 @@ type AuthState = {
   keepSignedIn: boolean;
   bootstrapStatus: AuthBootstrapStatus;
   bootstrapError: string | null;
+  authGeneration: number;
   setKeepSignedIn: (value: boolean) => void;
   setAuth: (user: User, token: string) => void;
   setAccessToken: (token: string) => void;
@@ -51,8 +55,25 @@ type AuthState = {
 const AUTH_PREFIX = "@mindflip-auth:";
 
 const authStorage = {
-  getItem: async (name: string) =>
-    (await AsyncStorage.getItem(AUTH_PREFIX + name)) ?? null,
+  getItem: async (name: string) => {
+    const raw = await AsyncStorage.getItem(AUTH_PREFIX + name);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && parsed.state) {
+        if ("accessToken" in parsed.state || "refreshToken" in parsed.state) {
+          delete parsed.state.accessToken;
+          delete parsed.state.refreshToken;
+          const cleaned = JSON.stringify(parsed);
+          await AsyncStorage.setItem(AUTH_PREFIX + name, cleaned);
+          return cleaned;
+        }
+      }
+    } catch {
+      /* ignore JSON parse error */
+    }
+    return raw;
+  },
   setItem: async (name: string, value: string) => {
     await AsyncStorage.setItem(AUTH_PREFIX + name, value);
   },
@@ -69,6 +90,7 @@ export const useAuthStore = create<AuthState>()(
       keepSignedIn: true,
       bootstrapStatus: "hydrating",
       bootstrapError: null,
+      authGeneration: 1,
       setKeepSignedIn: (value) => set({ keepSignedIn: value }),
       setAuth: (user, token) =>
         set((state) => {
@@ -80,15 +102,15 @@ export const useAuthStore = create<AuthState>()(
             accessToken: token,
             bootstrapStatus: "authenticated",
             bootstrapError: null,
+            authGeneration: state.authGeneration + 1,
           };
         }),
       setAccessToken: (token) => set({ accessToken: token }),
       finishAuthStorageHydration: () =>
-        set((state) =>
-          state.accessToken
-            ? { bootstrapStatus: "validating", bootstrapError: null }
-            : { user: null, bootstrapStatus: "signed_out", bootstrapError: null },
-        ),
+        set({
+          bootstrapStatus: "validating",
+          bootstrapError: null,
+        }),
       setValidatedUser: (user) =>
         set((state) => {
           if (!state.accessToken) return state;
@@ -104,32 +126,33 @@ export const useAuthStore = create<AuthState>()(
       setBootstrapError: (message) =>
         set({ bootstrapStatus: "error", bootstrapError: message }),
       retryAuthBootstrap: () =>
-        set((state) =>
-          state.accessToken
-            ? { bootstrapStatus: "validating", bootstrapError: null }
-            : { user: null, bootstrapStatus: "signed_out", bootstrapError: null },
-        ),
-      terminateAuthSession: () =>
         set({
+          bootstrapStatus: "validating",
+          bootstrapError: null,
+        }),
+      terminateAuthSession: () =>
+        set((state) => ({
           user: null,
           accessToken: null,
           bootstrapStatus: "terminated",
           bootstrapError: null,
-        }),
+          authGeneration: state.authGeneration + 1,
+        })),
       logout: () =>
-        set({
+        set((state) => ({
           user: null,
           accessToken: null,
           bootstrapStatus: "signed_out",
           bootstrapError: null,
-        }),
+          authGeneration: state.authGeneration + 1,
+        })),
     }),
     {
       name: "mindflip-auth",
       storage: createJSONStorage(() => authStorage),
       partialize: (s) =>
         s.keepSignedIn
-          ? { user: s.user, accessToken: s.accessToken, keepSignedIn: s.keepSignedIn }
+          ? { user: s.user, keepSignedIn: s.keepSignedIn }
           : { keepSignedIn: false },
       onRehydrateStorage: () => (state, error) => {
         if (error) {
