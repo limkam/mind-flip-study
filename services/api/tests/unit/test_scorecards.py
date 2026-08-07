@@ -58,7 +58,7 @@ def test_share_token_hash_and_shape() -> None:
 def test_public_rendering_has_metadata_headers_and_no_private_sentinels() -> None:
     view = PublicScorecardView("Weekly", 82, "v1", "2026-07-01", "2026-07-07", "partial", 2, 75.0, 20, 3, 45, 2, (("Accuracy", 75),), False, "up", None, "Keep going <script>", None)
     page = render_html(view, "https://app.example/share/scorecard/opaque", "https://app.example/share/scorecard/opaque/image", "https://app.example")
-    for marker in ('property="og:title"', 'property="og:description"', 'property="og:image"', 'property="og:url"', 'name="twitter:card"', 'rel="canonical"', "Jul 1 – Jul 7, 2026", "Continue learning with MindFlip"):
+    for marker in ('property="og:title"', 'property="og:description"', 'property="og:image"', 'property="og:url"', 'name="twitter:card"', 'rel="canonical"', "Think you can beat my streak? Join me on MindFlip"):
         assert marker in page
     assert "Formula version" not in page
     assert "Keep going &lt;script&gt;" in page and "<script>" not in page
@@ -70,21 +70,22 @@ def test_public_rendering_has_metadata_headers_and_no_private_sentinels() -> Non
 
 
 def test_public_display_name_rendering_and_privacy() -> None:
-    # 1. Enabled display name renders "Shared by DisplayName"
+    # 1. Enabled display name renders display name
     view_with_name = PublicScorecardView("Weekly", 85, "v2", "2026-08-01", "2026-08-07", "complete", 5, 88.0, 50, 5, 120, 4, (("Accuracy", 88),), True, "up", "Alim Kamara", "Study hard!", None)
     page_with_name = render_html(view_with_name, "https://app.example/share/scorecard/opaque", "https://app.example/share/scorecard/opaque/image", "https://app.example")
-    assert "Shared by Alim Kamara" in page_with_name
+    assert '<h2 class="name">Alim Kamara</h2>' in page_with_name
     assert "<title>Weekly Learning Scorecard | MindFlip</title>" in page_with_name
     svg_with_name = render_svg(view_with_name)
-    assert "Shared by Alim Kamara" in svg_with_name
+    assert "Alim Kamara" in svg_with_name
 
     # 2. Disabled display name renders no owner identity
     view_no_name = PublicScorecardView("Weekly", 85, "v2", "2026-08-01", "2026-08-07", "complete", 5, 88.0, 50, 5, 120, 4, (("Accuracy", 88),), True, "up", None, "Study hard!", None)
     page_no_name = render_html(view_no_name, "https://app.example/share/scorecard/opaque", "https://app.example/share/scorecard/opaque/image", "https://app.example")
-    assert "Shared by" not in page_no_name
+    assert 'class="name"' not in page_no_name
     assert "Alim Kamara" not in page_no_name
     svg_no_name = render_svg(view_no_name)
-    assert "Shared by" not in svg_no_name
+    assert "Alim Kamara" not in svg_no_name
+
 
 
 def test_format_period_human_date_ranges() -> None:
@@ -95,13 +96,99 @@ def test_format_period_human_date_ranges() -> None:
 
 
 def test_public_cta_is_account_neutral() -> None:
-    view = PublicScorecardView("Weekly", 80, "v2", "2026-08-01", "2026-08-07", "complete", 3, 80.0, 30, 3, 60, 2, (("Accuracy", 80),), False, None, None, None, None)
+    view = PublicScorecardView("Weekly", 80, "v2", "2026-08-01", "2026-08-07", "complete", 0, 80.0, 25, 3, 0, 0, (("Accuracy", 80),), False, None, None, None, None)
     app_url = "https://app.mindflip.io"
     page = render_html(view, "https://app.mindflip.io/share/scorecard/opaque", "https://app.mindflip.io/share/scorecard/opaque/image", app_url)
-    assert f'<a href="{app_url}">Continue learning with MindFlip &rarr;</a>' in page
+    assert f'<a href="{app_url}">Think you can beat my streak? Join me on MindFlip <span aria-hidden="true">🚀</span></a>' in page
     # Ensure no owner ID or returnTo token is appended
     assert "user_id" not in app_url
     assert "token" not in app_url
+
+
+def test_public_scorecard_visual_parity_and_content_exclusions() -> None:
+    view = PublicScorecardView(
+        period_label="Weekly",
+        score=85,
+        formula_version="v2",
+        period_start="2026-08-01",
+        period_end="2026-08-07",
+        data_state="complete",
+        assessments=0,
+        average=12.0,
+        cards_reviewed=25,
+        active_days=3,
+        learning_minutes=0,
+        current_streak=0,
+        components=(("Accuracy", 80),),
+        personal_best=False,
+        comparison_direction=None,
+        display_name="Alim Kamara",
+        public_message=None,
+        course_title=None,
+    )
+    app_url = "https://app.mindflip.io"
+    page = render_html(view, "https://app.mindflip.io/share/scorecard/opaque", "https://app.mindflip.io/share/scorecard/opaque/image", app_url)
+    svg = render_svg(view)
+
+    # Required positive assertions
+    for required in [
+        "MINDFLIP",
+        "My Scorecard",
+        "Alim Kamara",
+        "0 assessments · 25 cards reviewed",
+        "Cards reviewed",
+        "Day streak",
+        "Time studied",
+        "0.0h",
+        "12%",
+        "Mastery",
+        "Think you can beat my streak? Join me on MindFlip",
+    ]:
+        assert required in page, f"Missing required text '{required}' in HTML rendering"
+        assert required in svg, f"Missing required text '{required}' in SVG rendering"
+
+    # Strict negative assertions (no debug lines, no secondary vocabulary)
+    for forbidden in [
+        "Partial score",
+        "Formula v2",
+        "Formula version",
+        "formula_version",
+        "Learning summary",
+        "Accuracy",
+        "Consistency",
+        "Assessment activity",
+        "Healthy learning time",
+    ]:
+        assert forbidden not in page, f"Forbidden text '{forbidden}' found in HTML rendering"
+        assert forbidden not in svg, f"Forbidden text '{forbidden}' found in SVG rendering"
+
+
+def test_public_scorecard_display_name_privacy_behavior() -> None:
+    # Enabled -> display_name present
+    view_enabled = PublicScorecardView(
+        period_label="Weekly", score=80, formula_version="v2", period_start="2026-08-01", period_end="2026-08-07",
+        data_state="complete", assessments=2, average=80.0, cards_reviewed=20, active_days=2, learning_minutes=60,
+        current_streak=1, components=(), personal_best=False, comparison_direction=None, display_name="Alim Kamara",
+        public_message=None, course_title=None,
+    )
+    html_enabled = render_html(view_enabled, "https://app.example/share", "https://app.example/img", "https://app.example")
+    svg_enabled = render_svg(view_enabled)
+    assert '<h2 class="name">Alim Kamara</h2>' in html_enabled
+    assert 'Alim Kamara' in svg_enabled
+
+    # Disabled -> display_name absent, no fallback identity
+    view_disabled = PublicScorecardView(
+        period_label="Weekly", score=80, formula_version="v2", period_start="2026-08-01", period_end="2026-08-07",
+        data_state="complete", assessments=2, average=80.0, cards_reviewed=20, active_days=2, learning_minutes=60,
+        current_streak=1, components=(), personal_best=False, comparison_direction=None, display_name=None,
+        public_message=None, course_title=None,
+    )
+    html_disabled = render_html(view_disabled, "https://app.example/share", "https://app.example/img", "https://app.example")
+    svg_disabled = render_svg(view_disabled)
+    assert 'class="name"' not in html_disabled
+    assert 'Alim Kamara' not in svg_disabled
+    assert 'Shared by' not in html_disabled
+    assert 'Shared by' not in svg_disabled
 
 
 def test_html_and_svg_escaping_all_characters() -> None:
@@ -225,9 +312,10 @@ async def test_public_share_url_reachability_and_lifecycle(monkeypatch) -> None:
             resp = await client.get(f"/share/scorecard/{token}")
             assert resp.status_code == 200
             html_text = resp.text
-            assert "Shared by Alim Kamara" in html_text
-            assert "Continue learning with MindFlip &rarr;" in html_text
+            assert "Alim Kamara" in html_text
+            assert "Think you can beat my streak? Join me on MindFlip" in html_text
             assert "Formula version" not in html_text
+            assert "Partial score" not in html_text
 
             # 4. Revoke share
             share_obj = list(shares_db.values())[0]
@@ -238,6 +326,7 @@ async def test_public_share_url_reachability_and_lifecycle(monkeypatch) -> None:
             assert resp_404.status_code == 404
         finally:
             app.dependency_overrides.clear()
+
 
 
 

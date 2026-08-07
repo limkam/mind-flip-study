@@ -162,6 +162,25 @@ def format_period_human(start_iso: str, end_iso: str) -> str:
         return f"{start_iso} – {end_iso}"
 
 
+def format_hours(minutes: int) -> str:
+    hours = max(0, minutes) / 60.0
+    if hours < 10:
+        return f"{hours:.1f}h"
+    return f"{round(hours)}h"
+
+
+def format_activity_summary(assessments: int, cards: int) -> str:
+    ass_str = f"{assessments} assessment" if assessments == 1 else f"{assessments} assessments"
+    card_str = f"{cards} card reviewed" if cards == 1 else f"{cards} cards reviewed"
+    return f"{ass_str} · {card_str}"
+
+
+def mastery_percentage(view: PublicScorecardView) -> int:
+    if view.average is not None:
+        return round(view.average)
+    return view.score
+
+
 def security_headers() -> dict[str, str]:
     return {
         "Cache-Control": "private, no-store, max-age=0",
@@ -179,36 +198,51 @@ def security_headers() -> dict[str, str]:
 def render_html(view: PublicScorecardView, canonical_url: str, image_url: str, app_url: str) -> str:
     def esc(value: object) -> str:
         return html.escape(str(value), quote=True)
+
     title, description = page_title(view), page_description(view)
-    name = f'<p class="name">Shared by {esc(view.display_name)}</p>' if view.display_name else ""
-    course = f'<p class="course">{esc(view.course_title)}</p>' if view.course_title else ""
-    message = f'<blockquote>{esc(view.public_message)}</blockquote>' if view.public_message else ""
-    state = '<p class="notice">This scorecard contains limited activity for the selected period.</p>' if view.data_state != "complete" else ""
-    average = "—" if view.average is None else f"{round(view.average)}%"
-    metrics = (("Assessments", view.assessments), ("Average", average), ("Cards reviewed", view.cards_reviewed), ("Study time", f"{view.learning_minutes} min"))
-    metric_html = "".join(f'<div class="metric"><strong>{esc(value)}</strong><span>{esc(label)}</span></div>' for label, value in metrics)
-    component_html = "".join(f'<li><span>{esc(label)}</span><strong>{score}/100</strong></li>' for label, score in view.components)
+    display_name_html = f'<h2 class="name">{esc(view.display_name)}</h2>' if view.display_name else ""
+    course_html = f'<p class="course">{esc(view.course_title)}</p>' if view.course_title else ""
+    message_html = f'<blockquote>{esc(view.public_message)}</blockquote>' if view.public_message else ""
+    activity_summary = format_activity_summary(view.assessments, view.cards_reviewed)
+    mastery = mastery_percentage(view)
+
+    stats = [
+        (str(view.cards_reviewed), "Cards reviewed"),
+        (str(view.current_streak), 'Day streak <span aria-hidden="true">🔥</span>'),
+        (format_hours(view.learning_minutes), "Time studied"),
+        (f"{mastery}%", "Mastery"),
+    ]
+    grid_html = "".join(
+        f'<div class="stat-card"><p class="stat-value">{esc(val)}</p><p class="stat-label">{lbl}</p></div>'
+        for val, lbl in stats
+    )
+
     badges = ""
     if view.personal_best:
         badges += '<span class="badge">Personal best</span>'
     if view.comparison_direction:
         comparison_label = {"up": "Improved", "down": "Declined", "flat": "Unchanged"}[view.comparison_direction]
         badges += f'<span class="badge">{comparison_label} from prior period</span>'
-    formatted_date_range = format_period_human(view.period_start, view.period_end)
+    badges_html = f'<div class="badges">{badges}</div>' if badges else ""
+
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(title)} | MindFlip</title><meta name="description" content="{esc(description)}">
 <meta property="og:type" content="website"><meta property="og:site_name" content="MindFlip"><meta property="og:title" content="{esc(title)}"><meta property="og:description" content="{esc(description)}"><meta property="og:image" content="{esc(image_url)}"><meta property="og:image:alt" content="{esc(title)}"><meta property="og:url" content="{esc(canonical_url)}">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{esc(title)}"><meta name="twitter:description" content="{esc(description)}"><meta name="twitter:image" content="{esc(image_url)}"><link rel="canonical" href="{esc(canonical_url)}">
-<style>*{{box-sizing:border-box}}body{{margin:0;background:#f5f3ff;color:#fff;font:16px system-ui,-apple-system,sans-serif}}main{{min-height:100vh;display:grid;place-items:center;padding:24px}}article{{width:min(760px,100%);border-radius:38px;padding:clamp(28px,7vw,60px);background:linear-gradient(145deg,#4f46e5,#7c3aed 54%,#c026d3);box-shadow:0 24px 70px #312e8155}}header{{display:flex;justify-content:space-between;gap:16px;align-items:center}}.brand{{font-weight:900;letter-spacing:.16em}}.period,.badge{{background:#ffffff24;border-radius:999px;padding:10px 18px;font-weight:700}}h1{{font-size:clamp(34px,7vw,60px);line-height:1.04;margin:54px 0 8px}}.name,.course{{font-size:20px;margin:8px 0;overflow-wrap:anywhere}}.score{{font-size:clamp(72px,16vw,132px);font-weight:900;line-height:1;margin:34px 0 8px}}.score small{{font-size:20px;color:#ffffffcc}}.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:34px 0}}.metric{{background:#ffffff20;border-radius:22px;padding:22px;text-align:center;display:grid;gap:6px}}.metric strong{{font-size:28px}}.metric span,.meta{{color:#ffffffd9}}ul{{list-style:none;padding:0;margin:24px 0}}li{{display:flex;justify-content:space-between;border-bottom:1px solid #ffffff35;padding:12px 0}}.badges{{display:flex;flex-wrap:wrap;gap:8px}}blockquote,.notice{{margin:24px 0;padding:16px;border-left:4px solid #fff;background:#ffffff18}}footer{{margin-top:36px;border-top:1px solid #ffffff45;padding-top:24px}}a{{color:#fff;font-weight:800}}@media(max-width:480px){{.grid{{grid-template-columns:1fr}}}}</style></head>
-<body><main><article><header><span class="brand">🎓 MINDFLIP</span><span class="period">{esc(view.period_label)}</span></header><h1>{esc(title)}</h1><p class="meta">{esc(formatted_date_range)}</p><div class="score">{view.score}<small>/100</small></div>{state}<div class="grid">{metric_html}</div><section aria-labelledby="components"><h2 id="components">Learning summary</h2><ul>{component_html}</ul></section><div class="badges">{badges}</div>{message}{name}{course}<footer><a href="{esc(app_url)}">Continue learning with MindFlip &rarr;</a></footer></article></main></body></html>'''
+<style>*{{box-sizing:border-box}}body{{margin:0;background:#f5f3ff;color:#fff;font:16px system-ui,-apple-system,sans-serif}}main{{min-height:100vh;display:grid;place-items:center;padding:24px}}article{{width:min(760px,100%);border-radius:38px;padding:clamp(28px,7vw,60px);background:linear-gradient(145deg,#4f46e5,#7c3aed 54%,#c026d3);box-shadow:0 24px 70px #312e8155}}header{{display:flex;justify-content:space-between;gap:16px;align-items:center}}.brand{{font-weight:900;letter-spacing:.16em}}.period{{background:#ffffff24;border-radius:999px;padding:10px 18px;font-weight:700}}h2.name{{font-size:clamp(28px,6vw,48px);font-weight:900;margin:28px 0 8px;line-height:1.1;overflow-wrap:anywhere}}.course{{font-size:20px;margin:8px 0;opacity:.9}}.subtitle{{font-size:clamp(14px,3vw,20px);font-weight:500;color:#ffffffd9;margin:8px 0 24px}}.grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin:24px 0}}.stat-card{{background:#ffffff20;border-radius:24px;padding:28px 20px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:inset 0 1px 0 #ffffff10;backdrop-filter:blur(4px)}}.stat-value{{font-size:clamp(32px,7vw,54px);font-weight:900;line-height:1;margin:0 0 8px}}.stat-label{{font-size:clamp(12px,2.2vw,18px);font-weight:700;color:#ffffffee;margin:0}}.badges{{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}}blockquote{{margin:20px 0;padding:16px;border-left:4px solid #fff;background:#ffffff18;border-radius:0 12px 12px 0}}footer{{margin-top:32px;border-top:1px solid #ffffff40;padding-top:24px;text-align:center}}footer a{{color:#fff;font-size:clamp(14px,2.5vw,18px);font-weight:700;text-decoration:none}}footer a:hover{{text-decoration:underline}}@media(max-width:480px){{.grid{{grid-template-columns:1fr}}}}</style></head>
+<body><main><article><header><span class="brand">🎓 MINDFLIP</span><span class="period">My Scorecard</span></header>{display_name_html}{course_html}<p class="subtitle">{esc(activity_summary)}</p><div class="grid">{grid_html}</div>{badges_html}{message_html}<footer><a href="{esc(app_url)}">Think you can beat my streak? Join me on MindFlip <span aria-hidden="true">🚀</span></a></footer></article></main></body></html>'''
 
 
 def render_svg(view: PublicScorecardView) -> str:
     def esc(value: object) -> str:
         return html.escape(str(value), quote=True)
     title = page_title(view)
-    formatted_date_range = format_period_human(view.period_start, view.period_end)
-    subtitle = f"{formatted_date_range} · {view.assessments} assessments · {view.cards_reviewed} cards reviewed"
-    display = f'<text x="90" y="225" fill="#fff" font-size="34" font-weight="700">Shared by {esc(view.display_name)}</text>' if view.display_name else ""
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="{esc(title)}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4f46e5"/><stop offset=".55" stop-color="#7c3aed"/><stop offset="1" stop-color="#c026d3"/></linearGradient></defs><rect width="1200" height="630" rx="48" fill="url(#g)"/><text x="90" y="100" fill="#fff" font-family="system-ui,sans-serif" font-size="30" font-weight="900" letter-spacing="5">MINDFLIP</text><text x="90" y="175" fill="#fff" font-family="system-ui,sans-serif" font-size="48" font-weight="800">{esc(title)}</text>{display}<text x="90" y="430" fill="#fff" font-family="system-ui,sans-serif" font-size="190" font-weight="900">{view.score}</text><text x="390" y="425" fill="#ffffffcc" font-family="system-ui,sans-serif" font-size="38">/ 100 learning score</text><text x="90" y="535" fill="#ffffffdd" font-family="system-ui,sans-serif" font-size="28">{esc(subtitle)}</text></svg>'''
+    activity_summary = format_activity_summary(view.assessments, view.cards_reviewed)
+    mastery = mastery_percentage(view)
+    time_str = format_hours(view.learning_minutes)
+
+    display_name_svg = f'<text x="90" y="210" fill="#fff" font-family="system-ui,sans-serif" font-size="44" font-weight="900">{esc(view.display_name)}</text>' if view.display_name else ""
+    y_offset = 280 if view.display_name else 210
+
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="{esc(title)}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4f46e5"/><stop offset=".55" stop-color="#7c3aed"/><stop offset="1" stop-color="#c026d3"/></linearGradient></defs><rect width="1200" height="630" rx="48" fill="url(#g)"/><text x="90" y="100" fill="#fff" font-family="system-ui,sans-serif" font-size="30" font-weight="900" letter-spacing="5">MINDFLIP</text><rect x="990" y="70" width="120" height="40" rx="20" fill="#ffffff24"/><text x="1050" y="96" fill="#fff" font-family="system-ui,sans-serif" font-size="16" font-weight="700" text-anchor="middle">My Scorecard</text>{display_name_svg}<text x="90" y="{y_offset}" fill="#ffffffdd" font-family="system-ui,sans-serif" font-size="28">{esc(activity_summary)}</text><g transform="translate(90, {y_offset + 50})"><rect width="230" height="150" rx="24" fill="#ffffff20"/><text x="115" y="75" fill="#fff" font-family="system-ui,sans-serif" font-size="48" font-weight="900" text-anchor="middle">{view.cards_reviewed}</text><text x="115" y="115" fill="#ffffffee" font-family="system-ui,sans-serif" font-size="20" font-weight="700" text-anchor="middle">Cards reviewed</text></g><g transform="translate(340, {y_offset + 50})"><rect width="230" height="150" rx="24" fill="#ffffff20"/><text x="115" y="75" fill="#fff" font-family="system-ui,sans-serif" font-size="48" font-weight="900" text-anchor="middle">{view.current_streak}</text><text x="115" y="115" fill="#ffffffee" font-family="system-ui,sans-serif" font-size="20" font-weight="700" text-anchor="middle">Day streak 🔥</text></g><g transform="translate(590, {y_offset + 50})"><rect width="230" height="150" rx="24" fill="#ffffff20"/><text x="115" y="75" fill="#fff" font-family="system-ui,sans-serif" font-size="48" font-weight="900" text-anchor="middle">{esc(time_str)}</text><text x="115" y="115" fill="#ffffffee" font-family="system-ui,sans-serif" font-size="20" font-weight="700" text-anchor="middle">Time studied</text></g><g transform="translate(840, {y_offset + 50})"><rect width="230" height="150" rx="24" fill="#ffffff20"/><text x="115" y="75" fill="#fff" font-family="system-ui,sans-serif" font-size="48" font-weight="900" text-anchor="middle">{mastery}%</text><text x="115" y="115" fill="#ffffffee" font-family="system-ui,sans-serif" font-size="20" font-weight="700" text-anchor="middle">Mastery</text></g><text x="600" y="580" fill="#fff" font-family="system-ui,sans-serif" font-size="22" font-weight="700" text-anchor="middle">Think you can beat my streak? Join me on MindFlip 🚀</text></svg>'''
