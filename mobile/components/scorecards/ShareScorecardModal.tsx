@@ -13,7 +13,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Switch,
   Text,
@@ -547,19 +546,6 @@ export function ShareScorecardModal({
     }
   };
 
-  const handleShareLink = async () => {
-    if (!shareState?.share_url || isExpired || isBusy) return;
-    try {
-      const validUrl = validateScorecardShareUrl(shareState.share_url);
-      await Share.share({
-        message: validUrl,
-        url: validUrl,
-      });
-    } catch {
-      // Non-destructive cancellation
-    }
-  };
-
   const handleCopyLink = async () => {
     if (!shareState?.share_url || isExpired || isBusy) return;
     try {
@@ -887,7 +873,7 @@ export function ShareScorecardModal({
                 {/* Main Action Buttons */}
                 <View style={styles.actionButtonsRow}>
                   <Pressable
-                    onPress={handleShareLink}
+                    onPress={handleCopyLink}
                     disabled={isExpired || isBusy}
                     style={({ pressed }) => [
                       styles.actionButton,
@@ -897,37 +883,14 @@ export function ShareScorecardModal({
                       },
                     ]}
                     accessibilityRole="button"
-                    accessibilityLabel="Share link via system share sheet"
-                  >
-                    <Ionicons name="share-outline" size={18} color="#FFFFFF" />
-                    <Text style={styles.actionButtonTextPrimary}>
-                      Share Link
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    onPress={handleCopyLink}
-                    disabled={isExpired || isBusy}
-                    style={({ pressed }) => [
-                      styles.actionButton,
-                      {
-                        backgroundColor: colors.surface,
-                        borderColor: colors.border,
-                        borderWidth: 1,
-                        opacity: isExpired || isBusy || pressed ? 0.5 : 1,
-                      },
-                    ]}
-                    accessibilityRole="button"
                     accessibilityLabel="Copy link to clipboard"
                   >
                     <Ionicons
                       name="copy-outline"
                       size={18}
-                      color={colors.text}
+                      color="#FFFFFF"
                     />
-                    <Text
-                      style={[styles.actionButtonText, { color: colors.text }]}
-                    >
+                    <Text style={styles.actionButtonTextPrimary}>
                       Copy Link
                     </Text>
                   </Pressable>

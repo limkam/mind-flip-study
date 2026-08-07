@@ -58,14 +58,188 @@ def test_share_token_hash_and_shape() -> None:
 def test_public_rendering_has_metadata_headers_and_no_private_sentinels() -> None:
     view = PublicScorecardView("Weekly", 82, "v1", "2026-07-01", "2026-07-07", "partial", 2, 75.0, 20, 3, 45, 2, (("Accuracy", 75),), False, "up", None, "Keep going <script>", None)
     page = render_html(view, "https://app.example/share/scorecard/opaque", "https://app.example/share/scorecard/opaque/image", "https://app.example")
-    for marker in ('property="og:title"', 'property="og:description"', 'property="og:image"', 'property="og:url"', 'name="twitter:card"', 'rel="canonical"', "Formula version: v1"):
+    for marker in ('property="og:title"', 'property="og:description"', 'property="og:image"', 'property="og:url"', 'name="twitter:card"', 'rel="canonical"', "Jul 1 – Jul 7, 2026", "Continue learning with MindFlip"):
         assert marker in page
+    assert "Formula version" not in page
     assert "Keep going &lt;script&gt;" in page and "<script>" not in page
     for private in ("private-user@example.com", "internal-user-uuid-secret", "/private/server/path", "PRIVATE_QUIZ_ANSWER"):
         assert private not in page
     assert security_headers()["Cache-Control"] == "private, no-store, max-age=0"
     svg = render_svg(view)
-    assert 'width="1200"' in svg and 'height="630"' in svg and "<script" not in svg
+    assert 'width="1200"' in svg and 'height="630"' in svg and "<script" not in svg and "Formula" not in svg
+
+
+def test_public_display_name_rendering_and_privacy() -> None:
+    # 1. Enabled display name renders "Shared by DisplayName"
+    view_with_name = PublicScorecardView("Weekly", 85, "v2", "2026-08-01", "2026-08-07", "complete", 5, 88.0, 50, 5, 120, 4, (("Accuracy", 88),), True, "up", "Alim Kamara", "Study hard!", None)
+    page_with_name = render_html(view_with_name, "https://app.example/share/scorecard/opaque", "https://app.example/share/scorecard/opaque/image", "https://app.example")
+    assert "Shared by Alim Kamara" in page_with_name
+    assert "<title>Weekly Learning Scorecard | MindFlip</title>" in page_with_name
+    svg_with_name = render_svg(view_with_name)
+    assert "Shared by Alim Kamara" in svg_with_name
+
+    # 2. Disabled display name renders no owner identity
+    view_no_name = PublicScorecardView("Weekly", 85, "v2", "2026-08-01", "2026-08-07", "complete", 5, 88.0, 50, 5, 120, 4, (("Accuracy", 88),), True, "up", None, "Study hard!", None)
+    page_no_name = render_html(view_no_name, "https://app.example/share/scorecard/opaque", "https://app.example/share/scorecard/opaque/image", "https://app.example")
+    assert "Shared by" not in page_no_name
+    assert "Alim Kamara" not in page_no_name
+    svg_no_name = render_svg(view_no_name)
+    assert "Shared by" not in svg_no_name
+
+
+def test_format_period_human_date_ranges() -> None:
+    from services.scorecard_sharing import format_period_human
+    assert format_period_human("2026-08-01", "2026-08-07") == "Aug 1 – Aug 7, 2026"
+    assert format_period_human("2025-12-28", "2026-01-03") == "Dec 28, 2025 – Jan 3, 2026"
+    assert format_period_human("2026-08-07", "2026-08-07") == "Aug 7, 2026"
+
+
+def test_public_cta_is_account_neutral() -> None:
+    view = PublicScorecardView("Weekly", 80, "v2", "2026-08-01", "2026-08-07", "complete", 3, 80.0, 30, 3, 60, 2, (("Accuracy", 80),), False, None, None, None, None)
+    app_url = "https://app.mindflip.io"
+    page = render_html(view, "https://app.mindflip.io/share/scorecard/opaque", "https://app.mindflip.io/share/scorecard/opaque/image", app_url)
+    assert f'<a href="{app_url}">Continue learning with MindFlip &rarr;</a>' in page
+    # Ensure no owner ID or returnTo token is appended
+    assert "user_id" not in app_url
+    assert "token" not in app_url
+
+
+def test_html_and_svg_escaping_all_characters() -> None:
+    test_names = [
+        "Alim Kamara",
+        "Alim O'Kamara",
+        "Alim-Kamara",
+        "عبدالله كامارا",
+        "张伟",
+        "José Álvarez",
+        "<script>alert(1)</script>",
+        "<img src=x onerror=alert(1)>",
+        "A & B",
+        '"Alice"',
+    ]
+    for test_name in test_names:
+        view = PublicScorecardView("Weekly", 85, "v2", "2026-08-01", "2026-08-07", "complete", 5, 88.0, 50, 5, 120, 4, (("Accuracy", 88),), True, "up", test_name, test_name, None)
+        page = render_html(view, "https://app.example/share/scorecard/opaque", "https://app.example/share/scorecard/opaque/image", "https://app.example")
+        svg = render_svg(view)
+
+        # Confirm no unescaped script or img tags exist in HTML or SVG
+        assert "<script>alert(1)</script>" not in page
+        assert "<img src=x onerror=alert(1)>" not in page
+        assert "<script" not in page
+        assert "<img " not in page
+        assert "<script" not in svg
+        assert "<img " not in svg
+
+        # Confirm HTML escaping converts unsafe chars
+        if "<" in test_name:
+            assert "&lt;script&gt;" in page or "&lt;img" in page
+            assert "&lt;script&gt;" in svg or "&lt;img" in svg
+        if "&" in test_name:
+            assert "A &amp; B" in page and "A &amp; B" in svg
+
+        # Confirm Unicode strings remain intact and uncorrupted
+        if "عبدالله" in test_name:
+            assert "عبدالله كامارا" in page and "عبدالله كامارا" in svg
+        if "张伟" in test_name:
+            assert "张伟" in page and "张伟" in svg
+        if "José" in test_name:
+            assert "José Álvarez" in page and "José Álvarez" in svg
+
+
+@pytest.mark.asyncio
+async def test_public_share_url_reachability_and_lifecycle(monkeypatch) -> None:
+    from datetime import datetime, timedelta, UTC
+    from uuid import uuid4
+    from fastapi import HTTPException
+    from httpx import ASGITransport, AsyncClient
+    from main import app
+    from database import get_db
+    from config import settings
+    from dependencies import enforce_scorecard_share_rate_limit
+    from routers.scorecards import ShareCreate, create_share
+
+    user_id = uuid4()
+    card_id = uuid4()
+    card = SimpleNamespace(
+        id=card_id,
+        user_id=user_id,
+        period_type="weekly",
+        period_start=date(2026, 8, 1),
+        period_end=date(2026, 8, 7),
+        score=88,
+        formula_version="v2",
+        metrics={"data_state": "complete", "assessments_completed": 5, "cards_reviewed": 50},
+    )
+    user = SimpleNamespace(id=user_id, full_name="Alim Kamara")
+
+    shares_db = {}
+
+    monkeypatch.setattr("routers.scorecards._require_sharing", lambda: None)
+    monkeypatch.setattr("routers.scorecards._require_scorecards", lambda: None)
+    monkeypatch.setattr("routers.scorecards.enforce_scorecard_share_rate_limit", lambda: (lambda: None))
+
+    async def mock_owned(db_session, u_id, c_id):
+        if u_id == user_id and c_id == card_id:
+            return card
+        raise HTTPException(status_code=404, detail="Scorecard not found")
+
+    monkeypatch.setattr("routers.scorecards._owned", mock_owned)
+
+    async def mock_execute(query):
+        for s in shares_db.values():
+            if s.revoked_at is None and s.expires_at > datetime.now(UTC):
+                return SimpleNamespace(one_or_none=lambda: (s, card))
+        return SimpleNamespace(one_or_none=lambda: None)
+
+    db = AsyncMock()
+    def save_share(share):
+        share.id = uuid4()
+        shares_db[share.id] = share
+    db.add = save_share
+    db.commit = AsyncMock()
+    db.refresh = AsyncMock()
+    db.execute = AsyncMock(side_effect=mock_execute)
+
+    body = ShareCreate(expires_in_days=30, show_display_name=True, public_display_name="Alim Kamara")
+
+    # 1. Create share via endpoint handler
+    share_out = await create_share(card_id, body, user, db)
+
+    # 2. Assert URL uses configured PUBLIC_SHARE_BASE_URL
+    base_url = settings.PUBLIC_SHARE_BASE_URL.rstrip("/")
+    assert share_out.share_url.startswith(base_url)
+    token = share_out.share_url.split("/")[-1]
+
+    # 3. Perform GET request to public route using extracted token
+    from dependencies import get_redis
+    mock_redis = AsyncMock()
+    mock_redis.incr = AsyncMock(return_value=1)
+    mock_redis.expire = AsyncMock(return_value=True)
+    app.state.redis = mock_redis
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_redis] = lambda: mock_redis
+        try:
+            resp = await client.get(f"/share/scorecard/{token}")
+            assert resp.status_code == 200
+            html_text = resp.text
+            assert "Shared by Alim Kamara" in html_text
+            assert "Continue learning with MindFlip &rarr;" in html_text
+            assert "Formula version" not in html_text
+
+            # 4. Revoke share
+            share_obj = list(shares_db.values())[0]
+            share_obj.revoked_at = datetime.now(UTC)
+
+            # 5. Perform GET request again -> Assert 404
+            resp_404 = await client.get(f"/share/scorecard/{token}")
+            assert resp_404.status_code == 404
+        finally:
+            app.dependency_overrides.clear()
+
+
 
 
 def test_weekly_monthly_and_course_period_support() -> None:
