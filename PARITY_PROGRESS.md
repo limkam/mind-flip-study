@@ -147,7 +147,7 @@ Celebration presentation remains separate from study/quiz persistence.
  | PAR-047 | Complete feature-flag parity | High | M | Merged | Commit `1e27950`: Centralized feature flag `mobileFeatures.subscriptions` (`EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED`, default `false`) in `mobile/lib/featureFlags.ts`; `.env.example` documented. Disabled `/pricing` direct-route fallback renders "Subscriptions unavailable" with safe `router.replace` actions (`/billing` & `/(tabs)/more`). `UpgradeSection` mount/hook boundary suppresses pricing, trial, and entitlement queries, checkout `AppState` listeners, and interval initialization when disabled. Transport-level defense-in-depth checks added to `startCheckout` & `startTrialCheckout`. Existing subscribers retain full account management and cancellation on `/billing`. Credit commerce catalog (`GET /credits/pricing`), usage (`GET /credits/usage`), history (`GET /credits/purchase-history`), and checkout (`POST /billing/checkout/credits`) remain 100% independent. Navigation audit gated `/pricing` from More menu, `UpgradeLimitModal`, cancel/success screens. Typecheck (0 errors), Android Expo export (0 errors), iOS Expo export (0 errors), git diff check passed. | Technical dependency: PAR-021/PAR-040 establish feature-config entries and gates. |
  | PAR-048 | Analytics event parity | Medium | M | Merged | Commit `a22db3e`: Authoritative game & learning telemetry parity (`mobile/lib/studyEvents.ts`, `mobile/lib/quizResults.ts`, `mobile/app/games/[setId]/[slug].tsx`, `services/api/tests/unit/test_study_events_validation.py`, `services/api/tests/integration/test_study_events_route.py`). Extended `STUDY_EVENTS` taxonomy with `GAME_SAVE_ERROR` and `GAME_QUIZ_SAVE_ERROR` (retained taxonomy constant for web compatibility). Established single reachable emitter `games/[setId]/[slug].tsx` emitting `game_save_error` for dispatched HTTP persistence failures (`POST /quiz-results/`). Excluded preflight auth failures, 2xx response contract errors, Axios cancellations, and unmounted/stale routes from error telemetry. Documented `game_quiz_save_error is not applicable to the current mobile product because all mobile quiz-result persistence is owned by the unified game engine.` Classified malformed 2xx as indeterminate response contract errors (`status: "response_contract_error"`), preserving raw 2xx client state without false failure reporting. Enforced strict metadata privacy (`game_type`, `mode: "game"`, sanitized `error_category`), excluding raw exception messages, stack traces, URLs, user IDs, or tokens. Retained backend ownership boundary for `review`, `ai_generation`, `lesson.started`, `lesson.completed`, `assessment.completed`, and `achievement.unlocked`. Passed 7 backend tests (4 unit, 3 route integration), 0 mobile TypeScript errors, Android/iOS Expo exports passed (0 errors), clean git diff check. | Technical dependency: PAR-028 taxonomy/transport. |
  | PAR-049 | Admin-on-mobile product decision | High | S | Not required | DEC-003 resolved: Backend remains authoritative for achievement, completion, and celebration-domain business events. Mobile renders celebrations based on authoritative backend responses/state but must not independently emit duplicate authoritative events. Consumer-mobile admin functionality is not required. | None |
- | PAR-050 | Native refresh-token strategy decision | Critical | L | Blocked | Architecture decision only; sole remaining unresolved roadmap ticket. | Blocked by decision: DEC-001. |
+ | PAR-050 | Native refresh-token strategy | Critical | L | Merged | DEC-001 resolved. Commit `e2b5cfe`: Native session table `native_refresh_sessions`, SHA-256 token storage (`nrt_...`), `FOR UPDATE` row locking, 10s grace period for transport retries, theft/replay family revocation, `expo-secure-store` integration, persistent (`keepSignedIn=true`) vs ephemeral (`keepSignedIn=false`) session management, legacy `AsyncStorage` credential purge, memory-only access tokens, cold-start restoration (`useAuthBootstrap`), single-flight refresh interceptor, `authGeneration` race protection, server-side revocation on logout, web cookie preservation (`_is_web_browser_request` boundary rejecting browser native token issuance), 28 backend unit tests passed, mobile typecheck passed (0 errors), Android & iOS Expo exports passed (0 errors). | Technical dependency: PAR-001/PAR-002 terminal-auth integration. |
  
  Folder metadata product scope is tracked once as PAR-016/DEC-005 rather than duplicated in this phase.
  
@@ -166,7 +166,7 @@ Celebration presentation remains separate from study/quiz persistence.
  
  | Decision ID | Question | Why blocked | Affected tickets | Required owner | Recommended default |
  | ----------- | -------- | ----------- | ---------------- | -------------- | ------------------- |
- | DEC-001 | How should refresh authentication work reliably in native mobile when the backend requires an httpOnly cookie? | Backend exposes no refresh-token body contract and native cookie persistence is unproven. | PAR-002 residual risk, PAR-050 | Backend/security architecture | Do not invent refresh-token body support. Keep current behavior documented until backend architecture is approved. |
+ | DEC-001 | How should refresh authentication work reliably in native mobile when the backend requires an httpOnly cookie? | Resolved: MindFlip web continues using rotating HttpOnly refresh cookies. MindFlip mobile uses rotating opaque native refresh credentials stored in OS-backed SecureStore for persistent sessions and process memory for ephemeral sessions. Mobile access tokens are memory-only. | PAR-002, PAR-050 | Backend/security architecture | Approved DEC-001 implementation merged as commit `e2b5cfe`. |
  | DEC-002 | Should mobile checkout return through a native deep link, hosted web success page, or another approved flow? | Resolved: Mobile checkout uses backend-controlled HTTPS return URLs (`MOBILE_CHECKOUT_SUCCESS/CANCEL_URL`) with hosted web return bridge pages and `mindflip://` fallback. | PAR-032, PAR-033, PAR-034, PAR-037 | Product, mobile platform, billing | Reused PAR-032 HTTPS bridge + custom scheme return architecture for all mobile checkout flows. |
 | DEC-003 | Does admin functionality belong in the consumer mobile app? | Resolved: Backend remains authoritative for business/celebration events. Admin functionality remains in separate admin app and is not required in consumer mobile app. | PAR-049 | Product/security | Keep admin functions out of consumer mobile. |
 | DEC-004 | Should public scorecard links open externally or inside the app? | Resolved: Public scorecard bearer URLs open in the web browser (`PUBLIC_APP_URL`). MindFlip does not implement a native public-token viewer. Social sharing is image-first; public bearer links remain a separate deliberate sharing mechanism. | PAR-040, PAR-045 | Product/mobile | Open public links externally via web app. |
@@ -234,9 +234,21 @@ PAR-045 is **Merged** as commit `8cfba53` on local `main`.
 
 PAR-016 and PAR-049 are resolved as **Not required** (DEC-005 and DEC-003).
 
-PAR-050 is **Blocked** by decision DEC-001 (native refresh-token strategy) and is the sole remaining unresolved ticket on the roadmap.
+PAR-050 is **Merged** as commit `e2b5cfe` on local `main` (DEC-001 resolved).
 
-The next recommended action is to inspect the native authentication architecture for PAR-050.
+### Final Parity Roadmap Disposition
+
+```text
+Total tickets: 58
+Merged: 50
+Not required: 8
+Blocked: 0
+Not started: 0
+
+Mobile parity roadmap disposition: 100%
+```
+
+> **Note on Release Readiness:** 100% roadmap disposition indicates all planned engineering feature work and architectural tickets are fully implemented, tested, and merged into code. Production physical-device release QA (Keychain/Keystore persistence, cold process kill, network loss during rotation) remains a mandatory release gate prior to app store submission.
 
 ## Audit Reconciliation
 
