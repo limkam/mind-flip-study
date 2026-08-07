@@ -3,24 +3,16 @@ import { useRouter } from "expo-router";
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
-import { MindFlipBrand } from "../../components/brand/MindFlipBrand";
-import { Screen } from "../../components/Screen";
 import { api } from "../../api/client";
-import { useTheme, type ThemeColors } from "../../hooks/useTheme";
+import { MindFlipLogoMark } from "../../components/brand/MindFlipBrand";
+import { AppButton, AppCard, AppScreen, AppTextInput } from "../../components/ui";
+import { useTheme } from "../../hooks/useTheme";
 import { getApiErrorMessage } from "../../lib/apiErrors";
-import { hapticImpact } from "../../lib/haptics";
+import { hapticSelection } from "../../lib/haptics";
 import { type User, useAuthStore } from "../../store/authStore";
+import { TOKENS } from "../../theme/tokens";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -39,7 +31,11 @@ function postLoginRoute(user: User): "/onboarding" | "/(tabs)" {
   return user.onboarding_completed === false ? "/onboarding" : "/(tabs)";
 }
 
-function GoogleSignInButton({ colors }: { colors: ThemeColors }) {
+function GoogleSignInButton({
+  onError,
+}: {
+  onError: (msg: string) => void;
+}) {
   const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
   const webId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
@@ -58,76 +54,100 @@ function GoogleSignInButton({ colors }: { colors: ThemeColors }) {
     androidClientId: androidId || webId,
   });
   const [busy, setBusy] = useState(false);
+  const lockRef = useState(() => ({ current: false }))[0];
 
   useEffect(() => {
     if (response?.type !== "success") return;
     const idToken = response.authentication?.idToken;
     if (!idToken) {
-      Alert.alert("Google sign-in failed", "No id_token on response — check OAuth client IDs in .env.");
+      onError("Google sign-in failed: missing authorization token.");
       return;
     }
+    if (lockRef.current) return;
+    lockRef.current = true;
     setBusy(true);
+
     void (async () => {
       try {
         const { setNativeRefreshToken, clearNativeRefreshToken } = await import("../../lib/nativeSession");
-        const keepSignedIn = useAuthStore.getState().keepSignedIn;
+        const attemptKeepSignedIn = useAuthStore.getState().keepSignedIn;
         const { data } = await api.post<{ access_token: string; refresh_token?: string; user: User }>("/auth/google", {
           id_token: idToken,
-          remember_me: keepSignedIn,
+          remember_me: attemptKeepSignedIn,
           client: "mobile",
         });
         if (data.refresh_token) {
-          await setNativeRefreshToken(data.refresh_token, { persistent: keepSignedIn });
+          await setNativeRefreshToken(data.refresh_token, { persistent: attemptKeepSignedIn });
         } else {
           await clearNativeRefreshToken();
         }
         setAuth(data.user, data.access_token);
         router.replace(postLoginRoute(data.user));
       } catch (e: unknown) {
-        Alert.alert("Google sign-in failed", getApiErrorMessage(e));
+        onError(getApiErrorMessage(e, "Google sign-in failed. Please try again."));
       } finally {
+        lockRef.current = false;
         setBusy(false);
       }
     })();
-  }, [response, router, setAuth]);
+  }, [response, router, setAuth, onError, lockRef]);
 
   return (
-    <Pressable
-      style={[styles.altButton, { borderColor: colors.border, backgroundColor: colors.background }]}
+    <AppButton
+      label="Continue with Google"
+      icon="logo-google"
+      variant="secondary"
+      size="lg"
+      fullWidth
+      loading={busy}
+      disabled={!request || busy || lockRef.current}
       onPress={() => {
-        void hapticImpact("light");
+        if (lockRef.current || busy) return;
         void promptAsync();
       }}
-      disabled={!request || busy}
-    >
-      {busy ? (
-        <ActivityIndicator color={colors.text} />
-      ) : (
-        <>
-          <Ionicons name="logo-google" size={20} color="#1e293b" />
-          <Text style={[styles.altButtonText, { color: colors.text }]}>Continue with Google</Text>
-        </>
-      )}
-    </Pressable>
+    />
   );
 }
 
 export default function LoginScreen() {
   const router = useRouter();
   const { colors } = useTheme();
-  const setAuth = useAuthStore((s) => s.setAuth);
-  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const keepSignedIn = useAuthStore((s) => s.keepSignedIn);
+  const setKeepSignedIn = useAuthStore((s) => s.setKeepSignedIn);
+
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [emailFieldError, setEmailFieldError] = useState<string | null>(null);
+  const emailSubmitLockRef = useState(() => ({ current: false }))[0];
+
+  const handleToggleKeepSignedIn = () => {
+    if (busy || emailSubmitLockRef.current) return;
+    void hapticSelection();
+    setKeepSignedIn(!keepSignedIn);
+  };
 
   const emailLogin = async () => {
-    if (!email.trim()) {
-      Alert.alert("Email required", "Enter your email address.");
+    if (emailSubmitLockRef.current || busy) return;
+
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setEmailFieldError("Enter a valid email address.");
       return;
     }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setEmailFieldError("Enter a valid email address.");
+      return;
+    }
+
+    emailSubmitLockRef.current = true;
+    setEmailFieldError(null);
+    setFormError(null);
     setBusy(true);
+
     try {
-      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedEmail = trimmed.toLowerCase();
       const { data } = await api.post<{ challenge_id: string; resend_after: number }>("/auth/email/start", {
         email: normalizedEmail,
       });
@@ -136,8 +156,9 @@ export default function LoginScreen() {
         params: { email: normalizedEmail, challengeId: data.challenge_id, resendAfter: String(data.resend_after) },
       });
     } catch (e: unknown) {
-      Alert.alert("Could not send code", getApiErrorMessage(e, "Please try again shortly."));
+      setFormError(getApiErrorMessage(e, "MindFlip is having trouble sending your verification code. Please try again."));
     } finally {
+      emailSubmitLockRef.current = false;
       setBusy(false);
     }
   };
@@ -145,119 +166,170 @@ export default function LoginScreen() {
   const googleConfigured = isGoogleAuthConfigured();
 
   return (
-    <Screen keyboard style={styles.root}>
-      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <MindFlipBrand centered style={{ marginBottom: 16 }} />
-        <Text style={[styles.title, { color: colors.text }]}>
-          {authMode === "signup" ? "Create your account" : "Welcome back"}
+    <AppScreen keyboard scrollable style={styles.root} contentContainerStyle={styles.contentContainer}>
+      <View style={styles.headerStack}>
+        <MindFlipLogoMark size={64} style={styles.logoMark} />
+        <Text style={[styles.brandTitle, { color: colors.textPrimary }]}>MindFlip</Text>
+        <Text style={[styles.tagline, { color: colors.textMuted }]}>
+          Learn smarter. Remember longer.
         </Text>
-        <Text style={[styles.subtitle, { color: colors.muted }]}>
-          {authMode === "signup" ? "Start learning with MindFlip" : "Continue your learning journey"}
-        </Text>
+      </View>
 
-        <View style={[styles.modeSwitch, { borderColor: colors.border, backgroundColor: colors.background }]}>
-          {(["signin", "signup"] as const).map((mode) => (
-            <Pressable
-              key={mode}
-              style={[styles.modeButton, authMode === mode && { backgroundColor: colors.surface }]}
-              onPress={() => setAuthMode(mode)}
-            >
-              <Text style={{ color: authMode === mode ? colors.text : colors.muted, fontWeight: "600" }}>
-                {mode === "signin" ? "Sign in" : "Sign up"}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+      <AppCard variant="elevated" style={styles.card}>
+        {formError ? (
+          <View
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+            style={[styles.errorBanner, { backgroundColor: `${colors.danger}12`, borderColor: `${colors.danger}30` }]}
+          >
+            <Ionicons name="alert-circle-outline" size={20} color={colors.danger} />
+            <Text style={[styles.errorText, { color: colors.danger }]}>{formError}</Text>
+          </View>
+        ) : null}
 
         {googleConfigured ? (
-          <GoogleSignInButton colors={colors} />
+          <GoogleSignInButton onError={(msg) => setFormError(msg)} />
         ) : (
-          <Pressable
-            style={[styles.altButton, { borderColor: colors.border, backgroundColor: colors.background }]}
-            onPress={() => Alert.alert("Google sign-in is not configured", "Add a Google OAuth client ID to the mobile environment and restart Expo.")}
-          >
-            <Ionicons name="logo-google" size={20} color={colors.text} />
-            <Text style={[styles.altButtonText, { color: colors.text }]}>Continue with Google</Text>
-          </Pressable>
+          <AppButton
+            label="Continue with Google"
+            icon="logo-google"
+            variant="secondary"
+            size="lg"
+            fullWidth
+            disabled
+            onPress={() => {}}
+          />
         )}
 
-        <View style={styles.divider}>
-          <View style={styles.line} />
-          <Text style={styles.dividerText}>or</Text>
-          <View style={styles.line} />
+        <View style={styles.dividerRow}>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+          <Text style={[styles.dividerText, { color: colors.textMuted }]}>or</Text>
+          <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
         </View>
 
-        <TextInput
-          style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
-          placeholder="Email address"
-          placeholderTextColor={colors.muted}
+        <AppTextInput
+          label="Email address"
+          placeholder="you@example.com"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(val) => {
+            setEmail(val);
+            if (emailFieldError) setEmailFieldError(null);
+            if (formError) setFormError(null);
+          }}
           autoCapitalize="none"
           keyboardType="email-address"
+          textContentType="emailAddress"
+          autoComplete="email"
+          error={emailFieldError || undefined}
+          containerStyle={styles.inputContainer}
         />
-        <Pressable
-          style={[styles.altButton, { borderColor: colors.border, backgroundColor: colors.background }, busy && styles.buttonDisabled]}
-          onPress={() => {
-            void hapticImpact("light");
-            void emailLogin();
-          }}
+
+        <AppButton
+          label="Continue with Email"
+          icon="mail-outline"
+          variant="primary"
+          size="lg"
+          fullWidth
+          loading={busy}
           disabled={busy}
+          onPress={() => void emailLogin()}
+        />
+
+        <Pressable
+          onPress={handleToggleKeepSignedIn}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: keepSignedIn, disabled: busy }}
+          accessibilityLabel="Keep me signed in"
+          disabled={busy}
+          style={styles.keepSignedInRow}
+          hitSlop={8}
         >
-          {busy ? <ActivityIndicator color={colors.text} /> : (
-            <>
-              <Ionicons name="mail-outline" size={20} color={colors.text} />
-              <Text style={[styles.altButtonText, { color: colors.text }]}>Continue with Email</Text>
-            </>
-          )}
+          <Ionicons
+            name={keepSignedIn ? "checkbox" : "square-outline"}
+            size={22}
+            color={keepSignedIn ? colors.primary : colors.textMuted}
+          />
+          <Text style={[styles.keepSignedInText, { color: colors.textSecondary }]}>
+            Keep me signed in
+          </Text>
         </Pressable>
-      </View>
-    </Screen>
+      </AppCard>
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { justifyContent: "center", padding: 24 },
-  card: {
-    borderRadius: 16,
-    padding: 20,
-    gap: 12,
-    borderWidth: 1,
+  root: {
+    flex: 1,
   },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 4, textAlign: "center" },
-  subtitle: { fontSize: 14, textAlign: "center", marginBottom: 8 },
-  modeSwitch: { flexDirection: "row", borderWidth: 1, borderRadius: 10, padding: 4 },
-  modeButton: { flex: 1, minHeight: 36, borderRadius: 7, alignItems: "center", justifyContent: "center" },
-  input: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    minHeight: 44,
-  },
-  button: {
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 4,
-    minHeight: 44,
+  contentContainer: {
+    paddingHorizontal: TOKENS.spacing.lg,
+    paddingVertical: TOKENS.spacing.xxl,
     justifyContent: "center",
   },
-  buttonDisabled: { opacity: 0.7 },
-  buttonText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  divider: { flexDirection: "row", alignItems: "center", marginVertical: 8 },
-  line: { flex: 1, height: 1, backgroundColor: "#e2e8f0" },
-  dividerText: { marginHorizontal: 12, color: "#64748b", fontSize: 13 },
-  altButton: {
+  headerStack: {
+    alignItems: "center",
+    marginBottom: TOKENS.spacing.xxl,
+  },
+  logoMark: {
+    marginBottom: TOKENS.spacing.md,
+  },
+  brandTitle: {
+    fontSize: TOKENS.typography.display.fontSize,
+    fontWeight: TOKENS.typography.display.fontWeight,
+    letterSpacing: -0.5,
+  },
+  tagline: {
+    fontSize: TOKENS.typography.bodyEmphasis.fontSize,
+    lineHeight: TOKENS.typography.bodyEmphasis.lineHeight,
+    marginTop: TOKENS.spacing.xs,
+    textAlign: "center",
+  },
+  card: {
+    gap: TOKENS.spacing.md,
+  },
+  errorBanner: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
+    gap: TOKENS.spacing.sm,
+    padding: TOKENS.spacing.md,
+    borderRadius: TOKENS.radii.md,
     borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 12,
-    minHeight: 44,
+    marginBottom: TOKENS.spacing.xs,
   },
-  altButtonText: { fontSize: 16, fontWeight: "600" },
+  errorText: {
+    flex: 1,
+    fontSize: TOKENS.typography.caption.fontSize,
+    lineHeight: TOKENS.typography.caption.lineHeight,
+    fontWeight: TOKENS.typography.bodyEmphasis.fontWeight,
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: TOKENS.spacing.xs,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    marginHorizontal: TOKENS.spacing.md,
+    fontSize: TOKENS.typography.caption.fontSize,
+    fontWeight: TOKENS.typography.caption.fontWeight,
+  },
+  inputContainer: {
+    marginBottom: TOKENS.spacing.xs,
+  },
+  keepSignedInRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: TOKENS.spacing.sm,
+    paddingVertical: TOKENS.spacing.xs,
+    minHeight: TOKENS.layout.minTouchTarget,
+    marginTop: TOKENS.spacing.xs,
+  },
+  keepSignedInText: {
+    fontSize: TOKENS.typography.secondaryBody.fontSize,
+    fontWeight: TOKENS.typography.label.fontWeight,
+  },
 });

@@ -8,11 +8,6 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#6366f1"
-    },
     "ios": {
       "bundleIdentifier": "io.mindflip.app",
       "buildNumber": "1",
@@ -40,6 +35,19 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#ffffff",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 144,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#0f172a",
+            "image": "./assets/splash-icon.png"
+          }
+        }
+      ],
       [
         "expo-notifications",
         {

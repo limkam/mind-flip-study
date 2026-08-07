@@ -1,14 +1,24 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import { api } from "../../api/client";
-import { MindFlipBrand } from "../../components/brand/MindFlipBrand";
-import { Screen } from "../../components/Screen";
+import {
+  AppBadge,
+  AppButton,
+  AppCard,
+  AppScreen,
+  AppTextInput,
+  ScreenHeader,
+} from "../../components/ui";
 import { useTheme } from "../../hooks/useTheme";
 import { getApiErrorMessage } from "../../lib/apiErrors";
+import { hapticError, hapticSelection, hapticSuccess } from "../../lib/haptics";
 import { type User, useAuthStore } from "../../store/authStore";
+import { TOKENS } from "../../theme/tokens";
+
+import axios from "axios";
 
 export default function VerifyEmailScreen() {
   const router = useRouter();
@@ -16,11 +26,31 @@ export default function VerifyEmailScreen() {
   const { colors } = useTheme();
   const setAuth = useAuthStore((state) => state.setAuth);
   const keepSignedIn = useAuthStore((state) => state.keepSignedIn);
+
   const email = params.email || "";
   const [challengeId, setChallengeId] = useState(params.challengeId || "");
   const [code, setCode] = useState("");
   const [cooldown, setCooldown] = useState(Number(params.resendAfter || 60));
   const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [infoMsg, setInfoMsg] = useState<string | null>(null);
+
+  const submitLockRef = useState(() => ({ current: false }))[0];
+  const resendLockRef = useState(() => ({ current: false }))[0];
+  const lastSubmittedCodeRef = useState(() => ({ current: "" }))[0];
+  const activeChallengeIdRef = useState(() => ({ current: params.challengeId || "" }))[0];
+  const isMountedRef = useState(() => ({ current: true }))[0];
+
+  useEffect(() => {
+    activeChallengeIdRef.current = challengeId;
+  }, [challengeId, activeChallengeIdRef]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [isMountedRef]);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -29,93 +59,275 @@ export default function VerifyEmailScreen() {
   }, [cooldown]);
 
   useEffect(() => {
-    if (!email || !challengeId) router.replace("/(auth)/login");
+    if (!email || !challengeId) {
+      router.replace("/(auth)/login");
+    }
   }, [challengeId, email, router]);
 
-  const verify = async () => {
-    if (!/^\d{6}$/.test(code)) return;
+  const verifyCode = async (codeInput: string) => {
+    if (!/^\d{6}$/.test(codeInput)) return;
+    if (submitLockRef.current || busy) return;
+    if (lastSubmittedCodeRef.current === codeInput) return;
+
+    submitLockRef.current = true;
+    lastSubmittedCodeRef.current = codeInput;
+    const targetChallengeId = challengeId;
+
     setBusy(true);
+    setErrorMsg(null);
+    setInfoMsg(null);
+
     try {
       const { setNativeRefreshToken, clearNativeRefreshToken } = await import("../../lib/nativeSession");
       const { data } = await api.post<{ access_token: string; refresh_token?: string; user: User }>("/auth/email/verify", {
-        challenge_id: challengeId,
-        code,
+        challenge_id: targetChallengeId,
+        code: codeInput,
         remember_me: keepSignedIn,
         client: "mobile",
       });
+
+      if (!isMountedRef.current || activeChallengeIdRef.current !== targetChallengeId) {
+        return;
+      }
+
       if (data.refresh_token) {
         await setNativeRefreshToken(data.refresh_token, { persistent: keepSignedIn });
       } else {
         await clearNativeRefreshToken();
       }
+
+      void hapticSuccess();
       setAuth(data.user, data.access_token);
       router.replace(data.user.onboarding_completed === false ? "/onboarding" : "/(tabs)");
     } catch (error: unknown) {
-      Alert.alert("Code not accepted", getApiErrorMessage(error, "The code is invalid or has expired."));
+      if (!isMountedRef.current || activeChallengeIdRef.current !== targetChallengeId) {
+        return;
+      }
+      lastSubmittedCodeRef.current = "";
+
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      const isNetworkError = axios.isAxiosError(error) && (error.code === "ERR_NETWORK" || !error.response);
+
+      if (status === 400) {
+        void hapticError();
+        setErrorMsg("That code isn't valid anymore. Check the code or request a new one.");
+      } else if (status === 422) {
+        void hapticError();
+        setErrorMsg("We couldn't verify that code. Please try again.");
+      } else if (status === 429) {
+        setErrorMsg("Too many attempts. Please wait before trying again.");
+      } else if (isNetworkError) {
+        setErrorMsg("You're offline. Check your connection and try again.");
+      } else if (status && status >= 500) {
+        setErrorMsg("MindFlip is having trouble signing you in right now. Please try again.");
+      } else {
+        setErrorMsg(getApiErrorMessage(error, "We couldn't verify that code. Please try again."));
+      }
     } finally {
-      setBusy(false);
+      submitLockRef.current = false;
+      if (isMountedRef.current) {
+        setBusy(false);
+      }
     }
   };
 
-  const resend = async () => {
+  const handleCodeChange = (val: string) => {
+    const cleaned = val.replace(/\D/g, "").slice(0, 6);
+    setCode(cleaned);
+    if (errorMsg) setErrorMsg(null);
+    if (infoMsg) setInfoMsg(null);
+
+    if (cleaned.length === 6 && !busy && !submitLockRef.current) {
+      void verifyCode(cleaned);
+    }
+  };
+
+  const resendCode = async () => {
+    if (cooldown > 0 || busy || resendLockRef.current) return;
+    resendLockRef.current = true;
+
     setBusy(true);
+    setErrorMsg(null);
+
     try {
       const { data } = await api.post<{ challenge_id: string; resend_after: number }>("/auth/email/start", { email });
+      if (!isMountedRef.current) return;
+
+      void hapticSelection();
       setChallengeId(data.challenge_id);
       setCooldown(data.resend_after || 60);
       setCode("");
-      Alert.alert("New code sent");
+      lastSubmittedCodeRef.current = "";
+      setInfoMsg("A new verification code has been sent to your email.");
     } catch (error: unknown) {
-      Alert.alert("Could not resend code", getApiErrorMessage(error, "Please try again shortly."));
+      if (!isMountedRef.current) return;
+      setErrorMsg(getApiErrorMessage(error, "Could not resend code. Please try again shortly."));
     } finally {
-      setBusy(false);
+      resendLockRef.current = false;
+      if (isMountedRef.current) {
+        setBusy(false);
+      }
     }
   };
 
   return (
-    <Screen keyboard style={styles.root}>
+    <AppScreen keyboard scrollable style={styles.root}>
+      <ScreenHeader
+        title="Verification"
+        showBack
+        onBack={() => router.replace("/(auth)/login")}
+      />
+
       <View style={styles.content}>
-        <MindFlipBrand centered style={{ marginBottom: 20 }} />
-        <View style={[styles.icon, { backgroundColor: `${colors.primary}18` }]}>
-          <Ionicons name="mail-outline" size={26} color={colors.primary} />
+        <View style={[styles.iconWrap, { backgroundColor: `${colors.primary}18` }]}>
+          <Ionicons name="mail-unread-outline" size={32} color={colors.primary} />
         </View>
-        <Text style={[styles.title, { color: colors.text }]}>Check your email</Text>
-        <Text style={[styles.subtitle, { color: colors.muted }]}>Enter the 6-digit code we sent to your email.</Text>
-        <Text style={[styles.email, { color: colors.text }]}>{email}</Text>
-        <TextInput
-          style={[styles.code, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
-          value={code}
-          onChangeText={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))}
-          keyboardType="number-pad"
-          textContentType="oneTimeCode"
-          autoFocus
-          maxLength={6}
-          placeholder="000000"
-          placeholderTextColor={colors.muted}
+
+        <Text style={[styles.title, { color: colors.textPrimary }]}>
+          Check your email
+        </Text>
+
+        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+          We sent a 6-digit verification code to
+        </Text>
+
+        <AppBadge
+          label={email}
+          variant="primary"
+          style={styles.emailBadge}
         />
-        <Pressable style={[styles.primary, { backgroundColor: colors.primary }, busy && styles.disabled]} disabled={busy || code.length !== 6} onPress={() => void verify()}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Verify and continue</Text>}
-        </Pressable>
-        <Pressable style={styles.resend} disabled={busy || cooldown > 0} onPress={() => void resend()}>
-          <Text style={{ color: cooldown > 0 ? colors.muted : colors.primary }}>
-            {cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
-          </Text>
-        </Pressable>
+
+        <AppCard variant="elevated" style={styles.card}>
+          {errorMsg ? (
+            <View
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={[styles.messageBanner, { backgroundColor: `${colors.danger}12`, borderColor: `${colors.danger}30` }]}
+            >
+              <Ionicons name="alert-circle-outline" size={20} color={colors.danger} />
+              <Text style={[styles.bannerText, { color: colors.danger }]}>{errorMsg}</Text>
+            </View>
+          ) : infoMsg ? (
+            <View
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={[styles.messageBanner, { backgroundColor: `${colors.success}12`, borderColor: `${colors.success}30` }]}
+            >
+              <Ionicons name="checkmark-circle-outline" size={20} color={colors.success} />
+              <Text style={[styles.bannerText, { color: colors.success }]}>{infoMsg}</Text>
+            </View>
+          ) : null}
+
+          <AppTextInput
+            label="Verification Code"
+            value={code}
+            onChangeText={handleCodeChange}
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            autoFocus
+            maxLength={6}
+            placeholder="000000"
+            style={styles.codeInput}
+            containerStyle={styles.inputContainer}
+          />
+
+          <AppButton
+            label="Verify and continue"
+            variant="primary"
+            size="lg"
+            fullWidth
+            loading={busy}
+            disabled={busy || code.length !== 6}
+            onPress={() => void verifyCode(code)}
+          />
+
+          <View style={styles.actionRow}>
+            <AppButton
+              label={cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
+              variant="ghost"
+              size="sm"
+              disabled={busy || cooldown > 0}
+              onPress={() => void resendCode()}
+            />
+
+            <AppButton
+              label="Use a different email"
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onPress={() => router.replace("/(auth)/login")}
+            />
+          </View>
+        </AppCard>
       </View>
-    </Screen>
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { justifyContent: "center", padding: 24 },
-  content: { alignItems: "center" },
-  icon: { width: 52, height: 52, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  title: { marginTop: 18, fontSize: 24, fontWeight: "700" },
-  subtitle: { marginTop: 8, fontSize: 14, textAlign: "center", lineHeight: 21 },
-  email: { marginTop: 4, fontSize: 14, fontWeight: "600" },
-  code: { width: "100%", marginTop: 28, minHeight: 52, borderWidth: 1, borderRadius: 10, textAlign: "center", fontSize: 22, fontWeight: "700", letterSpacing: 8 },
-  primary: { width: "100%", minHeight: 48, marginTop: 16, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  primaryText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  resend: { minHeight: 44, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
-  disabled: { opacity: 0.6 },
+  root: {
+    flex: 1,
+  },
+  content: {
+    paddingHorizontal: TOKENS.spacing.lg,
+    paddingBottom: TOKENS.spacing.xxl,
+    alignItems: "center",
+  },
+  iconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: TOKENS.radii.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: TOKENS.spacing.lg,
+    marginBottom: TOKENS.spacing.md,
+  },
+  title: {
+    fontSize: TOKENS.typography.screenTitle.fontSize,
+    fontWeight: TOKENS.typography.screenTitle.fontWeight,
+    lineHeight: TOKENS.typography.screenTitle.lineHeight,
+    textAlign: "center",
+  },
+  subtitle: {
+    fontSize: TOKENS.typography.secondaryBody.fontSize,
+    marginTop: TOKENS.spacing.xs,
+    textAlign: "center",
+  },
+  emailBadge: {
+    marginTop: TOKENS.spacing.sm,
+    marginBottom: TOKENS.spacing.xl,
+  },
+  card: {
+    width: "100%",
+    gap: TOKENS.spacing.md,
+  },
+  messageBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: TOKENS.spacing.sm,
+    padding: TOKENS.spacing.md,
+    borderRadius: TOKENS.radii.md,
+    borderWidth: 1,
+  },
+  bannerText: {
+    flex: 1,
+    fontSize: TOKENS.typography.caption.fontSize,
+    lineHeight: TOKENS.typography.caption.lineHeight,
+    fontWeight: TOKENS.typography.bodyEmphasis.fontWeight,
+  },
+  inputContainer: {
+    marginBottom: TOKENS.spacing.xs,
+  },
+  codeInput: {
+    textAlign: "center",
+    fontSize: 24,
+    fontWeight: "700",
+    letterSpacing: 8,
+    minHeight: 56,
+  },
+  actionRow: {
+    alignItems: "center",
+    gap: TOKENS.spacing.xs,
+    marginTop: TOKENS.spacing.xs,
+  },
 });
