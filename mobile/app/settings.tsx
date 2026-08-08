@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -77,7 +78,7 @@ function readStudySettings(user: User | null): UserStudySettings {
 }
 
 export default function SettingsScreen() {
-  const { colors, scheme, isDark, toggleScheme } = useTheme();
+  const { colors, mode, setScheme } = useTheme();
   const header = useScreenHeader("Settings");
   const queryClient = useQueryClient();
   const { user, accessToken, setAuth, bootstrapStatus } = useAuthStore();
@@ -307,16 +308,34 @@ export default function SettingsScreen() {
         ) : null}
 
         <Section title="Appearance" colors={colors}>
-          <ToggleRow
-            label="Dark mode"
-            description={`Currently ${scheme === "dark" ? "on" : "off"}`}
-            value={isDark}
-            onValueChange={() => {
-              void hapticImpact("light");
-              toggleScheme();
-            }}
-            colors={colors}
-          />
+          <Text style={[styles.goalLabel, { color: colors.text }]}>Color mode</Text>
+          <View accessibilityRole="radiogroup" style={styles.goalRow}>
+            {([ ["system", "System"], ["light", "Light"], ["dark", "Dark"] ] as const).map(([value, label]) => {
+              const selected = mode === value;
+              return (
+                <Pressable
+                  key={value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected }}
+                  style={[
+                    styles.goalChip,
+                    {
+                      borderColor: selected ? colors.primary : colors.border,
+                      backgroundColor: selected ? colors.primarySoft : colors.surface,
+                    },
+                  ]}
+                  onPress={() => {
+                    void hapticImpact("light");
+                    setScheme(value);
+                  }}
+                >
+                  <Text style={{ color: selected ? colors.primary : colors.text, fontWeight: "700" }}>
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </Section>
 
         <Section title="Learning Preferences" colors={colors}>
@@ -411,7 +430,21 @@ export default function SettingsScreen() {
         </Section>
 
         {/* Engagement Preferences Section */}
-        <Section title="Engagement & Reminders" colors={colors}>
+        <Section title="Notifications & reminders" colors={colors}>
+          <View style={[styles.permissionRow, { borderBottomColor: colors.border }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.toggleLabel, { color: colors.text }]}>Device notification permission</Text>
+              <Text style={[styles.toggleDesc, { color: colors.muted }]}>Managed separately in your phone settings</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              style={[styles.settingsButton, { borderColor: colors.border }]}
+              onPress={() => void Linking.openSettings()}
+            >
+              <Text style={{ color: colors.primary, fontWeight: "700" }}>Open Settings</Text>
+            </Pressable>
+          </View>
+          <Text style={[styles.preferenceNote, { color: colors.textSecondary }]}>MindFlip preferences</Text>
           <ToggleRow
             label="In-app notifications"
             description="Enable in-app nudges and alerts"
@@ -500,7 +533,7 @@ export default function SettingsScreen() {
             disabled={(!studyDirty && !engagementDirty) || saving}
             onPress={handleSave}
           >
-            <Text style={styles.primaryBtnText}>{saving ? "Saving…" : "Save changes"}</Text>
+            <Text style={[styles.primaryBtnText, { color: colors.onPrimary }]}>{saving ? "Saving…" : "Save changes"}</Text>
           </Pressable>
 
           <Pressable
@@ -634,5 +667,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  primaryBtnText: { fontWeight: "700", fontSize: 15 },
+  permissionRow: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: 12, marginBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  settingsButton: { minHeight: 44, borderRadius: 10, borderWidth: 1, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  preferenceNote: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 },
 });

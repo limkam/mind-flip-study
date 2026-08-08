@@ -338,10 +338,10 @@ export default function ScorecardsScreen() {
         }
       >
         <Text style={[styles.title, { color: colors.text }]}>
-          Performance scorecards
+          My Scorecard
         </Text>
         <Text style={[styles.subtitle, { color: colors.muted }]}>
-          Automatically refreshed learning summaries
+          A clear view of your recent learning progress
         </Text>
 
         {/* Non-blocking query fetching notice */}
@@ -446,7 +446,7 @@ export default function ScorecardsScreen() {
             >
               <Text
                 style={{
-                  color: period === item.key ? "#fff" : colors.text,
+                  color: period === item.key ? colors.onPrimary : colors.text,
                   fontWeight: "700",
                 }}
               >
@@ -660,8 +660,8 @@ export default function ScorecardsScreen() {
                   { backgroundColor: colors.primary, flex: 1 },
                 ]}
               >
-                <Ionicons name="link-outline" size={20} color="#fff" />
-                <Text style={styles.shareText}>Create public link</Text>
+                <Ionicons name="link-outline" size={20} color={colors.onPrimary} />
+                <Text style={[styles.shareText, { color: colors.onPrimary }]}>Create public link</Text>
               </Pressable>
 
               <Pressable
@@ -898,5 +898,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 12,
   },
-  shareText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+  shareText: { fontSize: 14, fontWeight: "800" },
 });

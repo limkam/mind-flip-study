@@ -177,3 +177,16 @@ The foundation requires physical runtime/device QA verification during later MFU
 - Celebration surfaces use semantic theme tokens and may rerender for appearance changes without replaying announcements, particles, or haptics.
 - Significant events provide text, iconography, screen-reader announcements, accessible dismissal, Dynamic Type, and no color-only meaning.
 - Offline completion may celebrate the completed visible session and disclose ratings saved for sync, but must not claim server-dependent XP, streaks, or achievements.
+
+---
+
+## 12. Account and Administrative Surfaces
+
+- Profile prioritizes identity and editable account details; learning metrics remain a bounded snapshot rather than an administrative dashboard.
+- Settings groups appearance, learning, and MindFlip notification preferences. Device notification permission remains a separate operating-system concern.
+- Appearance uses the existing System, Light, and Dark theme authority. Switching appearance must not remount forms, queries, checkout, or sharing state.
+- Billing uses the canonical “Billing & Credits” name. Subscription conflicts outrank plan actions and suppress unsupported checkout and cancellation.
+- Credits remain independent of subscription rollout, and internal identifiers are never shown to users.
+- Scorecard social sharing is image-first. Public links are separately managed and session-only.
+- Public display-name sharing is an explicit opt-in independent from the profile name.
+- Administrative surfaces use semantic tokens, calm recovery states, restrained motion, and cached content during refresh.

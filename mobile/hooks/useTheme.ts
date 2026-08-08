@@ -30,23 +30,30 @@ export function useTheme() {
   const preferredScheme = user?.preferences?.color_scheme;
   const [savedScheme, setSavedScheme] = useStorageString(`color-scheme:${userId}`);
 
-  const scheme = (savedScheme === "dark" || savedScheme === "light"
+  const scheme = (savedScheme === "system"
+    ? systemScheme
+    : savedScheme === "dark" || savedScheme === "light"
+      ? savedScheme
+      : preferredScheme === "dark" || preferredScheme === "light"
+        ? preferredScheme
+        : systemScheme) || "light";
+  const mode = savedScheme === "dark" || savedScheme === "light" || savedScheme === "system"
     ? savedScheme
     : preferredScheme === "dark" || preferredScheme === "light"
       ? preferredScheme
-    : systemScheme) || "light";
+      : "system";
 
   const colors = scheme === "dark" ? DARK : LIGHT;
 
   return {
     scheme: scheme as "light" | "dark",
+    mode: mode as "light" | "dark" | "system",
     colors,
     tokens: TOKENS,
     isDark: scheme === "dark",
     toggleScheme: () => setSavedScheme(scheme === "dark" ? "light" : "dark"),
     setScheme: (next: "light" | "dark" | "system") => {
-      if (next === "system") setSavedScheme(undefined);
-      else setSavedScheme(next);
+      setSavedScheme(next);
     },
   };
 }

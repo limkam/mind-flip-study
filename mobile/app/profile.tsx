@@ -243,10 +243,15 @@ export default function ProfileScreen() {
   const activeThemeDef = getStudyTheme(selectedTheme);
 
   return (
-    <Screen>
+    <Screen keyboard>
       {header}
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <PageHeader title="Profile" subtitle="Your identity and study progress" />
+        <PageHeader title="Profile" subtitle="Your account details and learning preferences" />
+
+        <View style={[styles.identity, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[styles.avatar, { backgroundColor: colors.primarySoft }]}><Text style={[styles.avatarText, { color: colors.primary }]}>{(profile?.full_name || profile?.email || "M").trim().charAt(0).toUpperCase()}</Text></View>
+          <View style={{ flex: 1 }}><Text accessibilityRole="header" style={[styles.identityName, { color: colors.text }]}>{profile?.full_name || "MindFlip learner"}</Text><Text style={[styles.identityEmail, { color: colors.textSecondary }]} numberOfLines={2}>{profile?.email}</Text></View>
+        </View>
 
         {/* Account Summary & Editable Fields */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -261,6 +266,7 @@ export default function ProfileScreen() {
               maxLength={255}
               placeholder="Your full name"
               placeholderTextColor={colors.muted}
+              accessibilityLabel="Display name"
             />
           </View>
 
@@ -270,6 +276,7 @@ export default function ProfileScreen() {
               style={[styles.textInput, { color: colors.muted, borderColor: colors.border, backgroundColor: colors.surface }]}
               value={profile?.email ?? ""}
               editable={false}
+              accessibilityLabel="Email address, cannot be edited"
             />
           </View>
 
@@ -331,13 +338,13 @@ export default function ProfileScreen() {
             onPress={handleSaveProfile}
             disabled={savingProfile}
           >
-            <Text style={styles.saveBtnText}>{savingProfile ? "Saving…" : "Save profile"}</Text>
+            <Text style={[styles.saveBtnText, { color: colors.onPrimary }]}>{savingProfile ? "Saving…" : "Save changes"}</Text>
           </Pressable>
         </View>
 
         {/* Appearance & Color Scheme (Independent from Study Theme) */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>App Appearance</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Appearance</Text>
           <Text style={[styles.hint, { color: colors.muted, marginBottom: 8 }]}>
             Current: {scheme === "dark" ? "Dark" : "Light"} mode
           </Text>
@@ -356,7 +363,7 @@ export default function ProfileScreen() {
 
         {/* Study Theme Parity Section */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Study Theme</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Study cards</Text>
           <Text style={[styles.hint, { color: colors.muted, marginBottom: 12 }]}>
             Choose card colors used in study sessions (Active: {activeThemeDef.label})
           </Text>
@@ -388,7 +395,7 @@ export default function ProfileScreen() {
 
         {/* Bounded Study Overview Analytics Summary */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Study Overview</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Learning snapshot</Text>
           <View style={styles.statsGrid}>
             <StatBox label="Current streak" value={`${stats?.streak_days ?? 0} days`} colors={colors} />
             <StatBox label="Quiz time" value={formatStudyTime(stats?.total_study_time_seconds)} colors={colors} />
@@ -402,7 +409,7 @@ export default function ProfileScreen() {
           style={[styles.outlineBtn, { borderColor: colors.border, backgroundColor: colors.surface, marginHorizontal: 16, marginBottom: 10 }]}
           onPress={() => router.push("/billing")}
         >
-          <Text style={[styles.outlineBtnText, { color: colors.text }]}>Billing &amp; credit usage</Text>
+          <Text style={[styles.outlineBtnText, { color: colors.text }]}>Billing &amp; Credits</Text>
         </Pressable>
 
         <Pressable
@@ -438,6 +445,8 @@ function StatBox({
 
 const styles = StyleSheet.create({
   scroll: { paddingBottom: 32 },
+  identity: { marginHorizontal: 16, marginBottom: 12, borderRadius: 16, borderWidth: 1, padding: 16, flexDirection: "row", alignItems: "center", gap: 14 },
+  avatar: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" }, avatarText: { fontSize: 24, fontWeight: "800" }, identityName: { fontSize: 19, lineHeight: 25, fontWeight: "800" }, identityEmail: { fontSize: 14, lineHeight: 20, marginTop: 2 },
   card: {
     marginHorizontal: 16,
     marginBottom: 12,
@@ -464,7 +473,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: "center",
   },
-  saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  saveBtnText: { fontWeight: "700", fontSize: 15 },
   outlineBtn: {
     borderWidth: 1,
     borderRadius: 10,

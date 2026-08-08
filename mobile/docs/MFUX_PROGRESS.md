@@ -10,4 +10,4 @@
 | **MFUX-006** | Home (Today) & Library Redesign | **Complete** |
 | **MFUX-007** | Games Engine UI & Shell Polish | **Complete** |
 | **MFUX-008** | Celebration & Micro-Feedback System | **Complete** |
-| **MFUX-009** | Profile, Settings, Billing & Scorecards | *Not started* |
+| **MFUX-009** | Profile, Settings, Billing & Scorecards | **Complete** |

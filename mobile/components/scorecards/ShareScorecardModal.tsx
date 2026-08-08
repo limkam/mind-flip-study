@@ -592,7 +592,7 @@ export function ShareScorecardModal({
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.backdrop}
+        style={[styles.backdrop, { backgroundColor: colors.overlay }]}
       >
         <View
           style={[styles.modalCard, { backgroundColor: colors.surface }]}
@@ -877,9 +877,9 @@ export function ShareScorecardModal({
                     <Ionicons
                       name="copy-outline"
                       size={18}
-                      color="#FFFFFF"
+                      color={colors.onPrimary}
                     />
-                    <Text style={styles.actionButtonTextPrimary}>
+                    <Text style={[styles.actionButtonTextPrimary, { color: colors.onPrimary }]}>
                       Copy Link
                     </Text>
                   </Pressable>
@@ -1013,11 +1013,11 @@ export function ShareScorecardModal({
                 accessibilityLabel="Create public share link"
               >
                 {lifecyclePhase === "creating" ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={colors.onPrimary} />
                 ) : (
                   <>
-                    <Ionicons name="link-outline" size={20} color="#FFFFFF" />
-                    <Text style={styles.primaryButtonText}>
+                    <Ionicons name="link-outline" size={20} color={colors.onPrimary} />
+                    <Text style={[styles.primaryButtonText, { color: colors.onPrimary }]}>
                       Create Public Link
                     </Text>
                   </>
@@ -1034,7 +1034,6 @@ export function ShareScorecardModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "flex-end",
   },
   modalCard: {
@@ -1182,7 +1181,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   primaryButtonText: {
-    color: "#FFFFFF",
     fontSize: 15,
     fontWeight: "700",
   },
@@ -1225,7 +1223,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   actionButtonTextPrimary: {
-    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "600",
   },

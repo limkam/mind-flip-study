@@ -41,7 +41,7 @@ export default function PricingScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Open Billing & Credits"
               >
-                <Text style={styles.buttonText}>Open Billing & Credits</Text>
+                <Text style={[styles.buttonText, { color: colors.onPrimary }]}>Open Billing & Credits</Text>
               </Pressable>
               <Pressable
                 style={[
@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 16,
   },
-  buttonText: { color: "#ffffff", fontWeight: "700", fontSize: 14 },
+  buttonText: { fontWeight: "700", fontSize: 14 },
   buttonOutline: { borderWidth: 1, backgroundColor: "transparent" },
   buttonOutlineText: { fontWeight: "600", fontSize: 14 },
 });

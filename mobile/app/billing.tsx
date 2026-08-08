@@ -133,13 +133,15 @@ export default function BillingScreen() {
   const parsedDate = parseAndFormatDate(renewalOrEndDate);
 
   const isConflict = subStatus === "subscription_conflict";
+  const isPlanUnavailable = entitlements.isError && !entitlements.data;
+  const isFree = subStatus === "free" && planSlug === "free";
   const isPaidActive = subStatus === "active" && planSlug !== "free";
   const isTrialing = subStatus === "trialing";
   const isCanceledStatus = subStatus === "canceled";
 
   const accessUsable = planSlug !== "free" && !parsedDate.isPast;
   const isCancelingAtPeriodEnd = isCanceledStatus && accessUsable;
-  const isFullyExpired = (isCanceledStatus && parsedDate.isPast) || (subStatus === "free" && planSlug === "free");
+  const isFullyExpired = isCanceledStatus && parsedDate.isPast;
   const canCancel = (isPaidActive || isTrialing) && accessUsable && !isConflict && !entitlements.isLoading;
 
   const hasDiscardedRows = (usage.data?.discarded_count || 0) > 0 || (purchaseHistory.data?.discarded_count || 0) > 0;
@@ -233,7 +235,7 @@ export default function BillingScreen() {
 
   return (
     <Screen style={{ backgroundColor: colors.background }}>
-      <Stack.Screen options={{ title: "Billing & Subscriptions" }} />
+      <Stack.Screen options={{ title: "Billing & Credits" }} />
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -261,9 +263,9 @@ export default function BillingScreen() {
         ) : null}
 
         {hasDiscardedRows ? (
-          <View style={[styles.banner, { backgroundColor: "#fef3c7", borderColor: "#f59e0b" }]}>
-            <Text style={[styles.bannerTitle, { color: "#92400e" }]}>Notice</Text>
-            <Text style={[styles.bannerText, { color: "#78350f" }]}>
+          <View style={[styles.banner, { backgroundColor: colors.warning + "15", borderColor: colors.warning }]}>
+            <Text style={[styles.bannerTitle, { color: colors.warning }]}>Some activity is unavailable</Text>
+            <Text style={[styles.bannerText, { color: colors.text }]}>
               Some credit or purchase records could not be displayed.
             </Text>
           </View>
@@ -276,17 +278,21 @@ export default function BillingScreen() {
             <ActivityIndicator size="small" color={colors.primary} style={{ alignSelf: "flex-start" }} />
           ) : (
             <Text style={[styles.plan, { color: colors.text }]}>
-              {isConflict ? "Subscription Review Required" : PLAN_NAMES[planSlug] || planSlug}
+              {isPlanUnavailable
+                ? "Plan details unavailable"
+                : isConflict
+                  ? "Subscription Review Required"
+                  : PLAN_NAMES[planSlug] || planSlug}
             </Text>
           )}
 
           {isConflict ? (
             <Text style={[styles.conflictText, { color: colors.danger }]}>
-              Multiple active subscriptions were detected. Please contact support.
+              We found more than one active subscription on this account. New checkout and cancellation are unavailable while this is resolved. Please contact support.
             </Text>
           ) : null}
 
-          {!isConflict && !entitlements.isLoading ? (
+          {!isConflict && !isPlanUnavailable && !entitlements.isLoading ? (
             <View style={styles.statusRow}>
               <Text
                 style={[
@@ -304,19 +310,21 @@ export default function BillingScreen() {
               >
                 {isCancelingAtPeriodEnd
                   ? "Cancellation Scheduled"
+                  : isFree
+                  ? "Free"
                   : isTrialing
                   ? "Active Trial"
                   : isPaidActive
                   ? "Active Paid"
                   : isFullyExpired
-                  ? "Expired"
+                  ? "Ended"
                   : subStatus}
               </Text>
 
               {parsedDate.formatted ? (
                 <Text style={[styles.renewalDate, { color: colors.muted }]}>
                   {isCancelingAtPeriodEnd
-                    ? `Access ends ${parsedDate.formatted}`
+                    ? `Ends ${parsedDate.formatted}`
                     : isTrialing
                     ? `Trial ends ${parsedDate.formatted}`
                     : isPaidActive
@@ -328,14 +336,16 @@ export default function BillingScreen() {
           ) : null}
 
           <View style={styles.buttonRow}>
-            <Pressable
-              style={[styles.button, { backgroundColor: colors.primary }]}
-              onPress={() => router.push("/(tabs)/profile")}
-              accessibilityRole="button"
-              accessibilityLabel="View plans"
-            >
-              <Text style={styles.buttonText}>View plans</Text>
-            </Pressable>
+            {!isConflict ? (
+              <Pressable
+                style={[styles.button, { backgroundColor: colors.primary }]}
+                onPress={() => router.push("/pricing")}
+                accessibilityRole="button"
+                accessibilityLabel="View plans"
+              >
+                <Text style={[styles.buttonText, { color: colors.onPrimary }]}>View plans</Text>
+              </Pressable>
+            ) : null}
 
             {canCancel ? (
               <Pressable
@@ -346,7 +356,7 @@ export default function BillingScreen() {
                 {loadingCancel ? (
                   <ActivityIndicator size="small" color={colors.danger} />
                 ) : (
-                  <Text style={[styles.cancelButtonText, { color: colors.danger }]}>Cancel sub</Text>
+                  <Text style={[styles.cancelButtonText, { color: colors.danger }]}>Cancel plan</Text>
                 )}
               </Pressable>
             ) : null}
@@ -359,7 +369,7 @@ export default function BillingScreen() {
             style={[styles.buyCreditsButton, { backgroundColor: colors.primary }]}
             onPress={() => setBuyCreditsModalVisible(true)}
           >
-            <Text style={styles.buyCreditsButtonText}>Buy credits</Text>
+            <Text style={[styles.buyCreditsButtonText, { color: colors.onPrimary }]}>Buy credits</Text>
           </Pressable>
         </View>
 
@@ -398,7 +408,7 @@ export default function BillingScreen() {
               style={[styles.filterTab, activityFilter === f && { backgroundColor: colors.primary }]}
               onPress={() => setActivityFilter(f)}
             >
-              <Text style={[styles.filterTabText, { color: activityFilter === f ? "#ffffff" : colors.muted }]}>
+              <Text style={[styles.filterTabText, { color: activityFilter === f ? colors.onPrimary : colors.muted }]}>
                 {f.charAt(0).toUpperCase() + f.slice(1)}
               </Text>
             </Pressable>
@@ -520,7 +530,7 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: "row", gap: 10, marginTop: 8 },
   button: { borderRadius: 10, minHeight: 44, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
   buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: "#fff", fontWeight: "700" },
+  buttonText: { fontWeight: "700" },
   cancelButton: { borderWidth: 1, backgroundColor: "transparent" },
   cancelButtonText: { fontWeight: "700" },
   balanceGrid: { flexDirection: "row", gap: 8 },
@@ -530,10 +540,10 @@ const styles = StyleSheet.create({
   heading: { fontSize: 19, fontWeight: "800", marginTop: 8 },
   subheading: { fontSize: 13, fontWeight: "600" },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
-  buyCreditsButton: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, justifyContent: "center", alignItems: "center" },
-  buyCreditsButtonText: { color: "#ffffff", fontWeight: "700", fontSize: 13 },
+  buyCreditsButton: { borderRadius: 8, minHeight: 44, paddingHorizontal: 12, justifyContent: "center", alignItems: "center" },
+  buyCreditsButtonText: { fontWeight: "700", fontSize: 13 },
   filterContainer: { flexDirection: "row", borderWidth: 1, borderRadius: 12, padding: 4, gap: 4 },
-  filterTab: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  filterTab: { flex: 1, minHeight: 44, paddingHorizontal: 4, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   filterTabText: { fontSize: 13, fontWeight: "600" },
   row: { borderBottomWidth: 1, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 12 },
   rowText: { flex: 1, gap: 3 },
