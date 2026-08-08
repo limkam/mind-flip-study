@@ -116,9 +116,7 @@ export const CelebrationProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const triggerHaptic = useCallback((level: NormalizedCelebration["level"]) => {
     try {
-      if (level === "subtle") {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } else if (level === "medium") {
+      if (level === "medium") {
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } else if (level === "major") {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

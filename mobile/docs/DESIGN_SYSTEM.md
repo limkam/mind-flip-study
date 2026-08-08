@@ -163,3 +163,17 @@ The foundation requires physical runtime/device QA verification during later MFU
 - Difficulty choices use 44dp radio-style controls. Answer feedback combines semantic color with explicit Correct/Incorrect text.
 - Game results remain visible while saving; saving, confirmed, retryable failure, and uncertain response states remain distinct.
 - Theme changes are render-only and must not reset timers, scores, selections, or submission locks.
+
+---
+
+## 11. Celebration and Micro-Feedback
+
+- Routine interaction receives only restrained tactile or pressed-state feedback. Completion is acknowledged once; major animation is reserved for server-confirmed milestones.
+- Celebration presentation consumes trusted `celebration_events`. XP appears only from a confirmed `xp_awarded` result field; streaks and achievements are never inferred locally.
+- Achievement presentation is supported, but normal mobile completion responses do not currently supply achievement-unlock events. Daily Review likewise does not claim XP because mobile does not currently invoke its separate completion-reward endpoint.
+- One global provider owns aggregation, priority, navigation handoff, account isolation, and durable event-ID duplicate protection.
+- Subtle server-event notices do not add a second haptic on top of session completion. Medium and major events own one semantic haptic.
+- Major particles are short-lived, decorative, dependency-free, and omitted when Reduced Motion or celebration animations are disabled.
+- Celebration surfaces use semantic theme tokens and may rerender for appearance changes without replaying announcements, particles, or haptics.
+- Significant events provide text, iconography, screen-reader announcements, accessible dismissal, Dynamic Type, and no color-only meaning.
+- Offline completion may celebrate the completed visible session and disclose ratings saved for sync, but must not claim server-dependent XP, streaks, or achievements.

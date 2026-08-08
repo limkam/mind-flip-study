@@ -1,4 +1,6 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
 import { useTheme } from "../../hooks/useTheme";
@@ -41,9 +43,13 @@ export function StudySessionSummary({
   const easy = stats.easy ?? 0;
   const ratingCounts = stats.ratingCounts;
   const queuedOfflineCount = stats.queuedOfflineCount ?? 0;
+  useEffect(() => {
+    const syncNote = queuedOfflineCount > 0 ? ` ${queuedOfflineCount} ratings saved for sync.` : "";
+    AccessibilityInfo.announceForAccessibility(`Session complete. ${total} cards reviewed.${syncNote}`);
+  }, [queuedOfflineCount, total]);
   return (
     <View style={styles.wrap}>
-      <Text style={styles.emoji}>{mode === "games" ? "⚡" : "🎯"}</Text>
+      <View style={[styles.completionIcon, { backgroundColor: colors.primarySoft }]} accessible={false}><Ionicons name={mode === "games" ? "flash" : "checkmark-circle"} size={38} color={colors.primary} /></View>
       <Text style={[styles.title, { color: colors.text }]}>
         {mode === "games" ? "Game session complete" : "Session complete"}
       </Text>
@@ -148,7 +154,7 @@ function StatCard({
 
 const styles = StyleSheet.create({
   wrap: { padding: TOKENS.spacing.xl, alignItems: "center", width: "100%", maxWidth: 560, alignSelf: "center" },
-  emoji: { fontSize: 48, marginBottom: 12 },
+  completionIcon: { width: 72, height: 72, borderRadius: 36, alignItems: "center", justifyContent: "center", marginBottom: TOKENS.spacing.md },
   title: { fontSize: 22, fontWeight: "800", textAlign: "center" },
   sub: { fontSize: 14, marginTop: 6, marginBottom: 20, textAlign: "center", lineHeight: 20 },
   grid: {

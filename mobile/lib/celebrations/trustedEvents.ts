@@ -17,6 +17,11 @@ export function parseTrustedCelebrationEvents(response: unknown): ParsedCelebrat
   if (!Array.isArray(rawEvents)) return [];
 
   const parsed: ParsedCelebrationInput[] = [];
+  const extras = (response as Record<string, unknown>).extras;
+  const rawXp = extras && typeof extras === "object" && !Array.isArray(extras)
+    ? (extras as Record<string, unknown>).xp_awarded
+    : undefined;
+  const xpAwarded = typeof rawXp === "number" && Number.isFinite(rawXp) && rawXp > 0 ? Math.trunc(rawXp) : undefined;
 
   for (const item of rawEvents) {
     if (!item || typeof item !== "object") continue;
@@ -46,7 +51,7 @@ export function parseTrustedCelebrationEvents(response: unknown): ParsedCelebrat
       entityId,
       title,
       message,
-      metadata,
+      metadata: xpAwarded ? { ...metadata, xpAwarded } : metadata,
     });
   }
 

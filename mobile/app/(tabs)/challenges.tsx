@@ -23,7 +23,7 @@ import { Screen } from "../../components/Screen";
 import { api } from "../../api/client";
 import { fetchFlashcardSetsList } from "../../lib/flashcardSets";
 import { useTheme } from "../../hooks/useTheme";
-import { hapticImpact } from "../../lib/haptics";
+import { hapticImpact, hapticSuccess } from "../../lib/haptics";
 import { useAuthStore } from "../../store/authStore";
 import type { FlashcardOut, FlashcardSetOut, QuizChallengeOut } from "../../types/api";
 import type { GameRoundResult } from "../../components/games/types";
@@ -68,6 +68,11 @@ function ChallengesContent({ onBack }: { onBack: () => void }) {
   const [sendQuiz, setSendQuiz] = useState<SendQuizState | null>(null);
   const [activeChallenge, setActiveChallenge] = useState<ActiveChallengeState | null>(null);
   const [loadingQuiz, setLoadingQuiz] = useState(false);
+  const [completionNotice, setCompletionNotice] = useState(false);
+
+  useEffect(() => {
+    setCompletionNotice(false);
+  }, [user?.id]);
 
   const { data: challenges = [], isLoading } = useQuery({
     queryKey: ["quiz-challenges"],
@@ -172,6 +177,8 @@ function ChallengesContent({ onBack }: { onBack: () => void }) {
     },
     onSuccess: async () => {
       setActiveChallenge(null);
+      setCompletionNotice(true);
+      void hapticSuccess();
       await queryClient.invalidateQueries({ queryKey: ["quiz-challenges"] });
     },
     onError: () => Alert.alert("Could not submit score", "Please try again."),
@@ -257,6 +264,14 @@ function ChallengesContent({ onBack }: { onBack: () => void }) {
           <Text style={styles.primaryBtnText}>Send</Text>
         </Pressable>
       </View>
+
+      {completionNotice ? (
+        <View accessibilityRole="alert" style={[styles.completionNotice, { backgroundColor: colors.primarySoft, borderColor: colors.primary }]}>
+          <Text style={[styles.completionIcon, { color: colors.primary }]}>✓</Text>
+          <View style={{ flex: 1 }}><Text style={[styles.completionTitle, { color: colors.text }]}>Challenge complete</Text><Text style={[styles.completionBody, { color: colors.textSecondary }]}>Your score was submitted.</Text></View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Dismiss challenge completion" hitSlop={8} onPress={() => setCompletionNotice(false)}><Text style={[styles.completionClose, { color: colors.textMuted }]}>×</Text></Pressable>
+        </View>
+      ) : null}
 
       {isLoading || loadingQuiz ? (
         <ActivityIndicator style={{ marginTop: 32 }} color={colors.primary} />
@@ -457,6 +472,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   primaryBtnText: { color: "#fff", fontWeight: "700" },
+  completionNotice: { marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderRadius: 14, padding: 12, minHeight: 64, flexDirection: "row", alignItems: "center", gap: 12 },
+  completionIcon: { fontSize: 24, fontWeight: "800" }, completionTitle: { fontSize: 15, fontWeight: "700" }, completionBody: { fontSize: 13, marginTop: 2 }, completionClose: { fontSize: 24, paddingHorizontal: 8 },
   list: { paddingHorizontal: 16, paddingBottom: 32 },
   section: { marginBottom: 16 },
   sectionTitle: { fontSize: 15, fontWeight: "700", marginBottom: 8 },
