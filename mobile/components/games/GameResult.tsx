@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
 import { useFinishOnce } from "../../lib/gameLifecycle";
+import { TOKENS } from "../../theme/tokens";
 
 type Props = {
   emoji: string;
@@ -18,7 +19,7 @@ export function GameResult({ emoji, title, subtitle, primaryLabel = "Continue", 
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Text style={styles.emoji}>{emoji}</Text>
+      <View style={[styles.icon, { backgroundColor: colors.primarySoft }]}><Text style={styles.emoji}>{emoji}</Text></View>
       <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
       <Text style={[styles.sub, { color: colors.muted }]}>{subtitle}</Text>
       <Pressable
@@ -28,7 +29,7 @@ export function GameResult({ emoji, title, subtitle, primaryLabel = "Continue", 
           finish();
         }}
       >
-        <Text style={styles.btnText}>{primaryLabel}</Text>
+        <Text style={[styles.btnText, { color: colors.onPrimary }]}>{primaryLabel}</Text>
       </Pressable>
     </View>
   );
@@ -36,22 +37,23 @@ export function GameResult({ emoji, title, subtitle, primaryLabel = "Continue", 
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 20,
+    borderRadius: TOKENS.radii.xl,
     borderWidth: 1,
-    padding: 28,
+    padding: TOKENS.spacing.xl,
     alignItems: "center",
     marginTop: 12,
   },
-  emoji: { fontSize: 48, marginBottom: 8 },
-  title: { fontSize: 22, fontWeight: "800", textAlign: "center" },
-  sub: { fontSize: 15, textAlign: "center", marginTop: 8, marginBottom: 20, lineHeight: 22 },
+  icon: { width: 72, height: 72, borderRadius: 36, alignItems: "center", justifyContent: "center", marginBottom: TOKENS.spacing.lg },
+  emoji: { fontSize: 38 },
+  title: { ...TOKENS.typography.screenTitle, textAlign: "center" },
+  sub: { ...TOKENS.typography.body, textAlign: "center", marginTop: TOKENS.spacing.sm, marginBottom: TOKENS.spacing.xl },
   btn: {
-    minHeight: 44,
+    minHeight: 48,
     minWidth: 160,
     borderRadius: 12,
     paddingHorizontal: 24,
     alignItems: "center",
     justifyContent: "center",
   },
-  btnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  btnText: { ...TOKENS.typography.buttonLabel },
 });

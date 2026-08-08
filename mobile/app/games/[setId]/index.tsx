@@ -5,7 +5,7 @@ import { ScrollView } from "react-native";
 
 import { EmptyState } from "../../../components/EmptyState";
 import { GameSelector } from "../../../components/games";
-import { Screen } from "../../../components/Screen";
+import { GameShell } from "../../../components/games/GameShell";
 import { StudySkeleton } from "../../../components/skeletons/StudySkeleton";
 import { api } from "../../../api/client";
 import { cacheStudySet, getCachedStudySet } from "../../../lib/offlineStudy";
@@ -57,8 +57,8 @@ export default function GameHubScreen() {
   };
 
   return (
-    <Screen>
-      <Stack.Screen options={{ title: `${title} · Games` }} />
+    <GameShell title="Games" subtitle={title} onBack={() => router.back()}>
+      <Stack.Screen options={{ title: `${title} · Games`, headerShown: false }} />
       {isLoading ? (
         <StudySkeleton />
       ) : isError ? (
@@ -78,10 +78,10 @@ export default function GameHubScreen() {
           onAction={() => router.back()}
         />
       ) : (
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }} showsVerticalScrollIndicator>
+        <ScrollView contentContainerStyle={{ paddingBottom: 32 }} showsVerticalScrollIndicator={false}>
           <GameSelector onSelect={openGame} maxGames={gameLimit} />
         </ScrollView>
       )}
-    </Screen>
+    </GameShell>
   );
 }

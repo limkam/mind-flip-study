@@ -8,6 +8,6 @@
 | **MFUX-004** | Navigation Shell & Bottom Tab Redesign | **Complete** |
 | **MFUX-005** | Core Learning Loop & FlashCard Redesign | **Complete** |
 | **MFUX-006** | Home (Today) & Library Redesign | **Complete** |
-| **MFUX-007** | Games Engine UI & Shell Polish | *Not started* |
-| **MFUX-008** | Celebration & Micro-Feedback System | *Planned* |
+| **MFUX-007** | Games Engine UI & Shell Polish | **Complete** |
+| **MFUX-008** | Celebration & Micro-Feedback System | *Not started* |
 | **MFUX-009** | Profile, Settings, Billing & Scorecards | *Planned* |

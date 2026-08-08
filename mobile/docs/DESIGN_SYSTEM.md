@@ -152,3 +152,14 @@ The foundation requires physical runtime/device QA verification during later MFU
 - When server-wide search is unavailable, Library searches the visible collection and offers an explicit “Search more books” action until every book page has been checked.
 - Creation uses one bottom-anchored modal from Library's 44dp-or-larger header action, its empty state, and Home's first-run action.
 - Cached list content remains visible during refresh; background failure uses a non-blocking notice.
+
+---
+
+## 10. Game Experience Conventions
+
+- Game routes use a focused safe-area shell with close, concise identity, bounded content width, and no bottom tabs.
+- Leaving an active run requires confirmation because game results persist only after completion.
+- Selector cards explain the learning interaction; unavailable modes use product language and retain authoritative entitlement ordering.
+- Difficulty choices use 44dp radio-style controls. Answer feedback combines semantic color with explicit Correct/Incorrect text.
+- Game results remain visible while saving; saving, confirmed, retryable failure, and uncertain response states remain distinct.
+- Theme changes are render-only and must not reset timers, scores, selections, or submission locks.

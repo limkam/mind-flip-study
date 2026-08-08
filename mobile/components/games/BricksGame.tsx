@@ -117,7 +117,7 @@ export function BricksGame({ cards, onComplete, generationSeed = 0 }: GameProps)
       />
       {showResult ? (
         <Pressable style={[styles.next, { backgroundColor: colors.primary }]} onPress={() => { void hapticImpact("light"); next(); }}>
-          <Text style={styles.nextText}>Next</Text>
+          <Text style={[styles.nextText, { color: colors.onPrimary }]}>Next</Text>
         </Pressable>
       ) : null}
     </View>
@@ -139,5 +139,5 @@ const styles = StyleSheet.create({
   gap: { width: "11.5%", aspectRatio: 2.2 },
   qCard: { borderRadius: 12, borderWidth: 1, padding: 16 },
   next: { marginTop: 12, minHeight: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  nextText: { color: "#fff", fontWeight: "700" },
+  nextText: { fontWeight: "700" },
 });

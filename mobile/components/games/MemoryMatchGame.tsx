@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from "react-native-reanimated";
 
 import { formatMmSs, seededShuffle } from "../../lib/gameUtils";
 import { hapticImpact, hapticSuccess, hapticWarning } from "../../lib/haptics";
@@ -154,9 +154,11 @@ function MemoryTile({
   onPress: () => void;
 }) {
   const rot = useSharedValue(0);
+  const reduceMotion = useReducedMotion();
   useEffect(() => {
-    rot.value = withSpring(show ? 180 : 0);
-  }, [show, rot]);
+    const nextRotation = show ? 180 : 0;
+    rot.value = reduceMotion ? nextRotation : withSpring(nextRotation);
+  }, [show, rot, reduceMotion]);
   const frontStyle = useAnimatedStyle(() => ({
     transform: [{ rotateY: `${rot.value}deg` }],
     backfaceVisibility: "hidden" as const,
@@ -167,9 +169,16 @@ function MemoryTile({
   }));
 
   return (
-    <Pressable style={styles.tileWrap} onPress={onPress} disabled={matched}>
+    <Pressable
+      style={styles.tileWrap}
+      onPress={onPress}
+      disabled={matched}
+      accessibilityRole="button"
+      accessibilityState={{ selected: show, disabled: matched }}
+      accessibilityLabel={matched ? `Matched ${tile.type}, ${tile.text}` : show ? `${tile.type}, ${tile.text}` : `${tile.type} card, hidden`}
+    >
       <Animated.View style={[styles.tile, frontStyle, { backgroundColor: colors.primary }]}>
-        <Text style={styles.tileEmoji}>?</Text>
+        <Text style={[styles.tileEmoji, { color: colors.onPrimary }]}>?</Text>
       </Animated.View>
       <Animated.View
         style={[
@@ -201,6 +210,6 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   tileBack: { borderWidth: 1 },
-  tileEmoji: { color: "#fff", fontSize: 22, fontWeight: "800" },
+  tileEmoji: { fontSize: 22, fontWeight: "800" },
   tileText: { fontSize: 11, textAlign: "center", fontWeight: "600" },
 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { buildMcq, type QuizDifficultyMode } from "../../lib/gameUtils";
 import { hapticError, hapticImpact, hapticSuccess } from "../../lib/haptics";
@@ -24,6 +24,7 @@ export function LightningRoundGame({ cards, onComplete, generationSeed = 0 }: Ga
   const [timeLeft, setTimeLeft] = useState(DURATION);
   const [done, setDone] = useState(false);
   const [locked, setLocked] = useState(false);
+  const reduceMotion = useReducedMotion();
   const barWidth = useSharedValue(100);
 
   useEffect(() => {
@@ -36,8 +37,9 @@ export function LightningRoundGame({ cards, onComplete, generationSeed = 0 }: Ga
   }, [mode]);
 
   useEffect(() => {
-    barWidth.value = withTiming((timeLeft / DURATION) * 100, { duration: 300 });
-  }, [timeLeft, barWidth]);
+    const nextWidth = (timeLeft / DURATION) * 100;
+    barWidth.value = reduceMotion ? nextWidth : withTiming(nextWidth, { duration: 300 });
+  }, [timeLeft, barWidth, reduceMotion]);
 
   useEffect(() => {
     if (done) return;

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withSequence,
   withSpring,
@@ -27,7 +28,8 @@ const ENEMIES = [
 
 function HpBar({ hp, max, fill }: { hp: number; max: number; fill: string }) {
   const width = useSharedValue((hp / max) * 100);
-  width.value = withSpring((hp / max) * 100);
+  const reduceMotion = useReducedMotion();
+  width.value = reduceMotion ? (hp / max) * 100 : withSpring((hp / max) * 100);
   const style = useAnimatedStyle(() => ({ width: `${width.value}%` }));
   return (
     <View style={styles.hpTrack}>
@@ -49,12 +51,14 @@ export function BattleRPGGame({ cards, onComplete, generationSeed = 0 }: GamePro
   const [score, setScore] = useState(0);
   const [winner, setWinner] = useState<"player" | "enemy" | null>(null);
   const shake = useSharedValue(0);
+  const reduceMotion = useReducedMotion();
 
   const shakeStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: shake.value }],
   }));
 
   const triggerShake = () => {
+    if (reduceMotion) return;
     shake.value = withSequence(
       withTiming(-8, { duration: 50 }),
       withTiming(8, { duration: 50 }),
@@ -146,7 +150,7 @@ export function BattleRPGGame({ cards, onComplete, generationSeed = 0 }: GamePro
       />
       {showResult ? (
         <Pressable style={[styles.next, { backgroundColor: colors.primary }]} onPress={() => { void hapticImpact("light"); next(); }}>
-          <Text style={styles.nextText}>Continue</Text>
+          <Text style={[styles.nextText, { color: colors.onPrimary }]}>Continue</Text>
         </Pressable>
       ) : null}
     </View>
@@ -161,5 +165,5 @@ const styles = StyleSheet.create({
   emoji: { fontSize: 40, marginTop: 4 },
   qCard: { borderRadius: 12, borderWidth: 1, padding: 16 },
   next: { marginTop: 12, minHeight: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  nextText: { color: "#fff", fontWeight: "700" },
+  nextText: { fontWeight: "700" },
 });

@@ -136,7 +136,7 @@ export function HangmanGame({ cards, onComplete, generationSeed = 0 }: GameProps
       <Text style={[styles.word, { color: colors.text }]}>{display}</Text>
       {roundResult ? (
         <Pressable style={[styles.next, { backgroundColor: colors.primary }]} onPress={nextRound}>
-          <Text style={styles.nextText}>{idx + 1 >= totalRounds ? "See results" : "Next round"}</Text>
+          <Text style={[styles.nextText, { color: colors.onPrimary }]}>{idx + 1 >= totalRounds ? "See results" : "Next round"}</Text>
         </Pressable>
       ) : null}
       <FlatList
@@ -150,6 +150,9 @@ export function HangmanGame({ cards, onComplete, generationSeed = 0 }: GameProps
           const used = guessed.has(item);
           return (
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Guess ${item}${used ? ", already used" : ""}`}
+              accessibilityState={{ disabled: used || !!roundResult }}
               style={[
                 styles.key,
                 { borderColor: colors.border, backgroundColor: used ? colors.border : colors.surface },
@@ -179,7 +182,7 @@ const styles = StyleSheet.create({
   hint: { borderRadius: 12, padding: 12, marginBottom: 12 },
   word: { textAlign: "center", fontSize: 22, fontWeight: "800", letterSpacing: 4, marginVertical: 8 },
   next: { minHeight: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", marginBottom: 8 },
-  nextText: { color: "#fff", fontWeight: "700" },
+  nextText: { fontWeight: "700" },
   row: { gap: 6, justifyContent: "center" },
   key: {
     minWidth: 44,

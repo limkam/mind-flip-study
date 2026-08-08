@@ -192,12 +192,12 @@ export function WordScrambleGame({ cards, onComplete, generationSeed = 0 }: Game
             onSubmitEditing={submit}
           />
           <Pressable style={[styles.btn, { backgroundColor: colors.primary }]} onPress={() => { void hapticImpact("light"); submit(); }}>
-            <Text style={styles.btnText}>Submit</Text>
+            <Text style={[styles.btnText, { color: colors.onPrimary }]}>Submit</Text>
           </Pressable>
         </>
       ) : (
         <Pressable style={[styles.btn, { backgroundColor: colors.primary }]} onPress={next}>
-          <Text style={styles.btnText}>{idx + 1 >= rounds.length ? "Results" : "Next"}</Text>
+          <Text style={[styles.btnText, { color: colors.onPrimary }]}>{idx + 1 >= rounds.length ? "Results" : "Next"}</Text>
         </Pressable>
       )}
     </View>
@@ -217,5 +217,5 @@ const styles = StyleSheet.create({
   scramble: { fontSize: 28, fontWeight: "800", textAlign: "center", letterSpacing: 4, marginVertical: 12 },
   input: { borderWidth: 1, borderRadius: 12, minHeight: 44, paddingHorizontal: 14, fontSize: 16, marginBottom: 12 },
   btn: { minHeight: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  btnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  btnText: { fontWeight: "700", fontSize: 16 },
 });

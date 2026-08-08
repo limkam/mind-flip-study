@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from "react-native-reanimated";
 
 import { useGameMcq } from "../../hooks/useGameMcq";
 import { hapticError, hapticImpact, hapticSuccess, hapticWarning } from "../../lib/haptics";
@@ -19,6 +19,7 @@ export function TugOfWarGame({ cards, onComplete, generationSeed = 0 }: GameProp
   const [answeredCount, setAnsweredCount] = useState(0);
   const [ropePos, setRopePos] = useState(50);
   const rope = useSharedValue(50);
+  const reduceMotion = useReducedMotion();
   const [selected, setSelected] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [timeLeft, setTimeLeft] = useState(TIME_PER_Q);
@@ -34,10 +35,10 @@ export function TugOfWarGame({ cards, onComplete, generationSeed = 0 }: GameProp
   }));
 
   useEffect(() => {
-    rope.value = withSpring(ropePos);
+    rope.value = reduceMotion ? ropePos : withSpring(ropePos);
     if (ropePos <= 5) setWinner("computer");
     else if (ropePos >= 95) setWinner("player");
-  }, [ropePos, rope]);
+  }, [ropePos, rope, reduceMotion]);
 
   useEffect(() => {
     if (showResult || winner) return;
@@ -119,7 +120,7 @@ export function TugOfWarGame({ cards, onComplete, generationSeed = 0 }: GameProp
         <Text style={styles.side}>🤖</Text>
         <View style={[styles.ropeTrack, { backgroundColor: colors.border }]}>
           <Animated.View style={[styles.ropeFill, ropeStyle]} />
-          <Animated.View style={[styles.knot, knotStyle]} />
+          <Animated.View style={[styles.knot, knotStyle, { backgroundColor: colors.surfaceElevated, borderColor: colors.primary }]} />
         </View>
         <Text style={styles.side}>🧑</Text>
       </View>
@@ -135,7 +136,7 @@ export function TugOfWarGame({ cards, onComplete, generationSeed = 0 }: GameProp
       />
       {showResult ? (
         <Pressable style={[styles.next, { backgroundColor: colors.primary }]} onPress={() => { void hapticImpact("light"); next(); }}>
-          <Text style={styles.nextText}>{idx + 1 >= questions.length ? "See results" : "Next"}</Text>
+          <Text style={[styles.nextText, { color: colors.onPrimary }]}>{idx + 1 >= questions.length ? "See results" : "Next"}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -154,11 +155,9 @@ const styles = StyleSheet.create({
     height: 20,
     marginLeft: -10,
     borderRadius: 10,
-    backgroundColor: "#fff",
     borderWidth: 2,
-    borderColor: "#6366f1",
   },
   qCard: { borderRadius: 12, borderWidth: 1, padding: 16, marginBottom: 4 },
   next: { marginTop: 12, minHeight: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  nextText: { color: "#fff", fontWeight: "700" },
+  nextText: { fontWeight: "700" },
 });

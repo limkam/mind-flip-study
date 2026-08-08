@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { difficultyLabel, QUIZ_DIFFICULTY_MODES, type QuizDifficultyMode } from "../../lib/gameUtils";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
+import { TOKENS } from "../../theme/tokens";
 
 type Props = {
   value: QuizDifficultyMode;
@@ -14,21 +15,23 @@ export function DifficultyModePicker({ value, onChange, disabled }: Props) {
   const { colors } = useTheme();
 
   return (
-    <View style={styles.row}>
+    <View accessibilityRole="radiogroup"><Text style={[styles.label, { color: colors.textSecondary }]}>Difficulty</Text><View style={styles.row}>
       {QUIZ_DIFFICULTY_MODES.map((mode) => {
         const active = value === mode;
         return (
           <Pressable
             key={mode}
             disabled={disabled}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: active, disabled: !!disabled }}
             onPress={() => {
               void hapticImpact("light");
               onChange(mode);
             }}
             style={[
               styles.chip,
-              { borderColor: colors.border, backgroundColor: colors.background },
-              active && { borderColor: colors.primary, backgroundColor: `${colors.primary}18` },
+              { borderColor: colors.border, backgroundColor: colors.surface },
+              active && { borderColor: colors.primary, backgroundColor: colors.primarySoft },
               disabled && { opacity: 0.5 },
             ]}
           >
@@ -37,20 +40,21 @@ export function DifficultyModePicker({ value, onChange, disabled }: Props) {
             </Text>
           </Pressable>
         );
-      })}
+      })}</View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  label: { ...TOKENS.typography.label, marginBottom: TOKENS.spacing.sm },
+  row: { flexDirection: "row", flexWrap: "wrap", gap: TOKENS.spacing.sm, marginBottom: TOKENS.spacing.lg },
   chip: {
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    minHeight: 36,
+    minHeight: 44,
     justifyContent: "center",
   },
-  chipText: { fontSize: 12, fontWeight: "700" },
+  chipText: { ...TOKENS.typography.label },
 });

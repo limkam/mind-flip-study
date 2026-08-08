@@ -113,7 +113,7 @@ export function QuizGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
       />
       {showResult ? (
         <Pressable style={[styles.next, { backgroundColor: colors.primary }]} onPress={() => { void hapticImpact("light"); next(); }}>
-          <Text style={styles.nextText}>{idx + 1 >= questions.length ? "Finish" : "Next"}</Text>
+          <Text style={[styles.nextText, { color: colors.onPrimary }]}>{idx + 1 >= questions.length ? "Finish" : "Next"}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -126,5 +126,5 @@ const styles = StyleSheet.create({
   chapter: { alignSelf: "flex-start", fontSize: 11, fontWeight: "600", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginBottom: 8 },
   q: { fontSize: 18, fontWeight: "600", textAlign: "center", lineHeight: 26 },
   next: { marginTop: 16, minHeight: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  nextText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  nextText: { fontWeight: "700", fontSize: 16 },
 });

@@ -154,7 +154,9 @@ export default function GamePlayScreen() {
     if (submission.status !== "submitted") {
       submissionInFlight.current = false;
       setSaveError({
-        message: submission.reason,
+        message: submission.status === "response_contract_error"
+          ? "We couldn't confirm the saved result. Check your results before playing again."
+          : "We couldn't save this result. Your score remains visible here.",
         retryable: submission.status === "rejected" && submission.retryable,
       });
 
@@ -220,6 +222,7 @@ export default function GamePlayScreen() {
       title={`${meta.emoji} ${meta.title}`}
       subtitle={data?.title}
       onBack={() => router.replace(`/games/${setId}`)}
+      confirmExit={!!data && cards.length >= MIN_GAME_CARDS && !pendingResult && !isSaving && !saveError && !navigationError}
     >
       <Stack.Screen options={{ title: meta.title, headerShown: false }} />
       {isLoading || entitlementsLoading ? (
@@ -227,8 +230,8 @@ export default function GamePlayScreen() {
       ) : isLocked ? (
         <EmptyState
           icon="🔒"
-          title="Game locked"
-          message={`Your current plan includes ${gameLimit} of 8 games. Upgrade to unlock this game.`}
+          title="Available with an upgraded plan"
+          message="Choose another game, or review your plan to unlock more game modes."
           actionLabel="View games"
           onAction={() => router.replace(`/games/${setId}`)}
         />
