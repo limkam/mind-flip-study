@@ -35,7 +35,7 @@ export function useLogout() {
   };
 
   const confirmLogout = () => {
-    Alert.alert("Log out?", "End your session on this device.", [
+    Alert.alert("Log out?", "Sign out of MindFlip on this device.", [
       { text: "Cancel", style: "cancel" },
       { text: "Log out", style: "destructive", onPress: () => void performLogout() },
     ]);

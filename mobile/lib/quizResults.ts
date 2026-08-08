@@ -90,7 +90,7 @@ export async function submitQuizResult(
       // 2xx response received; persistence may have succeeded on backend. No save-error telemetry.
       return {
         status: "response_contract_error",
-        reason: "The server returned an invalid quiz result.",
+        reason: "MindFlip couldn't confirm your quiz result. Please try again.",
         requestDispatched: true,
       };
     }

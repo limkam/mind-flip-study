@@ -244,7 +244,7 @@ export default function GamePlayScreen() {
         <EmptyState
           icon="✅"
           title="Result saved"
-          message="Your score was saved, but the result page could not be opened."
+          message="Your score was saved, but the results couldn't be opened."
           actionLabel="Open saved result"
           onAction={() => {
             const resolvedSetId = Array.isArray(setId) ? setId[0] : setId;

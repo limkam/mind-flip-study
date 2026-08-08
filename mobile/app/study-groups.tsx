@@ -72,7 +72,7 @@ function parseSearchResults(value: unknown): StudyGroup[] {
 
 function parseJoinedGroup(value: unknown): StudyGroup {
   if (!isStudyGroup(value) || value.is_member !== true) {
-    throw new Error("The server accepted the join, but returned an invalid group.");
+    throw new Error("MindFlip couldn't open the group you joined. Please try again.");
   }
   return value;
 }
@@ -306,7 +306,7 @@ export default function StudyGroupsScreen() {
       {savedNavigationError && savedGroup ? (
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Group created</Text>
-          <Text style={{ color: colors.muted }}>Your group was saved, but its page could not be opened.</Text>
+          <Text style={{ color: colors.muted }}>Your group was saved, but it couldn't be opened.</Text>
           <Pressable style={[styles.btn, { backgroundColor: colors.primary }]} onPress={() => {
             try {
               router.push(`/study-groups/${savedGroup.id}`);
@@ -355,7 +355,7 @@ export default function StudyGroupsScreen() {
         </View>
 
         {bootstrapStatus !== "authenticated" || !userId ? (
-          <Text style={{ color: colors.muted }}>Waiting for your secure session before searching.</Text>
+          <Text style={{ color: colors.muted }}>Finishing sign-in before searching.</Text>
         ) : normalizedSearch.length === 0 ? (
           <Text style={{ color: colors.muted }}>Enter at least 2 characters to find public groups.</Text>
         ) : normalizedSearch.length < SEARCH_MIN_LENGTH ? (
@@ -414,7 +414,7 @@ export default function StudyGroupsScreen() {
                   <Text style={[styles.inviteHelp, { color: colors.muted }]}>Ask the group owner for its invite code, then enter it above.</Text>
                 ) : null}
                 {searchNavigationError === group.id ? (
-                  <Text accessibilityRole="alert" style={{ color: colors.danger }}>The group page could not be opened. Try again.</Text>
+                  <Text accessibilityRole="alert" style={{ color: colors.danger }}>This group couldn't be opened. Try again.</Text>
                 ) : null}
               </View>
             ))}

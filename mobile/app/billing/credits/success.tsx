@@ -57,7 +57,7 @@ export default function CreditSuccessScreen() {
       if (!rawSessionId || typeof rawSessionId !== "string" || !rawSessionId.startsWith("cs_")) {
         if (active) {
           setStep("error");
-          setErrorMessage("Invalid checkout session link.");
+          setErrorMessage("This checkout link is invalid or incomplete.");
         }
         return;
       }
@@ -66,7 +66,7 @@ export default function CreditSuccessScreen() {
       if (!currentUser?.id) {
         if (active) {
           setStep("error");
-          setErrorMessage("User session expired during verification.");
+          setErrorMessage("Your sign-in expired while confirming this purchase. Please sign in again.");
         }
         return;
       }
@@ -84,7 +84,7 @@ export default function CreditSuccessScreen() {
           if (res.checkout_kind !== "credit_purchase") {
             if (active) {
               setStep("error");
-              setErrorMessage("Mismatched checkout type for credit verification.");
+              setErrorMessage("This purchase couldn't be applied to credits. Please return to Billing.");
             }
             return;
           }
@@ -135,14 +135,14 @@ export default function CreditSuccessScreen() {
           } else if (res.checkout_status === "expired" || res.purchase_state === "not_confirmed") {
             if (active) {
               setStep("error");
-              setErrorMessage("Checkout session was expired or not confirmed.");
+              setErrorMessage("This checkout expired or wasn't completed.");
             }
             return;
           }
         } catch (err: unknown) {
           if (attempt === maxAttempts && active) {
             setStep("error");
-            setErrorMessage(err instanceof Error ? err.message : "Verification failed.");
+            setErrorMessage("We couldn't confirm this credit purchase. Please try again.");
             return;
           }
         }
@@ -195,13 +195,13 @@ export default function CreditSuccessScreen() {
                 style={[styles.button, { backgroundColor: colors.primary }]}
                 onPress={() => router.replace("/billing")}
               >
-                <Text style={styles.buttonText}>Open Billing & Usage</Text>
+                <Text style={styles.buttonText}>Open Billing & Credits</Text>
               </Pressable>
               <Pressable
                 style={[styles.buttonSecondary, { borderColor: colors.border }]}
                 onPress={() => router.replace("/")}
               >
-                <Text style={[styles.buttonSecondaryText, { color: colors.text }]}>Return to Dashboard</Text>
+                <Text style={[styles.buttonSecondaryText, { color: colors.text }]}>Return Home</Text>
               </Pressable>
             </View>
           </View>
@@ -231,7 +231,7 @@ export default function CreditSuccessScreen() {
                 style={[styles.buttonSecondary, { borderColor: colors.border }]}
                 onPress={() => router.replace("/billing")}
               >
-                <Text style={[styles.buttonSecondaryText, { color: colors.text }]}>Open Billing & Usage</Text>
+                <Text style={[styles.buttonSecondaryText, { color: colors.text }]}>Open Billing & Credits</Text>
               </Pressable>
             </View>
           </View>
@@ -250,13 +250,13 @@ export default function CreditSuccessScreen() {
                 style={[styles.button, { backgroundColor: colors.primary }]}
                 onPress={() => router.replace("/billing")}
               >
-                <Text style={styles.buttonText}>Open Billing & Usage</Text>
+                <Text style={styles.buttonText}>Open Billing & Credits</Text>
               </Pressable>
               <Pressable
                 style={[styles.buttonSecondary, { borderColor: colors.border }]}
                 onPress={() => router.replace("/")}
               >
-                <Text style={[styles.buttonSecondaryText, { color: colors.text }]}>Return to Dashboard</Text>
+                <Text style={[styles.buttonSecondaryText, { color: colors.text }]}>Return Home</Text>
               </Pressable>
             </View>
           </View>
@@ -275,13 +275,13 @@ export default function CreditSuccessScreen() {
                 style={[styles.button, { backgroundColor: colors.primary }]}
                 onPress={() => router.replace("/billing")}
               >
-                <Text style={styles.buttonText}>Open Billing & Usage</Text>
+                <Text style={styles.buttonText}>Open Billing & Credits</Text>
               </Pressable>
               <Pressable
                 style={[styles.buttonSecondary, { borderColor: colors.border }]}
                 onPress={() => router.replace("/")}
               >
-                <Text style={[styles.buttonSecondaryText, { color: colors.text }]}>Return to Dashboard</Text>
+                <Text style={[styles.buttonSecondaryText, { color: colors.text }]}>Return Home</Text>
               </Pressable>
             </View>
           </View>

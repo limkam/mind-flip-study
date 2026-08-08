@@ -21,9 +21,9 @@ function isUserResponse(value: unknown): value is User {
 
 function retryableMessage(status?: number) {
   if (status && status >= 500) {
-    return "The server is temporarily unavailable. Your session is preserved; please try again.";
+    return "MindFlip is temporarily unavailable. You're still signed in; please try again.";
   }
-  return "We couldn't verify your session. Check your connection and try again.";
+  return "We couldn't restore your sign-in. Check your connection and try again.";
 }
 
 async function runBootstrapSessionValidation(): Promise<void> {
@@ -70,7 +70,7 @@ async function runBootstrapSessionValidation(): Promise<void> {
     }
 
     if (!isUserResponse(userData)) {
-      useAuthStore.getState().setBootstrapError("The server returned an invalid account response. Please try again.");
+      useAuthStore.getState().setBootstrapError("We couldn't load your account. Please try again.");
       return;
     }
 

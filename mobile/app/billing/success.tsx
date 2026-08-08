@@ -65,14 +65,14 @@ export default function BillingSuccessScreen() {
   const runFullVerification = useCallback(async () => {
     if (!sessionId) {
       setStatusState("error");
-      setErrorMessage("Invalid or missing checkout session ID.");
+      setErrorMessage("This checkout link is invalid or incomplete.");
       return;
     }
 
     const currentUserId = useAuthStore.getState().user?.id;
     if (!currentUserId) {
       setStatusState("error");
-      setErrorMessage("Authentication required to verify checkout session.");
+      setErrorMessage("Sign in again to confirm your purchase.");
       return;
     }
 
@@ -95,7 +95,7 @@ export default function BillingSuccessScreen() {
       // Identity change during network call
       if (useAuthStore.getState().user?.id !== currentUserId) {
         setStatusState("error");
-        setErrorMessage("Your account changed during verification. Please try again.");
+        setErrorMessage("Your account changed while confirming this purchase. Please try again.");
         return;
       }
 
@@ -103,7 +103,7 @@ export default function BillingSuccessScreen() {
 
       if (verifyRes.checkout_kind !== "subscription") {
         setStatusState("error");
-        setErrorMessage("Mismatched checkout type for subscription verification.");
+        setErrorMessage("This purchase couldn't be applied to a subscription. Please return to Billing.");
         return;
       }
 
@@ -131,7 +131,7 @@ export default function BillingSuccessScreen() {
         setStatusState("error");
         setErrorMessage(
           verifyRes.checkout_status === "expired"
-            ? "This checkout session has expired."
+            ? "This checkout has expired."
             : "Checkout has not been completed yet.",
         );
         return;
@@ -143,7 +143,7 @@ export default function BillingSuccessScreen() {
     } catch {
       if (!mountedRef.current) return;
       setStatusState("error");
-      setErrorMessage("Could not verify session ownership or status with the server.");
+      setErrorMessage("We couldn't confirm this purchase. Please try again.");
     } finally {
       verifyLockRef.current = false;
     }
@@ -159,7 +159,7 @@ export default function BillingSuccessScreen() {
     if (useAuthStore.getState().user?.id !== expectedUserId) {
       if (mountedRef.current) {
         setStatusState("error");
-        setErrorMessage("Your account changed during verification.");
+        setErrorMessage("Your account changed while confirming this purchase.");
       }
       return;
     }
@@ -248,13 +248,13 @@ export default function BillingSuccessScreen() {
                   style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
                   onPress={() => router.replace("/billing")}
                 >
-                  <Text style={styles.primaryBtnText}>View Billing & Usage</Text>
+                  <Text style={styles.primaryBtnText}>View Billing & Credits</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.secondaryBtn, { borderColor: colors.border }]}
                   onPress={() => router.replace("/(tabs)")}
                 >
-                  <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Return to Dashboard</Text>
+                  <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Return Home</Text>
                 </Pressable>
               </View>
             </>
@@ -284,7 +284,7 @@ export default function BillingSuccessScreen() {
                   style={[styles.secondaryBtn, { borderColor: colors.border }]}
                   onPress={() => router.replace("/billing")}
                 >
-                  <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Open Billing & Usage</Text>
+                  <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Open Billing & Credits</Text>
                 </Pressable>
               </View>
             </>
@@ -298,14 +298,14 @@ export default function BillingSuccessScreen() {
               </View>
               <Text style={[styles.title, { color: colors.text }]}>Subscription conflict</Text>
               <Text style={[styles.sub, { color: colors.muted }]}>
-                Multiple active subscriptions require support review. Please check your Billing & Usage page.
+                Multiple active subscriptions require support review. Please check Billing & Credits.
               </Text>
               <View style={styles.actions}>
                 <Pressable
                   style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
                   onPress={() => router.replace("/billing")}
                 >
-                  <Text style={styles.primaryBtnText}>Open Billing & Usage</Text>
+                  <Text style={styles.primaryBtnText}>Open Billing & Credits</Text>
                 </Pressable>
               </View>
             </>
@@ -319,7 +319,7 @@ export default function BillingSuccessScreen() {
               </View>
               <Text style={[styles.title, { color: colors.text }]}>Unable to confirm checkout</Text>
               <Text style={[styles.sub, { color: colors.muted }]}>
-                {errorMessage || "We could not verify the payment session for your user account."}
+                {errorMessage || "We couldn't confirm this purchase for your account."}
               </Text>
               <View style={styles.actions}>
                 <Pressable
@@ -329,7 +329,7 @@ export default function BillingSuccessScreen() {
                     void runFullVerification();
                   }}
                 >
-                  <Text style={styles.primaryBtnText}>Retry verification</Text>
+                  <Text style={styles.primaryBtnText}>Try Again</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.secondaryBtn, { borderColor: colors.border }]}
@@ -343,7 +343,7 @@ export default function BillingSuccessScreen() {
                   style={[styles.secondaryBtn, { borderColor: colors.border }]}
                   onPress={() => router.replace("/billing")}
                 >
-                  <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Open Billing & Usage</Text>
+                  <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Open Billing & Credits</Text>
                 </Pressable>
               </View>
             </>

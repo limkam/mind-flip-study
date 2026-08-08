@@ -152,7 +152,7 @@ export default function SettingsScreen() {
 
     const currentUserId = user?.id;
     if (!currentUserId || bootstrapStatus !== "authenticated") {
-      Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
+      Alert.alert("Sign in again", "Your sign-in has expired. Please continue to sign in again.");
       return;
     }
 
@@ -190,7 +190,7 @@ export default function SettingsScreen() {
             queryClient.setQueryData<User>(["me"], parseResult.user);
             studySuccess = true;
           } else if (!parseResult.valid) {
-            studyErrorMsg = `Invalid server response: ${parseResult.reason}`;
+            studyErrorMsg = "MindFlip couldn't load your updated study settings. Please try again.";
           }
         } catch (e) {
           studyErrorMsg = getApiErrorMessage(e, "Could not save study settings.");
@@ -222,7 +222,7 @@ export default function SettingsScreen() {
             );
             engagementSuccess = true;
           } else if (!parseResult.valid) {
-            engagementErrorMsg = `Invalid server response: ${parseResult.reason}`;
+            engagementErrorMsg = "MindFlip couldn't load your updated engagement preferences. Please try again.";
           }
         } catch (e) {
           engagementErrorMsg = getApiErrorMessage(e, "Could not save engagement preferences.");
@@ -298,7 +298,7 @@ export default function SettingsScreen() {
           <View style={[styles.banner, { backgroundColor: colors.danger + "15", borderColor: colors.danger }]}>
             <Text style={{ color: colors.danger, fontWeight: "600" }}>
               {meQuery.isError && engagementQuery.isError
-                ? "Could not load settings from server."
+                ? "Couldn't load your settings."
                 : meQuery.isError
                   ? "Could not load study settings."
                   : "Could not load engagement preferences."}

@@ -19,7 +19,7 @@ export function ChallengeEntitlementGuard({ children }: { children: ReactNode })
     queryKey: ["billing-entitlements"],
     queryFn: fetchEntitlementsSnapshot,
   });
-  const allowed = !entitlements.isError && entitlements.data?.features.challenges === true;
+  const allowed = entitlements.data?.features.challenges === true;
 
   useEffect(() => {
     if (!entitlements.isPending && !entitlements.isError && !allowed && !prompted.current) {
@@ -28,7 +28,7 @@ export function ChallengeEntitlementGuard({ children }: { children: ReactNode })
     }
   }, [allowed, entitlements.isError, entitlements.isPending]);
 
-  if (entitlements.isPending) {
+  if (entitlements.isPending && !entitlements.data) {
     return (
       <Screen>
         <View style={styles.center}>
@@ -39,7 +39,7 @@ export function ChallengeEntitlementGuard({ children }: { children: ReactNode })
     );
   }
 
-  if (entitlements.isError) {
+  if (entitlements.isError && !entitlements.data) {
     return (
       <Screen>
         <EmptyState
@@ -60,7 +60,7 @@ export function ChallengeEntitlementGuard({ children }: { children: ReactNode })
           icon="🔒"
           title="Quiz challenges unavailable"
           message={CHALLENGE_UNAVAILABLE_MESSAGE}
-          actionLabel="Back to dashboard"
+          actionLabel="Back to Home"
           onAction={() => router.replace("/(tabs)")}
         />
       </Screen>

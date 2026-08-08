@@ -103,7 +103,7 @@ export function StudySessionSummary({
           router.replace("/(tabs)");
         }}
       >
-        <Text style={[styles.ghostText, { color: colors.muted }]}>Return to Dashboard</Text>
+        <Text style={[styles.ghostText, { color: colors.muted }]}>Return Home</Text>
       </Pressable>
     </View>
   );

@@ -216,7 +216,7 @@ export default function BookByIdScreen() {
 
       if (job.reused) {
         if (!job.set_id || !UUID_PATTERN.test(job.set_id)) {
-          throw new Error("Server returned a reused set response without a valid set identifier.");
+          throw new Error("MindFlip couldn't open the generated set. Please try again.");
         }
         setStarting(false);
         const existingBookJob = useGenerationJobStore.getState().getBookJob(id, userId);
@@ -230,7 +230,7 @@ export default function BookByIdScreen() {
       }
 
       if (!job.job_id) {
-        throw new Error("Server did not return a valid job identifier.");
+        throw new Error("MindFlip couldn't start generating flashcards. Please try again.");
       }
 
       startJob({ jobId: job.job_id, bookId: id, bookTitle: book.title, userId });
@@ -283,7 +283,7 @@ export default function BookByIdScreen() {
 
       const response = await api.delete(`/books/${expectedBookId}`);
       if (response.status !== 204) {
-        throw new Error("The server returned an unexpected deletion response.");
+        throw new Error("MindFlip couldn't confirm that the book was deleted. Please try again.");
       }
       const completedBookJob = useGenerationJobStore.getState().getBookJob(expectedBookId);
       if (completedBookJob) useGenerationJobStore.getState().removeJob(completedBookJob.jobId);

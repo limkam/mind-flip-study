@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { Tabs, useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   FlatList,
   Modal,
   Pressable,
@@ -38,14 +40,24 @@ type ActiveChallengeState = {
 };
 
 export default function ChallengesTab() {
+  const router = useRouter();
+
   return (
-    <ChallengeEntitlementGuard>
-      <ChallengesContent />
-    </ChallengeEntitlementGuard>
+    <>
+      <Tabs.Screen options={{ tabBarStyle: { display: "none" } }} />
+      <ChallengeEntitlementGuard>
+        <ChallengesContent
+          onBack={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace("/(tabs)");
+          }}
+        />
+      </ChallengeEntitlementGuard>
+    </>
   );
 }
 
-function ChallengesContent() {
+function ChallengesContent({ onBack }: { onBack: () => void }) {
   const { colors } = useTheme();
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
@@ -171,6 +183,16 @@ function ChallengesContent() {
     { title: "Completed", data: completed, incoming: false },
   ].filter((s) => s.data.length > 0);
 
+  useEffect(() => {
+    if (!sendQuiz && !activeChallenge) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setSendQuiz(null);
+      setActiveChallenge(null);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [activeChallenge, sendQuiz]);
+
   if (sendQuiz) {
     return (
       <Screen>
@@ -219,7 +241,12 @@ function ChallengesContent() {
   return (
     <Screen keyboard={sendOpen}>
       <View style={styles.headerRow}>
-        <PageHeader title="Challenges" subtitle="Take a quiz, then challenge a friend to beat your score" />
+        <PageHeader
+          title="Challenges"
+          subtitle="Take a quiz, then challenge a friend to beat your score"
+          showBack
+          onBack={onBack}
+        />
         <Pressable
           style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
           onPress={() => {

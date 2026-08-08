@@ -87,7 +87,7 @@ export default function FlashcardsTab() {
     const currentAttemptId = saveAttemptIdRef.current;
 
     if (!currentUserId || bootstrapStatus !== "authenticated") {
-      Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
+      Alert.alert("Sign in again", "Your sign-in has expired. Please continue to sign in again.");
       editingSetRef.current = null;
       setEditingSet(null);
       return;
@@ -109,7 +109,7 @@ export default function FlashcardsTab() {
         updatedSet.tags.every((t) => typeof t === "string");
 
       if (!updatedSet || typeof updatedSet !== "object" || updatedSet.id !== targetSetId || !validTags) {
-        Alert.alert("Contract Error", "Received an invalid response from server. Tags were not updated.");
+        Alert.alert("Tags not saved", "MindFlip couldn't save those tags. Please try again.");
         return;
       }
 
@@ -185,7 +185,7 @@ export default function FlashcardsTab() {
         <EmptyState
           icon="⚠️"
           title="Could not load flashcard sets"
-          message={getApiErrorMessage(error, "Check your connection and API URL in mobile/.env.")}
+          message={getApiErrorMessage(error, "Check your connection and try again.")}
           actionLabel="Retry"
           onAction={() => refetch()}
         />
@@ -200,7 +200,7 @@ export default function FlashcardsTab() {
         subtitle={
           sets.length > 0
             ? `${sets.length} set${sets.length !== 1 ? "s" : ""} · ${user?.email ?? "your account"}`
-            : `Generate sets on web or library · ${user?.email ?? "your account"}`
+            : `Create a set from a book in Library · ${user?.email ?? "your account"}`
         }
       />
       <FlatList
@@ -214,7 +214,7 @@ export default function FlashcardsTab() {
           <EmptyState
             icon="📚"
             title="No flashcard sets yet"
-            message="Sets you create on web or mobile share the same account. Pull down to refresh, or generate cards from a book in Library."
+            message="Create flashcards from a book in Library, or pull down to refresh."
             actionLabel="Open library"
             onAction={() => router.push("/(tabs)/library")}
           />

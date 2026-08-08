@@ -105,7 +105,7 @@ function RootNavigator() {
         <Stack.Screen name="study-groups/[id]" options={{ headerShown: true, title: "Group" }} />
         <Stack.Screen name="challenge-leaderboard" options={{ headerShown: true, title: "Challenge Board" }} />
         <Stack.Screen name="folders" options={{ headerShown: true, title: "Collections" }} />
-        <Stack.Screen name="profile" options={{ headerShown: true, title: "My Profile" }} />
+        <Stack.Screen name="profile" options={{ headerShown: true, title: "Profile" }} />
         <Stack.Screen name="settings" options={{ headerShown: true, title: "Settings" }} />
         <Stack.Screen name="feedback" options={{ headerShown: true, title: "Feedback" }} />
         <Stack.Screen name="onboarding" options={{ headerShown: true, title: "Profile setup" }} />

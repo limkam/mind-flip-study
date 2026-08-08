@@ -82,7 +82,7 @@ export async function submitStudyProgress(
     if (!isStudyProgressOut(data)) {
       return {
         status: "rejected",
-        reason: "The server returned an invalid progress response.",
+        reason: "MindFlip couldn't confirm your progress. Please try again.",
         retryable: false,
       };
     }

@@ -18,31 +18,37 @@ function formatDetail(detail: unknown): string | null {
   return JSON.stringify(detail);
 }
 
+function exposesImplementationDetail(message: string): boolean {
+  return /\b(api|backend|cache|database|dto|endpoint|http|payload|query|response|router|server|session[_ ]?id|status code|stripe|token|traceback)\b|\/(?:\(tabs\)|auth|billing)\b|\b[45]\d{2}\b/i.test(message);
+}
+
 /** Human-readable message from axios/FastAPI responses (handles validation arrays). */
 export function getApiErrorMessage(error: unknown, fallback = "Request failed"): string {
   if (!axios.isAxiosError(error)) {
-    return error instanceof Error ? error.message : fallback;
+    return error instanceof Error && !exposesImplementationDetail(error.message)
+      ? error.message
+      : fallback;
   }
 
   const ax = error as AxiosError<{ detail?: unknown }>;
   const fromBody = formatDetail(ax.response?.data?.detail);
-  if (fromBody) return fromBody;
+  const exposesImplementation = fromBody ? exposesImplementationDetail(fromBody) : false;
+  if (fromBody && !exposesImplementation) return fromBody;
 
   const status = ax.response?.status;
   if (status === 429) return "Too many attempts. Try again in a minute.";
+  if (status === 401) return "Your sign-in has expired. Please sign in again.";
+  if (status === 403) return "This action isn't available for your account.";
+  if (status === 404) return "This item is no longer available.";
+  if (status && status >= 500) return "MindFlip is having trouble right now. Please try again.";
 
   if (
     ax.code === "ERR_NETWORK" ||
     ax.message === "Network Error" ||
     (!ax.response && ax.request)
   ) {
-    const base = process.env.EXPO_PUBLIC_API_URL ?? "";
-    const hint =
-      base.includes("localhost") || base.includes("127.0.0.1")
-        ? " On a physical phone, localhost points at the phone itself — set EXPO_PUBLIC_API_URL to your computer's LAN IP and ensure the API listens on 0.0.0.0."
-        : "";
-    return `Cannot reach the API at ${base || "(unset)"}.${hint}`;
+    return "MindFlip couldn't connect. Check your connection and try again.";
   }
 
-  return ax.message || fallback;
+  return fallback;
 }

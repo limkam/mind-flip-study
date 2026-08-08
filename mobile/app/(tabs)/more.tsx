@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import { usePathname, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { NavMenuRow } from "../../components/NavMenuRow";
@@ -10,52 +10,50 @@ import { useLogout } from "../../hooks/useLogout";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
 import { mobileFeatures } from "../../lib/featureFlags";
-import { APP_NAV_ITEMS } from "../../lib/navigation";
+import { MORE_NAV_SECTIONS, type AppNavItem } from "../../lib/navigation";
 import { fetchEntitlementsSnapshot } from "../../lib/billing";
 
 import { subscriptionsEnabled } from "../../lib/billing";
 
-function isNavActive(pathname: string, href: string) {
-  if (href === "/(tabs)") {
-    return pathname === "/" || pathname === "/index" || pathname.endsWith("/index");
-  }
-  return pathname === href || pathname.endsWith(href.split("/").pop() ?? "");
-}
-
 export default function MoreTab() {
   const router = useRouter();
-  const pathname = usePathname();
   const { colors } = useTheme();
   const { confirmLogout } = useLogout();
   const { data: entitlements, isError: entitlementsError } = useQuery({ queryKey: ["billing-entitlements"], queryFn: fetchEntitlementsSnapshot });
   const isFree = !entitlements?.plan_slug || entitlements.plan_slug === "free";
   const isSubscriptionsEnabled = subscriptionsEnabled();
 
-  const visibleNavItems = APP_NAV_ITEMS.filter((item) => {
-    const href = typeof item.href === "string" ? item.href : String(item.href);
-    if (href === "/pricing" && !isSubscriptionsEnabled) return false;
+  const isItemVisible = (item: AppNavItem) => {
     if (!item.feature) return true;
     if (item.feature === "scorecards") return mobileFeatures.scorecards;
+    if (item.feature === "challenges") {
+      return entitlements?.features.challenges === true;
+    }
     return !entitlementsError && entitlements?.features[item.feature] === true;
-  });
+  };
+
+  const visibleSections = MORE_NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter(isItemVisible),
+  })).filter((section) => section.items.length > 0);
 
   return (
     <Screen>
-      <PageHeader title="Menu" subtitle="Same sections as the web app" />
+      <PageHeader title="More" subtitle="Learning, progress, and account" />
       <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
         <Pressable
           onPress={() => {
             void hapticImpact("medium");
             router.push(!isSubscriptionsEnabled ? "/billing" : isFree ? "/pricing" : "/billing");
           }}
-          style={styles.upgradeCard}
+          style={[styles.upgradeCard, { backgroundColor: colors.primaryPressed }]}
         >
           <View style={styles.upgradeGlow} />
-          <View style={styles.upgradeIcon}>
+          <View style={[styles.upgradeIcon, { backgroundColor: colors.primarySoft }]}>
             <Ionicons
               name={!isSubscriptionsEnabled ? "card" : isFree ? "rocket" : "diamond"}
               size={23}
-              color="#5b21b6"
+              color={colors.primary}
             />
           </View>
           <View style={{ flex: 1 }}>
@@ -72,19 +70,19 @@ export default function MoreTab() {
           </View>
           <Ionicons name="arrow-forward-circle" size={27} color="#fff" />
         </Pressable>
-        {visibleNavItems.map((item) => {
-          const href = typeof item.href === "string" ? item.href : String(item.href);
-
-          return (
-            <NavMenuRow
-              key={item.label}
-              label={item.label}
-              icon={item.icon}
-              active={isNavActive(pathname, href)}
-              onPress={() => router.push(item.href)}
-            />
-          );
-        })}
+        {visibleSections.map((section) => (
+          <View key={section.title} style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>{section.title}</Text>
+            {section.items.map((item) => (
+              <NavMenuRow
+                key={item.label}
+                label={item.label}
+                icon={item.icon}
+                onPress={() => router.push(item.href)}
+              />
+            ))}
+          </View>
+        ))}
         <Pressable
           style={[styles.logoutBtn, { borderColor: colors.danger, backgroundColor: colors.surface }]}
           onPress={() => {
@@ -106,10 +104,20 @@ export default function MoreTab() {
 }
 
 const styles = StyleSheet.create({
-  list: { paddingHorizontal: 16, paddingBottom: 110 },
+  list: { paddingHorizontal: 16, paddingBottom: 32 },
+  section: { marginBottom: 12 },
+  sectionTitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    marginBottom: 8,
+    marginLeft: 4,
+  },
   upgradeCard: { minHeight: 116, borderRadius: 24, padding: 17, marginBottom: 18, backgroundColor: "#6437d7", flexDirection: "row", alignItems: "center", gap: 13, overflow: "hidden", shadowColor: "#5b21b6", shadowOffset: { width: 0, height: 10 }, shadowOpacity: .24, shadowRadius: 18, elevation: 7 },
   upgradeGlow: { position: "absolute", width: 150, height: 150, borderRadius: 75, right: -50, top: -75, backgroundColor: "#ec489944" },
-  upgradeIcon: { width: 46, height: 46, borderRadius: 16, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
+  upgradeIcon: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   upgradeTitle: { color: "#fff", fontSize: 17, fontWeight: "900" },
   upgradeText: { color: "#ffffffbf", fontSize: 11, lineHeight: 16, marginTop: 3, textTransform: "capitalize" },
   logoutBtn: {

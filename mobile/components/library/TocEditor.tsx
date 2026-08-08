@@ -10,6 +10,7 @@ import {
 } from "react-native";
 
 import { api } from "../../api/client";
+import { getApiErrorMessage } from "../../lib/apiErrors";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact, hapticSuccess } from "../../lib/haptics";
 
@@ -124,11 +125,7 @@ export function TocEditor({ bookId, chapters: initial, onSaved }: Props) {
       onSaved?.();
       Alert.alert("Saved", "Table of contents updated.");
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? String((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Save failed")
-          : "Save failed";
-      Alert.alert("Could not save", msg);
+      Alert.alert("Could not save", getApiErrorMessage(e, "Your table of contents couldn't be saved. Please try again."));
     } finally {
       setSaving(false);
     }

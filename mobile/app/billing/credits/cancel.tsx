@@ -45,7 +45,7 @@ export default function CreditCancelScreen() {
               style={[styles.buttonSecondary, { borderColor: colors.border }]}
               onPress={() => router.replace("/")}
             >
-              <Text style={[styles.buttonSecondaryText, { color: colors.text }]}>Return to Dashboard</Text>
+              <Text style={[styles.buttonSecondaryText, { color: colors.text }]}>Return Home</Text>
             </Pressable>
           </View>
         </View>

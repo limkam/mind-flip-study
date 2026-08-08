@@ -41,7 +41,7 @@ export default function ProfileScreen() {
   const { colors, scheme, isDark, toggleScheme } = useTheme();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const header = useScreenHeader("My Profile");
+  const header = useScreenHeader("Profile");
   const { confirmLogout } = useLogout();
   const { user, accessToken, setAuth, bootstrapStatus } = useAuthStore();
 
@@ -104,7 +104,7 @@ export default function ProfileScreen() {
 
     const currentUserId = user?.id;
     if (!currentUserId || bootstrapStatus !== "authenticated") {
-      Alert.alert("Authentication Error", "Your session has expired. Please sign in again.");
+      Alert.alert("Sign in again", "Your sign-in has expired. Please continue to sign in again.");
       return;
     }
 
@@ -157,7 +157,7 @@ export default function ProfileScreen() {
       }
 
       if (!parseResult.valid) {
-        Alert.alert("Contract Error", `Invalid response from server: ${parseResult.reason}`);
+        Alert.alert("Profile not saved", "MindFlip couldn't confirm your updated profile. Please try again.");
         return;
       }
 
@@ -246,7 +246,7 @@ export default function ProfileScreen() {
     <Screen>
       {header}
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <PageHeader title="My Profile" subtitle="Your identity and study progress" />
+        <PageHeader title="Profile" subtitle="Your identity and study progress" />
 
         {/* Account Summary & Editable Fields */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>

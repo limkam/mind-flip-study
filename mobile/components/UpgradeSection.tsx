@@ -186,7 +186,7 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
           void refetchTrial();
           Alert.alert(
             "Already subscribed",
-            "An active subscription already exists for your account. Manage your plan from Billing & Usage.",
+            "An active subscription already exists for your account. Manage your plan in Billing & Credits.",
           );
         } else if (errorMsg.includes("SUBSCRIPTION_CONFLICT")) {
           void refetchEntitlements();
@@ -242,7 +242,7 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
           void refetchEntitlements();
           Alert.alert(
             "Already subscribed",
-            "An active subscription already exists for your account. Manage your plan from Billing & Usage.",
+            "An active subscription already exists for your account. Manage your plan in Billing & Credits.",
           );
         } else if (errorMsg.includes("SUBSCRIPTION_CONFLICT")) {
           void refetchEntitlements();

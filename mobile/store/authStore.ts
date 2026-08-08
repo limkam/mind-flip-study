@@ -156,7 +156,7 @@ export const useAuthStore = create<AuthState>()(
           : { keepSignedIn: false },
       onRehydrateStorage: () => (state, error) => {
         if (error) {
-          state?.setBootstrapError("Could not read the saved session on this device.");
+          state?.setBootstrapError("We couldn't restore your saved sign-in on this device.");
           return;
         }
         state?.finishAuthStorageHydration();

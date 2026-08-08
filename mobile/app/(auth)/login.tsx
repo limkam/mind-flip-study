@@ -60,7 +60,7 @@ function GoogleSignInButton({
     if (response?.type !== "success") return;
     const idToken = response.authentication?.idToken;
     if (!idToken) {
-      onError("Google sign-in failed: missing authorization token.");
+      onError("Google sign-in couldn't be completed. Please try again.");
       return;
     }
     if (lockRef.current) return;

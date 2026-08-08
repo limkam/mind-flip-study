@@ -39,9 +39,9 @@ export default function PricingScreen() {
                 style={[styles.button, { backgroundColor: colors.primary }]}
                 onPress={() => router.replace("/billing")}
                 accessibilityRole="button"
-                accessibilityLabel="Open Billing & Usage"
+                accessibilityLabel="Open Billing & Credits"
               >
-                <Text style={styles.buttonText}>Open Billing & Usage</Text>
+                <Text style={styles.buttonText}>Open Billing & Credits</Text>
               </Pressable>
               <Pressable
                 style={[

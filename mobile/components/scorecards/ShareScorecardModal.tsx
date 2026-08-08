@@ -21,6 +21,7 @@ import {
 } from "react-native";
 
 import { useTheme } from "../../hooks/useTheme";
+import { getApiErrorMessage } from "../../lib/apiErrors";
 import { mobileFeatures } from "../../lib/featureFlags";
 import {
   createScorecardShare,
@@ -193,24 +194,19 @@ export function ShareScorecardModal({
         "Unable to create the public link. Check your connection and try again.";
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
-        const detail = err.response?.data?.detail;
-
         if (status === 404) {
           errorMsg = "This scorecard cannot be shared right now.";
         } else if (status === 409) {
           errorMsg = "This scorecard is not eligible for public sharing.";
         } else if (status === 422) {
-          errorMsg =
-            typeof detail === "string"
-              ? detail
-              : "Invalid sharing options provided.";
+          errorMsg = "Check the sharing options and try again.";
         } else if (status === 429) {
           errorMsg = "Too many share attempts. Please try again later.";
-        } else if (typeof detail === "string") {
-          errorMsg = detail;
+        } else {
+          errorMsg = getApiErrorMessage(err, errorMsg);
         }
-      } else if (err instanceof Error) {
-        errorMsg = err.message;
+      } else {
+        errorMsg = getApiErrorMessage(err, errorMsg);
       }
 
       setError(errorMsg);
@@ -334,8 +330,6 @@ export function ShareScorecardModal({
       let errorMsg = "This share link could not be revoked.";
       if (axios.isAxiosError(err)) {
         const status = err.response?.status;
-        const detail = err.response?.data?.detail;
-
         if (status === 404) {
           errorMsg = "This share link could not be revoked.";
         } else if (status === 409) {
@@ -344,14 +338,14 @@ export function ShareScorecardModal({
           errorMsg = "The share link information is invalid.";
         } else if (status === 429) {
           errorMsg = "Too many share requests. Please try again later.";
-        } else if (typeof detail === "string") {
-          errorMsg = detail;
         } else {
-          errorMsg =
-            "Unable to revoke the share link. Check your connection and try again.";
+          errorMsg = getApiErrorMessage(
+            err,
+            "Unable to revoke the share link. Check your connection and try again.",
+          );
         }
-      } else if (err instanceof Error) {
-        errorMsg = err.message;
+      } else {
+        errorMsg = getApiErrorMessage(err, errorMsg);
       }
 
       setError(errorMsg);
@@ -480,12 +474,7 @@ export function ShareScorecardModal({
 
       let errorMsg =
         "The current link could not be revoked, so no replacement was created.";
-      if (axios.isAxiosError(err)) {
-        const detail = err.response?.data?.detail;
-        if (typeof detail === "string") {
-          errorMsg = detail;
-        }
-      }
+      errorMsg = getApiErrorMessage(err, errorMsg);
       setError(errorMsg);
       lifecycleLockRef.current = false;
       setLifecyclePhase("idle");
@@ -988,12 +977,12 @@ export function ShareScorecardModal({
                     { opacity: isExpired || isBusy || pressed ? 0.4 : 1 },
                   ]}
                   accessibilityRole="button"
-                  accessibilityLabel="Open public link in browser"
+                  accessibilityLabel="Open public scorecard"
                 >
                   <Text
                     style={[styles.openButtonText, { color: colors.primary }]}
                   >
-                    Open link in external browser
+                    Open public scorecard
                   </Text>
                   <Ionicons
                     name="open-outline"
