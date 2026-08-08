@@ -1,381 +1,226 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Ionicons } from "@expo/vector-icons";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
-import { Link, router } from "expo-router";
-import { useCallback, useState } from "react";
-import {
-  Alert,
-  FlatList,
-  Modal,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Link, router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, FlatList, Modal, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { EmptyState } from "../../components/EmptyState";
-import { Screen } from "../../components/Screen";
-import { LibrarySkeleton } from "../../components/skeletons/LibrarySkeleton";
 import { api } from "../../api/client";
+import { LibrarySkeleton } from "../../components/skeletons/LibrarySkeleton";
+import { Screen } from "../../components/Screen";
 import { useTheme } from "../../hooks/useTheme";
-import { hapticImpact } from "../../lib/haptics";
-import { flattenPages, normalizePage } from "../../lib/pagination";
-import { uploadBookFromPicker, titleFromFilename } from "../../lib/uploadBook";
-import { sha256FileUri } from "../../lib/fileHash";
+import { fetchFlashcardSetsList } from "../../lib/flashcardSets";
 import { formatFileSize, estimatePageCount } from "../../lib/formatFileSize";
-import type { BookOut, Paginated } from "../../types/api";
+import { sha256FileUri } from "../../lib/fileHash";
+import { flattenPages, normalizePage } from "../../lib/pagination";
+import { titleFromFilename, uploadBookFromPicker } from "../../lib/uploadBook";
+import { TOKENS } from "../../theme/tokens";
+import type { BookOut, FlashcardSetOut, Paginated } from "../../types/api";
 
 const PAGE_SIZE = 20;
+type Filter = "all" | "books" | "sets";
+type LibraryItem =
+  | { kind: "heading"; id: "books" | "sets"; label: string }
+  | { kind: "book"; value: BookOut }
+  | { kind: "set"; value: FlashcardSetOut };
 
 export default function LibraryTab() {
   const { colors } = useTheme();
   const queryClient = useQueryClient();
+  const params = useLocalSearchParams<{ create?: string }>();
+  const refreshLock = useRef(false);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
-  const [picked, setPicked] = useState<{
-    uri: string;
-    name: string;
-    size: number;
-    mimeType?: string | null;
-  } | null>(null);
+  const [picked, setPicked] = useState<{ uri: string; name: string; size: number; mimeType?: string | null } | null>(null);
   const [uploadPhase, setUploadPhase] = useState<string | null>(null);
   const [detectHint, setDetectHint] = useState<string | null>(null);
 
-  const uploadPhaseLabel =
-    uploadPhase === "uploading"
-      ? "Uploading PDF…"
-      : uploadPhase === "creating"
-        ? "Saving book…"
-        : null;
+  const closeCreation = useCallback(() => {
+    setUploadOpen(false);
+    setTitle("");
+    setAuthor("");
+    setPicked(null);
+    setUploadPhase(null);
+    setDetectHint(null);
+  }, []);
 
-  const {
-    data,
-    isLoading,
-    isFetchingNextPage,
-    hasNextPage,
-    fetchNextPage,
-    refetch,
-    isRefetching,
-  } = useInfiniteQuery({
-    queryKey: ["books", "paginated"],
+  useEffect(() => {
+    if (params.create !== "1") return;
+    setUploadOpen(true);
+    router.setParams({ create: "" });
+  }, [params.create]);
+
+  const booksQuery = useInfiniteQuery({
+    queryKey: ["books", "infinite"],
     initialPageParam: 1,
     queryFn: async ({ pageParam }) => {
-      const { data } = await api.get<Paginated<BookOut> | BookOut[]>("/books/", {
-        params: { page: pageParam, size: PAGE_SIZE },
-      });
+      const { data } = await api.get<Paginated<BookOut> | BookOut[]>("/books/", { params: { page: pageParam, size: PAGE_SIZE } });
       return normalizePage(data, pageParam, PAGE_SIZE);
     },
-    getNextPageParam: (last) => (last.has_more ? last.page + 1 : undefined),
+    getNextPageParam: (last) => (last?.has_more ? last.page + 1 : undefined),
   });
+  const setsQuery = useQuery({ queryKey: ["flashcard-sets"], queryFn: fetchFlashcardSetsList });
+  const books = flattenPages(booksQuery.data?.pages);
+  const sets = setsQuery.data ?? [];
+  const totalBooks = booksQuery.data?.pages?.[0]?.total ?? books.length;
+  const normalizedQuery = query.trim().toLocaleLowerCase();
 
-  const books = flattenPages(data?.pages);
-  const total = data?.pages[0]?.total ?? 0;
+  const items = useMemo<LibraryItem[]>(() => {
+    const bookItems = filter === "sets" ? [] : books
+      .filter((book) => !normalizedQuery || `${book.title} ${book.author}`.toLocaleLowerCase().includes(normalizedQuery))
+      .map((value) => ({ kind: "book" as const, value }));
+    const setItems = filter === "books" ? [] : sets
+      .filter((set) => !normalizedQuery || `${set.title} ${set.book_title ?? ""}`.toLocaleLowerCase().includes(normalizedQuery))
+      .map((value) => ({ kind: "set" as const, value }));
+    if (filter !== "all") return [...bookItems, ...setItems];
+    return [
+      ...(bookItems.length ? [{ kind: "heading" as const, id: "books" as const, label: "Books" }, ...bookItems] : []),
+      ...(setItems.length ? [{ kind: "heading" as const, id: "sets" as const, label: "Flashcard sets" }, ...setItems] : []),
+    ];
+  }, [books, filter, normalizedQuery, sets]);
 
+  const uploadPhaseLabel = uploadPhase === "uploading" ? "Uploading document…" : uploadPhase === "creating" ? "Adding to your library…" : null;
   const uploadMutation = useMutation({
     mutationFn: async () => {
-      if (!picked || !title.trim() || !author.trim()) {
-        throw new Error("Pick a file and enter title and author.");
-      }
-      return uploadBookFromPicker({
-        title: title.trim(),
-        author: author.trim(),
-        uri: picked.uri,
-        size: picked.size,
-        name: picked.name,
-        mimeType: picked.mimeType ?? "application/pdf",
-        onProgress: setUploadPhase,
-      });
+      if (!picked || !title.trim() || !author.trim()) throw new Error("Choose a PDF and enter its title and author.");
+      return uploadBookFromPicker({ title: title.trim(), author: author.trim(), uri: picked.uri, size: picked.size, name: picked.name, mimeType: picked.mimeType ?? "application/pdf", onProgress: setUploadPhase });
     },
     onSuccess: async (book) => {
-      setUploadPhase(null);
-      setUploadOpen(false);
-      setTitle("");
-      setAuthor("");
-      setPicked(null);
+      closeCreation();
       await queryClient.invalidateQueries({ queryKey: ["books"] });
-      if (book?.id) {
-        router.push(`/book/${book.id}`);
-      }
+      if (book?.id) router.push(`/book/${book.id}`);
     },
-    onError: (err: unknown) => {
+    onError: (error: unknown) => {
       setUploadPhase(null);
-      const ax = err as { response?: { status?: number; data?: { detail?: string } }; message?: string };
-      if (ax.response?.status === 409) {
-        const detail =
-          typeof ax.response.data?.detail === "string"
-            ? ax.response.data.detail
-            : "This PDF is already in your library.";
-        Alert.alert("Duplicate book", detail);
-      }
+      const response = error as { response?: { status?: number; data?: { detail?: string } } };
+      if (response.response?.status === 402) return;
+      if (response.response?.status === 409) Alert.alert("Already in your library", "This document has already been added.");
     },
   });
 
   const pickFile = useCallback(async () => {
-    const res = await DocumentPicker.getDocumentAsync({
-      type: "application/pdf",
-      copyToCacheDirectory: true,
-    });
-    if (res.canceled || !res.assets?.[0]) return;
-    const a = res.assets[0];
-    let size = a.size ?? 0;
+    const result = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: true });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    let size = asset.size ?? 0;
     if (!size) {
-      const info = await FileSystem.getInfoAsync(a.uri);
-      if (info.exists && "size" in info) {
-        size = info.size;
-      }
+      const info = await FileSystem.getInfoAsync(asset.uri);
+      if (info.exists && "size" in info) size = info.size;
     }
-    setPicked({
-      uri: a.uri,
-      name: a.name,
-      size,
-      mimeType: a.mimeType,
-    });
-    setTitle(titleFromFilename(a.name));
+    setPicked({ uri: asset.uri, name: asset.name, size, mimeType: asset.mimeType });
+    setTitle(titleFromFilename(asset.name));
     setAuthor("");
-    setDetectHint(
-      titleFromFilename(a.name)
-        ? "Title filled from file name. Enter the author below."
-        : "Enter the title and author manually.",
-    );
+    setDetectHint("Check the title and add the author before uploading.");
   }, []);
 
-  const handleUploadPress = useCallback(async () => {
-    if (!picked) {
-      await pickFile();
-      return;
-    }
+  const upload = useCallback(async () => {
+    if (!picked) { await pickFile(); return; }
     if (!title.trim() || !author.trim()) return;
     try {
-      const fileHash = await sha256FileUri(picked.uri);
-      const { data: dup } = await api.get<{
-        is_duplicate: boolean;
-        matches: { id: string; title: string; author: string; match_reason?: string }[];
-      }>("/books/check-duplicate", {
-        params: {
-          title: title.trim(),
-          file_sha256: fileHash,
-          file_size_bytes: picked.size,
-        },
-      });
-      if (dup.is_duplicate && dup.matches.length > 0) {
-        const match = dup.matches[0];
-        const reason =
-          match.match_reason === "file"
-            ? "This exact PDF is already in your library."
-            : "A book with this title already exists.";
-        Alert.alert(
-          "Duplicate book",
-          `${reason}\n\nOpen "${match.title}" by ${match.author} instead.`,
-        );
+      const hash = await sha256FileUri(picked.uri);
+      const { data } = await api.get<{ is_duplicate: boolean; matches: { title: string; author: string }[] }>("/books/check-duplicate", { params: { title: title.trim(), file_sha256: hash, file_size_bytes: picked.size } });
+      if (data.is_duplicate && data.matches[0]) {
+        Alert.alert("Already in your library", `Open “${data.matches[0].title}” instead.`);
         return;
       }
     } catch {
-      // proceed if duplicate check fails; server still enforces on create
+      // The server remains authoritative if this convenience check is unavailable.
     }
     uploadMutation.mutate();
-  }, [picked, title, author, pickFile, uploadMutation]);
+  }, [author, pickFile, picked, title, uploadMutation]);
 
-  const renderItem = useCallback(
-    ({ item }: { item: BookOut }) => (
-      <Link href={`/book/${item.id}`} asChild>
-        <Pressable
-          style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
-          onPress={() => void hapticImpact("light")}
-        >
-          <Text style={[styles.cardTitle, { color: colors.text }]}>{item.title}</Text>
-          <Text style={[styles.cardMeta, { color: colors.muted }]}>{item.author}</Text>
-          {item.is_analyzing ? (
-            <Text style={[styles.cardMeta, { color: colors.primary }]}>Extracting TOC…</Text>
-          ) : (item.table_of_contents?.length ?? 0) === 0 ? (
-            <Text style={[styles.cardMeta, { color: colors.muted }]}>TOC pending</Text>
-          ) : (
-            <Text style={[styles.cardMeta, { color: colors.muted }]}>
-              {item.table_of_contents!.length} chapters
-            </Text>
-          )}
-        </Pressable>
-      </Link>
-    ),
-    [colors],
+  const refresh = useCallback(async () => {
+    if (refreshLock.current) return;
+    refreshLock.current = true;
+    try { await Promise.allSettled([booksQuery.refetch(), setsQuery.refetch()]); }
+    finally { refreshLock.current = false; }
+  }, [booksQuery, setsQuery]);
+
+  const initialLoading = (booksQuery.isLoading && !booksQuery.data) || (setsQuery.isLoading && !setsQuery.data);
+  const hardError = booksQuery.isError && setsQuery.isError && !booksQuery.data && !setsQuery.data;
+  const isEmpty = books.length === 0 && sets.length === 0;
+
+  if (initialLoading) return <Screen><LibrarySkeleton /></Screen>;
+  if (hardError) return (
+    <Screen><View style={styles.centerState}><Ionicons name="cloud-offline-outline" size={42} color={colors.textMuted} /><Text style={[styles.stateTitle, { color: colors.text }]}>Library unavailable</Text><Text style={[styles.stateBody, { color: colors.textSecondary }]}>Check your connection and try again.</Text><Pressable style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={() => void refresh()}><Text style={[styles.primaryLabel, { color: colors.onPrimary }]}>Try again</Text></Pressable></View></Screen>
   );
-
-  if (isLoading) {
-    return (
-      <Screen>
-        <LibrarySkeleton />
-      </Screen>
-    );
-  }
 
   return (
     <Screen keyboard={uploadOpen}>
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={[styles.title, { color: colors.text }]}>Library</Text>
-          <Text style={[styles.sub, { color: colors.muted }]}>{total} books</Text>
-        </View>
-        <Pressable
-          style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
-          onPress={() => {
-            void hapticImpact("light");
-            setUploadOpen(true);
-          }}
-        >
-          <Text style={styles.primaryBtnText}>Upload</Text>
-        </Pressable>
+      <View style={styles.header}>
+        <View style={{ flex: 1 }}><Text style={[styles.titleText, { color: colors.text }]}>Library</Text><Text style={[styles.subtitle, { color: colors.textSecondary }]}>{totalBooks} book{totalBooks === 1 ? "" : "s"} · {sets.length} set{sets.length === 1 ? "" : "s"}</Text></View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Create study material" style={[styles.createButton, { backgroundColor: colors.primary }]} onPress={() => setUploadOpen(true)}><Ionicons name="add" size={23} color={colors.onPrimary} /></Pressable>
+      </View>
+
+      <View style={[styles.search, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
+        <Ionicons name="search" size={19} color={colors.textMuted} />
+        <TextInput value={query} onChangeText={setQuery} placeholder="Search books and sets" placeholderTextColor={colors.textMuted} style={[styles.searchInput, { color: colors.text }]} returnKeyType="search" accessibilityLabel="Search books and flashcard sets" />
+        {query ? <Pressable accessibilityLabel="Clear search" hitSlop={8} onPress={() => setQuery("")}><Ionicons name="close-circle" size={20} color={colors.textMuted} /></Pressable> : null}
+      </View>
+
+      <View accessibilityRole="tablist" style={styles.filters}>
+        {(["all", "books", "sets"] as const).map((value) => {
+          const selected = filter === value;
+          return <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected }} onPress={() => setFilter(value)} style={[styles.filter, { backgroundColor: selected ? colors.primarySoft : colors.surface, borderColor: selected ? colors.primary : colors.border }]}><Text style={[styles.filterLabel, { color: selected ? colors.primary : colors.textSecondary }]}>{value === "all" ? "All" : value === "books" ? "Books" : "Flashcard sets"}</Text></Pressable>;
+        })}
       </View>
 
       <FlatList
-        data={books}
-        keyExtractor={(b) => b.id}
-        extraData={books.length}
-        renderItem={renderItem}
-        refreshControl={
-          <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={colors.primary} />
-        }
-        onEndReached={() => {
-          if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
-        }}
+        data={items}
+        keyExtractor={(item) => item.kind === "heading" ? `heading:${item.id}` : `${item.kind}:${item.value.id}`}
+        refreshControl={<RefreshControl refreshing={booksQuery.isRefetching || setsQuery.isRefetching} onRefresh={() => void refresh()} tintColor={colors.primary} />}
+        onEndReached={() => { if (!normalizedQuery && filter !== "sets" && booksQuery.hasNextPage && !booksQuery.isFetchingNextPage) void booksQuery.fetchNextPage(); }}
         onEndReachedThreshold={0.4}
-        contentContainerStyle={books.length === 0 ? styles.emptyList : { paddingBottom: 32, gap: 10 }}
-        ListEmptyComponent={
-          <EmptyState
-            icon="📚"
-            title="No books yet"
-            message="Upload your first PDF to generate AI flashcards."
-            actionLabel="Upload book"
-            onAction={() => setUploadOpen(true)}
-          />
-        }
+        contentContainerStyle={items.length === 0 ? styles.emptyList : styles.list}
+        ListHeaderComponent={(booksQuery.isError || setsQuery.isError) && (books.length || sets.length) ? <Text style={[styles.notice, { color: colors.warning }]}>Some library items couldn't be refreshed.</Text> : null}
+        ListFooterComponent={filter !== "sets" && booksQuery.hasNextPage ? (
+          normalizedQuery ? <Pressable style={[styles.searchMore, { borderColor: colors.borderStrong }]} disabled={booksQuery.isFetchingNextPage} onPress={() => void booksQuery.fetchNextPage()}><Text style={[styles.filterLabel, { color: colors.text }]}>{booksQuery.isFetchingNextPage ? "Searching more books…" : "Search more books"}</Text></Pressable>
+            : booksQuery.isFetchingNextPage ? <Text style={[styles.loadingMore, { color: colors.textMuted }]}>Loading more books…</Text> : null
+        ) : null}
+        ListEmptyComponent={isEmpty && !normalizedQuery ? (
+          <View style={styles.empty}><View style={[styles.emptyIcon, { backgroundColor: colors.primarySoft }]}><Ionicons name="library-outline" size={30} color={colors.primary} /></View><Text style={[styles.stateTitle, { color: colors.text }]}>Build your first study set</Text><Text style={[styles.stateBody, { color: colors.textSecondary }]}>Upload a PDF, then create flashcards from the chapters you want to learn.</Text><Pressable style={[styles.primaryButton, { backgroundColor: colors.primary }]} onPress={() => setUploadOpen(true)}><Text style={[styles.primaryLabel, { color: colors.onPrimary }]}>Create study material</Text></Pressable></View>
+        ) : (
+          <View style={styles.empty}><Ionicons name="search-outline" size={32} color={colors.textMuted} /><Text style={[styles.stateTitle, { color: colors.text }]}>{filter !== "sets" && booksQuery.hasNextPage ? `No matches yet for “${query.trim()}”` : `No results for “${query.trim()}”`}</Text><Text style={[styles.stateBody, { color: colors.textSecondary }]}>{filter !== "sets" && booksQuery.hasNextPage ? "Search more books or try a different phrase." : "Try another search or choose a different filter."}</Text>{filter !== "sets" && booksQuery.hasNextPage ? <Pressable style={[styles.primaryButton, { backgroundColor: colors.primary }]} disabled={booksQuery.isFetchingNextPage} onPress={() => void booksQuery.fetchNextPage()}><Text style={[styles.primaryLabel, { color: colors.onPrimary }]}>{booksQuery.isFetchingNextPage ? "Searching…" : "Search more books"}</Text></Pressable> : null}<Pressable style={[styles.clearButton, { borderColor: colors.borderStrong }]} onPress={() => { setQuery(""); setFilter("all"); }}><Text style={[styles.filterLabel, { color: colors.text }]}>Clear search and filters</Text></Pressable></View>
+        )}
+        renderItem={({ item }) => item.kind === "heading" ? (
+          <Text accessibilityRole="header" style={[styles.groupHeading, { color: colors.textSecondary }]}>{item.label}</Text>
+        ) : item.kind === "book" ? (
+          <Link href={`/book/${item.value.id}`} asChild><Pressable style={({ pressed }) => [styles.item, { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.65 : 1 }]} accessibilityLabel={`Book, ${item.value.title}, by ${item.value.author}`}><View style={[styles.itemIcon, { backgroundColor: colors.surfaceMuted }]}><Ionicons name="book-outline" size={22} color={colors.info} /></View><View style={{ flex: 1 }}><Text style={[styles.itemTitle, { color: colors.text }]} numberOfLines={2}>{item.value.title}</Text><Text style={[styles.itemMeta, { color: colors.textSecondary }]} numberOfLines={2}>{item.value.author}{item.value.is_analyzing ? " · Preparing chapters" : item.value.table_of_contents?.length ? ` · ${item.value.table_of_contents.length} chapters` : ""}</Text></View><Ionicons name="chevron-forward" size={18} color={colors.textMuted} /></Pressable></Link>
+        ) : (
+          <Link href={`/study/${item.value.id}`} asChild><Pressable style={({ pressed }) => [styles.item, { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.65 : 1 }]} accessibilityLabel={`Flashcard set, ${item.value.title}, ${item.value.card_count} cards`}><View style={[styles.itemIcon, { backgroundColor: colors.primarySoft }]}><Ionicons name="albums-outline" size={22} color={colors.primary} /></View><View style={{ flex: 1 }}><Text style={[styles.itemTitle, { color: colors.text }]} numberOfLines={2}>{item.value.title}</Text><Text style={[styles.itemMeta, { color: colors.textSecondary }]} numberOfLines={2}>{item.value.card_count} cards{item.value.book_title ? ` · ${item.value.book_title}` : ""}</Text></View><Ionicons name="play-circle-outline" size={22} color={colors.primary} /></Pressable></Link>
+        )}
       />
 
-      <Modal visible={uploadOpen} animationType="slide" transparent>
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Upload book</Text>
-            <Pressable
-              style={[styles.secondaryBtn, { borderColor: colors.primary, marginTop: 0 }]}
-              onPress={pickFile}
-              disabled={uploadMutation.isPending}
-            >
-              <Text style={{ color: colors.primary, fontWeight: "600" }}>
-                {picked ? picked.name : "Choose PDF (required first step)"}
-              </Text>
-            </Pressable>
-            {picked ? (
-              <Text style={{ color: colors.muted, marginTop: 6, fontSize: 13, fontWeight: "600" }}>
-                {formatFileSize(picked.size)}
-                {estimatePageCount(picked.size) ? ` • ~${estimatePageCount(picked.size)} pages` : ""}
-              </Text>
-            ) : null}
-            {detectHint ? (
-              <Text style={{ color: colors.muted, marginTop: 8, fontSize: 13 }}>{detectHint}</Text>
-            ) : null}
-            <Text style={[styles.label, { color: colors.muted }]}>Title *</Text>
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder="Required"
-              placeholderTextColor={colors.muted}
-              style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
-            />
-            <Text style={[styles.label, { color: colors.muted }]}>Author *</Text>
-            <TextInput
-              value={author}
-              onChangeText={setAuthor}
-              placeholder="Required"
-              placeholderTextColor={colors.muted}
-              style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]}
-            />
-            {uploadPhaseLabel ? (
-              <Text style={{ color: colors.primary, marginTop: 8, fontWeight: "600" }}>{uploadPhaseLabel}</Text>
-            ) : null}
-            {uploadMutation.isError ? (
-              <Text style={{ color: colors.danger, marginTop: 8 }}>
-                {(uploadMutation.error as Error)?.message || "Upload failed"}
-              </Text>
-            ) : null}
-            <View style={styles.modalActions}>
-              <Pressable style={styles.ghostBtn} onPress={() => setUploadOpen(false)}>
-                <Text style={{ color: colors.muted, fontWeight: "600" }}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.primaryBtn, uploadMutation.isPending && { opacity: 0.6 }]}
-                disabled={uploadMutation.isPending || (!picked ? false : !title.trim() || !author.trim())}
-                onPress={handleUploadPress}
-              >
-                <Text style={styles.primaryBtnText}>
-                  {uploadMutation.isPending
-                    ? uploadPhaseLabel ?? "Uploading…"
-                    : picked
-                      ? "Upload Book"
-                      : "Choose PDF"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
+      <Modal visible={uploadOpen} animationType="slide" transparent onRequestClose={() => !uploadMutation.isPending && closeCreation()}>
+        <View style={[styles.backdrop, { backgroundColor: colors.overlay }]}><View style={[styles.sheet, { backgroundColor: colors.surfaceElevated }]}><Text style={[styles.sheetTitle, { color: colors.text }]}>Create study material</Text><Text style={[styles.sheetBody, { color: colors.textSecondary }]}>Upload a PDF to add a book to your library.</Text><Pressable style={[styles.fileButton, { borderColor: colors.borderStrong }]} onPress={() => void pickFile()} disabled={uploadMutation.isPending}><Ionicons name="document-attach-outline" size={20} color={colors.primary} /><Text style={[styles.fileLabel, { color: colors.text }]} numberOfLines={2}>{picked ? picked.name : "Choose PDF"}</Text></Pressable>{picked ? <Text style={[styles.fileMeta, { color: colors.textSecondary }]}>{formatFileSize(picked.size)}{estimatePageCount(picked.size) ? ` · about ${estimatePageCount(picked.size)} pages` : ""}</Text> : null}{detectHint ? <Text style={[styles.fileMeta, { color: colors.textSecondary }]}>{detectHint}</Text> : null}<Text style={[styles.label, { color: colors.textSecondary }]}>Title</Text><TextInput value={title} onChangeText={setTitle} placeholder="Book title" placeholderTextColor={colors.textMuted} style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]} /><Text style={[styles.label, { color: colors.textSecondary }]}>Author</Text><TextInput value={author} onChangeText={setAuthor} placeholder="Author name" placeholderTextColor={colors.textMuted} style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.background }]} />{uploadPhaseLabel ? <Text style={[styles.status, { color: colors.primary }]}>{uploadPhaseLabel}</Text> : null}{uploadMutation.isError && (uploadMutation.error as { response?: { status?: number } })?.response?.status !== 402 ? <Text style={[styles.status, { color: colors.danger }]}>We couldn't upload this document. Try again.</Text> : null}<View style={styles.actions}><Pressable style={styles.cancel} disabled={uploadMutation.isPending} onPress={closeCreation}><Text style={[styles.secondaryLabel, { color: colors.textSecondary }]}>Cancel</Text></Pressable><Pressable style={[styles.primaryButton, { backgroundColor: colors.primary, opacity: uploadMutation.isPending ? 0.6 : 1 }]} disabled={uploadMutation.isPending || (!!picked && (!title.trim() || !author.trim()))} onPress={() => void upload()}><Text style={[styles.primaryLabel, { color: colors.onPrimary }]}>{uploadMutation.isPending ? uploadPhaseLabel ?? "Uploading…" : picked ? "Upload document" : "Choose PDF"}</Text></Pressable></View></View></View>
       </Modal>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  title: { fontSize: 24, fontWeight: "700" },
-  sub: { fontSize: 14, marginTop: 4 },
-  emptyList: { flexGrow: 1 },
-  card: {
-    marginHorizontal: 16,
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-  },
-  cardTitle: { fontSize: 16, fontWeight: "600" },
-  cardMeta: { fontSize: 13, marginTop: 4 },
-  primaryBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-    justifyContent: "center",
-    minHeight: 44,
-    minWidth: 96,
-    alignItems: "center",
-  },
-  primaryBtnText: { color: "#fff", fontWeight: "600" },
-  secondaryBtn: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 8,
-    minHeight: 44,
-    justifyContent: "center",
-  },
-  label: { marginTop: 10, fontSize: 13, fontWeight: "600" },
-  input: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 6,
-    minHeight: 44,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(15,23,42,0.45)",
-    justifyContent: "center",
-    padding: 20,
-  },
-  modalCard: { borderRadius: 16, padding: 20 },
-  modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 20 },
-  ghostBtn: { paddingVertical: 10, paddingHorizontal: 12, minHeight: 44, justifyContent: "center" },
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: TOKENS.spacing.lg, marginBottom: TOKENS.spacing.lg },
+  titleText: { ...TOKENS.typography.screenTitle }, subtitle: { ...TOKENS.typography.secondaryBody, marginTop: 2 },
+  createButton: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  search: { minHeight: 48, marginHorizontal: TOKENS.spacing.lg, borderRadius: TOKENS.radii.md, borderWidth: 1, paddingHorizontal: TOKENS.spacing.md, flexDirection: "row", alignItems: "center", gap: TOKENS.spacing.sm },
+  searchInput: { ...TOKENS.typography.body, flex: 1, paddingVertical: TOKENS.spacing.sm },
+  filters: { flexDirection: "row", flexWrap: "wrap", gap: TOKENS.spacing.sm, paddingHorizontal: TOKENS.spacing.lg, paddingVertical: TOKENS.spacing.md },
+  filter: { minHeight: 44, borderRadius: TOKENS.radii.pill, borderWidth: 1, paddingHorizontal: TOKENS.spacing.lg, alignItems: "center", justifyContent: "center" }, filterLabel: { ...TOKENS.typography.label },
+  list: { paddingHorizontal: TOKENS.spacing.lg, paddingBottom: TOKENS.spacing.xxxl, gap: TOKENS.spacing.sm }, emptyList: { flexGrow: 1 },
+  item: { minHeight: 82, borderRadius: TOKENS.radii.lg, borderWidth: 1, padding: TOKENS.spacing.md, flexDirection: "row", alignItems: "center", gap: TOKENS.spacing.md },
+  itemIcon: { width: 46, height: 46, borderRadius: TOKENS.radii.md, alignItems: "center", justifyContent: "center" }, itemTitle: { ...TOKENS.typography.bodyEmphasis }, itemMeta: { ...TOKENS.typography.caption, marginTop: 4 },
+  groupHeading: { ...TOKENS.typography.label, marginTop: TOKENS.spacing.sm, marginBottom: TOKENS.spacing.xs },
+  notice: { ...TOKENS.typography.caption, marginBottom: TOKENS.spacing.sm }, loadingMore: { ...TOKENS.typography.caption, textAlign: "center", padding: TOKENS.spacing.lg },
+  empty: { flex: 1, minHeight: 360, alignItems: "center", justifyContent: "center", padding: TOKENS.spacing.xl }, emptyIcon: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: TOKENS.spacing.lg },
+  centerState: { flex: 1, alignItems: "center", justifyContent: "center", padding: TOKENS.spacing.xl }, stateTitle: { ...TOKENS.typography.sectionTitle, textAlign: "center", marginTop: TOKENS.spacing.md }, stateBody: { ...TOKENS.typography.body, textAlign: "center", marginTop: TOKENS.spacing.sm, maxWidth: 340 },
+  primaryButton: { minHeight: 48, borderRadius: TOKENS.radii.md, paddingHorizontal: TOKENS.spacing.lg, alignItems: "center", justifyContent: "center", marginTop: TOKENS.spacing.lg }, primaryLabel: { ...TOKENS.typography.buttonLabel },
+  clearButton: { minHeight: 44, borderRadius: TOKENS.radii.md, borderWidth: 1, paddingHorizontal: TOKENS.spacing.lg, alignItems: "center", justifyContent: "center", marginTop: TOKENS.spacing.lg },
+  searchMore: { minHeight: 48, borderRadius: TOKENS.radii.md, borderWidth: 1, alignItems: "center", justifyContent: "center", marginVertical: TOKENS.spacing.lg },
+  backdrop: { flex: 1, justifyContent: "flex-end" }, sheet: { borderTopLeftRadius: TOKENS.radii.xl, borderTopRightRadius: TOKENS.radii.xl, padding: TOKENS.spacing.xl, paddingBottom: TOKENS.spacing.xxxl }, sheetTitle: { ...TOKENS.typography.sectionTitle }, sheetBody: { ...TOKENS.typography.secondaryBody, marginTop: 4, marginBottom: TOKENS.spacing.md },
+  fileButton: { minHeight: 52, borderRadius: TOKENS.radii.md, borderWidth: 1, paddingHorizontal: TOKENS.spacing.md, flexDirection: "row", alignItems: "center", gap: TOKENS.spacing.sm }, fileLabel: { ...TOKENS.typography.bodyEmphasis, flex: 1 }, fileMeta: { ...TOKENS.typography.caption, marginTop: TOKENS.spacing.sm }, label: { ...TOKENS.typography.label, marginTop: TOKENS.spacing.md }, input: { minHeight: 48, borderRadius: TOKENS.radii.md, borderWidth: 1, paddingHorizontal: TOKENS.spacing.md, marginTop: 6 }, status: { ...TOKENS.typography.label, marginTop: TOKENS.spacing.sm },
+  actions: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: TOKENS.spacing.md }, cancel: { minHeight: 48, paddingHorizontal: TOKENS.spacing.md, justifyContent: "center", marginTop: TOKENS.spacing.lg }, secondaryLabel: { ...TOKENS.typography.buttonLabel },
 });

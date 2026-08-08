@@ -140,3 +140,15 @@ The foundation requires physical runtime/device QA verification during later MFU
 - Card-content direction may be RTL independently of the surrounding navigation direction.
 - Study motion uses fast opacity transitions and becomes immediate when reduced motion is enabled.
 - `onPrimary` is the semantic foreground token for content placed on a primary-colored surface.
+
+---
+
+## 9. Home and Library Conventions
+
+- Home presents one dominant, authoritative next learning action; momentum and engagement remain secondary.
+- Zero-due states offer ordinary study without implying that scheduled cards should be reviewed early.
+- Failure in an optional Home query must not replace otherwise usable learning content.
+- Library uses a unified scanning list with lightweight type filters. Books and flashcard sets remain visibly distinct.
+- When server-wide search is unavailable, Library searches the visible collection and offers an explicit “Search more books” action until every book page has been checked.
+- Creation uses one bottom-anchored modal from Library's 44dp-or-larger header action, its empty state, and Home's first-run action.
+- Cached list content remains visible during refresh; background failure uses a non-blocking notice.
