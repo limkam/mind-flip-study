@@ -17,7 +17,7 @@ import type { FlashcardSetOut } from "../../types/api";
 import { normalizeTagsList } from "../../lib/tagUtils";
 
 export default function FlashcardsTab() {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const bootstrapStatus = useAuthStore((s) => s.bootstrapStatus);
@@ -172,7 +172,7 @@ export default function FlashcardsTab() {
   if (isLoading) {
     return (
       <Screen>
-        <PageHeader title="My Flashcards" />
+        <PageHeader title="Study" subtitle="Choose what you want to learn next." />
         <StudySkeleton />
       </Screen>
     );
@@ -181,7 +181,7 @@ export default function FlashcardsTab() {
   if (isError) {
     return (
       <Screen>
-        <PageHeader title="My Flashcards" subtitle={user?.email ? `Signed in as ${user.email}` : undefined} />
+        <PageHeader title="Study" subtitle="Choose what you want to learn next." />
         <EmptyState
           icon="⚠️"
           title="Could not load flashcard sets"
@@ -196,11 +196,11 @@ export default function FlashcardsTab() {
   return (
     <Screen>
       <PageHeader
-        title="My Flashcards"
+        title="Study"
         subtitle={
           sets.length > 0
-            ? `${sets.length} set${sets.length !== 1 ? "s" : ""} · ${user?.email ?? "your account"}`
-            : `Create a set from a book in Library · ${user?.email ?? "your account"}`
+            ? `${sets.length} ready-to-study set${sets.length !== 1 ? "s" : ""}`
+            : "Your learning sessions will appear here."
         }
       />
       <FlatList
@@ -210,6 +210,29 @@ export default function FlashcardsTab() {
           <RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} tintColor={colors.primary} />
         }
         contentContainerStyle={sets.length === 0 ? styles.emptyList : styles.list}
+        ListHeaderComponent={
+          <Link href="/daily-review" asChild>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Start Daily Review"
+              onPress={() => void hapticImpact("light")}
+              style={({ pressed }) => [
+                styles.reviewCard,
+                {
+                  backgroundColor: pressed ? colors.primaryPressed : colors.primary,
+                  borderColor: colors.primary,
+                },
+              ]}
+            >
+              <View style={styles.reviewCopy}>
+                <Text style={[styles.reviewEyebrow, { color: colors.onPrimary }]}>DUE REVIEW</Text>
+                <Text style={[styles.reviewTitle, { color: colors.onPrimary }]}>Daily Review</Text>
+                <Text style={[styles.reviewBody, { color: colors.onPrimary }]}>Review the cards scheduled for today.</Text>
+              </View>
+              <Text style={[styles.reviewArrow, { color: colors.onPrimary }]}>→</Text>
+            </Pressable>
+          </Link>
+        }
         ListEmptyComponent={
           <EmptyState
             icon="📚"
@@ -256,7 +279,7 @@ export default function FlashcardsTab() {
                     style={[
                       styles.tagChip,
                       {
-                        backgroundColor: isDark ? "#1e293b" : "#f1f5f9",
+                        backgroundColor: colors.surfaceMuted,
                         borderColor: colors.border,
                       },
                     ]}
@@ -316,6 +339,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 10,
   },
+  reviewCard: {
+    minHeight: 112,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 18,
+    marginBottom: 18,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  reviewCopy: { flex: 1 },
+  reviewEyebrow: { fontSize: 11, fontWeight: "800", letterSpacing: 1, opacity: 0.78 },
+  reviewTitle: { fontSize: 21, fontWeight: "800", marginTop: 4 },
+  reviewBody: { fontSize: 14, marginTop: 5, opacity: 0.88 },
+  reviewArrow: { fontSize: 28, marginLeft: 12 },
   cardRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   cardBody: { flex: 1 },
   cardTitle: { fontSize: 16, fontWeight: "600" },

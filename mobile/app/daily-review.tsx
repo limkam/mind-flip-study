@@ -17,6 +17,8 @@ import { api } from "../api/client";
 import { FlashCard } from "../components/FlashCard";
 import { Screen } from "../components/Screen";
 import { StudySessionSummary } from "../components/study/StudySessionSummary";
+import { RecallRatingBar } from "../components/study/RecallRatingBar";
+import { StudyProgressHeader } from "../components/study/StudyProgressHeader";
 import { useScreenHeader } from "../hooks/useScreenHeader";
 import { useTheme } from "../hooks/useTheme";
 import { hapticImpact, hapticSuccess } from "../lib/haptics";
@@ -26,8 +28,6 @@ import { submitStudyProgress } from "../lib/studyProgress";
 import { useCelebration } from "../context/CelebrationContext";
 import { useAuthStore } from "../store/authStore";
 import type { BookOut, DueFlashcardOut, Paginated, StudyProgressOut } from "../types/api";
-
-const RATING_TO_QUALITY = { hard: 2, medium: 3, easy: 5 } as const;
 
 type ReviewItem = {
   card: { id: string; front: string; back: string; chapter?: string | null };
@@ -74,7 +74,7 @@ export default function DailyReviewScreen() {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [sessionDone, setSessionDone] = useState(false);
-  const [pendingRating, setPendingRating] = useState<keyof typeof RATING_TO_QUALITY | null>(null);
+  const [pendingRating, setPendingRating] = useState<number | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedBooks, setSelectedBooks] = useState<Record<string, boolean>>({});
   const [selectedChapters, setSelectedChapters] = useState<Record<string, boolean>>({});
@@ -90,9 +90,9 @@ export default function DailyReviewScreen() {
     submittedCount: 0,
     queuedOfflineCount: 0,
     rejectedCount: 0,
+    ratingCounts: {} as Partial<Record<1 | 2 | 3 | 4 | 5, number>>,
   });
 
-  const sessionStart = useRef(Date.now());
   const ratingInFlightRef = useRef(new Set<string>());
   const serverProgress = useRef<Record<string, StudyProgressOut>>({});
   const isMountedRef = useRef(true);
@@ -242,7 +242,7 @@ export default function DailyReviewScreen() {
   }, [refetchBooks, refetchQueue]);
 
   const rate = useCallback(
-    async (rating: keyof typeof RATING_TO_QUALITY) => {
+    async (quality: number) => {
       const currentCardId = item?.card.id;
       const expectedUserId = user?.id;
       if (!item || !currentCardId || !expectedUserId) return;
@@ -250,14 +250,8 @@ export default function DailyReviewScreen() {
       if (ratingInFlightRef.current.has(currentCardId)) return;
       ratingInFlightRef.current.add(currentCardId);
 
-      setPendingRating(rating);
-      const quality = RATING_TO_QUALITY[rating];
-
-      setSessionStats((s) => ({
-        ...s,
-        total: s.total + 1,
-        [rating]: (s[rating as keyof typeof s] as number) + 1,
-      }));
+      setPendingRating(quality);
+      const bucket = quality <= 2 ? "hard" : quality >= 5 ? "easy" : "medium";
 
       try {
         const result = await submitStudyProgress(
@@ -270,6 +264,16 @@ export default function DailyReviewScreen() {
         }
 
         if (result.status === "submitted" || result.status === "queued") {
+          const ratingKey = quality as 1 | 2 | 3 | 4 | 5;
+          setSessionStats((s) => ({
+            ...s,
+            total: s.total + 1,
+            [bucket]: s[bucket] + 1,
+            ratingCounts: {
+              ...s.ratingCounts,
+              [ratingKey]: (s.ratingCounts[ratingKey] ?? 0) + 1,
+            },
+          }));
           if (result.status === "submitted") {
             serverProgress.current[result.progress.card_id] = result.progress;
             setSessionStats((s) => ({ ...s, submittedCount: s.submittedCount + 1 }));
@@ -283,17 +287,17 @@ export default function DailyReviewScreen() {
             setSessionStats((s) => ({ ...s, queuedOfflineCount: s.queuedOfflineCount + 1 }));
           }
 
-          if (rating === "hard" && !hardReviewMode) {
+          if (quality <= 2 && !hardReviewMode) {
             setHardReviewItems((items) =>
               items.some((i) => i.card.id === currentCardId) ? items : [...items, item],
             );
           }
 
-          if (rating === "easy") void hapticSuccess();
-          else void hapticImpact("medium");
+          void hapticImpact("light");
 
           if (currentIdx >= count - 1) {
             setSessionDone(true);
+            void hapticSuccess();
             return;
           }
 
@@ -303,12 +307,7 @@ export default function DailyReviewScreen() {
         }
 
         // Permanent rejection or error
-        setSessionStats((s) => ({
-          ...s,
-          rejectedCount: s.rejectedCount + 1,
-          total: Math.max(0, s.total - 1),
-          [rating]: Math.max(0, (s[rating as keyof typeof s] as number) - 1),
-        }));
+        setSessionStats((s) => ({ ...s, rejectedCount: s.rejectedCount + 1 }));
         Alert.alert("Progress not saved", result.reason);
       } finally {
         ratingInFlightRef.current.delete(currentCardId);
@@ -334,8 +333,8 @@ export default function DailyReviewScreen() {
       submittedCount: 0,
       queuedOfflineCount: 0,
       rejectedCount: 0,
+      ratingCounts: {},
     });
-    sessionStart.current = Date.now();
   };
 
   const selectAllBooks = () => {
@@ -368,11 +367,6 @@ export default function DailyReviewScreen() {
     (booksInitialized && activeBookIds.length === 0) ||
     (availableChapters.length > 0 && activeChapterNames?.length === 0);
 
-  const progressLabel = useMemo(
-    () => (count ? `${Math.min(currentIdx + 1, count)} / ${count}` : "0 / 0"),
-    [currentIdx, count],
-  );
-
   if (sessionDone) {
     return (
       <Screen>
@@ -384,7 +378,7 @@ export default function DailyReviewScreen() {
           }
         >
           <StudySessionSummary
-            stats={{ ...sessionStats, durationMs: Date.now() - sessionStart.current }}
+            stats={sessionStats}
             mode="study"
             onReviewHard={hardReviewItems.length > 0 ? restartHardSession : null}
           />
@@ -458,8 +452,15 @@ export default function DailyReviewScreen() {
               {queueFetching && !hardReviewMode ? (
                 <ActivityIndicator size="small" color={colors.primary} />
               ) : null}
-              <Text style={[styles.progress, { color: colors.muted }]}>{progressLabel}</Text>
             </View>
+
+            {count > 0 ? (
+              <StudyProgressHeader
+                current={currentIdx + 1}
+                total={count}
+                title={hardReviewMode ? "Hard card review" : "Daily Review"}
+              />
+            ) : null}
 
             {filtersOpen && !hardReviewMode ? (
               <View style={[styles.filterBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -515,26 +516,6 @@ export default function DailyReviewScreen() {
               </View>
             ) : null}
 
-            {!hardReviewMode && item ? (
-              <View
-                style={[
-                  styles.ratingHelp,
-                  { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}22` },
-                ]}
-              >
-                <Text style={[styles.helpTitle, { color: colors.text }]}>How ratings work</Text>
-                <Text style={[styles.helpLine, { color: colors.muted }]}>
-                  <Text style={{ color: colors.danger, fontWeight: "700" }}>Hard</Text> — reviewed again soon
-                </Text>
-                <Text style={[styles.helpLine, { color: colors.muted }]}>
-                  <Text style={{ color: colors.warning, fontWeight: "700" }}>OK</Text> — normal review interval
-                </Text>
-                <Text style={[styles.helpLine, { color: colors.muted }]}>
-                  <Text style={{ color: colors.success, fontWeight: "700" }}>Easy</Text> — longer interval before next review
-                </Text>
-              </View>
-            ) : null}
-
             {item ? (
               <>
                 <Text style={[styles.setTitle, { color: colors.muted }]} numberOfLines={1}>
@@ -552,29 +533,14 @@ export default function DailyReviewScreen() {
                     back={item.card.back}
                     chapter={item.card.chapter}
                     onFlippedChange={setFlipped}
-                    onSwipeLeft={() => rate("hard")}
-                    onSwipeRight={() => rate("easy")}
                   />
                 </View>
                 {flipped ? (
                   <Animated.View entering={FadeIn} style={styles.ratingRow}>
-                    <RateBtn
-                      label="Hard"
-                      color={colors.danger}
-                      active={pendingRating === "hard"}
-                      onPress={() => rate("hard")}
-                    />
-                    <RateBtn
-                      label="OK"
-                      color={colors.warning}
-                      active={pendingRating === "medium"}
-                      onPress={() => rate("medium")}
-                    />
-                    <RateBtn
-                      label="Easy"
-                      color={colors.success}
-                      active={pendingRating === "easy"}
-                      onPress={() => rate("easy")}
+                    <RecallRatingBar
+                      onRate={(quality) => void rate(quality)}
+                      qualities={[2, 3, 5]}
+                      submittingQuality={pendingRating}
                     />
                   </Animated.View>
                 ) : (
@@ -618,7 +584,20 @@ export default function DailyReviewScreen() {
                   >
                     <Text style={styles.retryBtnText}>Check all books</Text>
                   </Pressable>
-                ) : null}
+                ) : (
+                  <View style={styles.emptyActions}>
+                    <Link href="/(tabs)" asChild>
+                      <Pressable style={[styles.retryBtn, { backgroundColor: colors.primary }]}>
+                        <Text style={styles.retryBtnText}>Back Home</Text>
+                      </Pressable>
+                    </Link>
+                    <Link href="/(tabs)/flashcards" asChild>
+                      <Pressable style={[styles.secondaryAction, { borderColor: colors.borderStrong }]}>
+                        <Text style={[styles.secondaryActionText, { color: colors.text }]}>Study something else</Text>
+                      </Pressable>
+                    </Link>
+                  </View>
+                )}
               </View>
             ) : queueFetching ? (
               <View style={styles.center}>
@@ -632,24 +611,6 @@ export default function DailyReviewScreen() {
   );
 }
 
-function RateBtn({
-  label,
-  color,
-  active,
-  onPress,
-}: {
-  label: string;
-  color: string;
-  active?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable style={[styles.rateBtn, { backgroundColor: color }, active && styles.rateBtnActive]} onPress={onPress}>
-      <Text style={styles.rateBtnText}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, paddingBottom: 24 },
   center: { alignItems: "center", justifyContent: "center", marginTop: 48, gap: 8 },
@@ -658,31 +619,17 @@ const styles = StyleSheet.create({
   topRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
   brand: { fontSize: 14, fontWeight: "700" },
   filterBtn: { fontSize: 13, fontWeight: "700" },
-  progress: { fontSize: 13, fontWeight: "600", marginLeft: "auto" },
   filterBox: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 10 },
   filterHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
   filterTitle: { fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
   selectAllText: { fontSize: 12, fontWeight: "600" },
   filterRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
   filterLabel: { flex: 1, fontSize: 14, fontWeight: "500" },
-  ratingHelp: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 12 },
-  helpTitle: { fontSize: 13, fontWeight: "700", marginBottom: 6 },
-  helpLine: { fontSize: 12, lineHeight: 18 },
   setTitle: { fontSize: 12, textAlign: "center", marginBottom: 2 },
   chapter: { fontSize: 12, textAlign: "center", fontWeight: "600", marginBottom: 8 },
   cardArea: { minHeight: 280, justifyContent: "center" },
   hint: { textAlign: "center", fontSize: 14, marginBottom: 12 },
-  ratingRow: { flexDirection: "row", justifyContent: "center", gap: 10, marginBottom: 12 },
-  rateBtn: {
-    minHeight: 44,
-    minWidth: 80,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-  },
-  rateBtnActive: { transform: [{ scale: 1.05 }], opacity: 0.92 },
-  rateBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  ratingRow: { marginBottom: 12 },
   scopeEmpty: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 24, paddingVertical: 32 },
   scopeTitle: { fontSize: 18, fontWeight: "700", textAlign: "center", marginBottom: 8 },
   scopeBody: { fontSize: 14, lineHeight: 20, textAlign: "center" },
@@ -692,4 +639,7 @@ const styles = StyleSheet.create({
   retryBtn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 10 },
   retryBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   offlineNotice: { textAlign: "center", fontSize: 12, marginTop: 12, paddingHorizontal: 20 },
+  emptyActions: { width: "100%", maxWidth: 320, marginTop: 18, gap: 10 },
+  secondaryAction: { minHeight: 44, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  secondaryActionText: { fontWeight: "700", fontSize: 14 },
 });

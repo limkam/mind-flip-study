@@ -3,15 +3,18 @@ import { useRouter } from "expo-router";
 
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
+import { TOKENS } from "../../theme/tokens";
+import { RECALL_RATINGS } from "./RecallRatingBar";
+
+export type RatingCounts = Partial<Record<1 | 2 | 3 | 4 | 5, number>>;
 
 export type SessionStats = {
   total?: number;
   hard?: number;
   medium?: number;
   easy?: number;
-  durationMs?: number;
-  completionRate?: number;
-  confidenceScore?: number;
+  ratingCounts?: RatingCounts;
+  queuedOfflineCount?: number;
 };
 
 type Props = {
@@ -36,28 +39,43 @@ export function StudySessionSummary({
   const hard = stats.hard ?? 0;
   const medium = stats.medium ?? 0;
   const easy = stats.easy ?? 0;
-  const accuracy = total > 0 ? Math.round(((easy + medium) / total) * 100) : 0;
-  const mins = Math.max(1, Math.round((stats.durationMs ?? 0) / 60000));
-
+  const ratingCounts = stats.ratingCounts;
+  const queuedOfflineCount = stats.queuedOfflineCount ?? 0;
   return (
     <View style={styles.wrap}>
       <Text style={styles.emoji}>{mode === "games" ? "⚡" : "🎯"}</Text>
       <Text style={[styles.title, { color: colors.text }]}>
-        {mode === "games" ? "Game Session Complete!" : "Session Complete!"}
+        {mode === "games" ? "Game session complete" : "Session complete"}
       </Text>
       <Text style={[styles.sub, { color: colors.muted }]}>
         {mode === "games"
-          ? "Great work — keep the streak going!"
-          : "Your ratings power spaced repetition."}
+          ? "Great work — keep going when you're ready."
+          : queuedOfflineCount > 0
+            ? `${total} card${total === 1 ? "" : "s"} reviewed. ${queuedOfflineCount} rating${queuedOfflineCount === 1 ? " is" : "s are"} saved for sync.`
+            : `${total} card${total === 1 ? "" : "s"} reviewed.`}
       </Text>
 
+      <View style={[styles.totalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={[styles.statLabel, { color: colors.muted }]}>Cards reviewed</Text>
+        <Text style={[styles.statValue, { color: colors.text }]}>{total}</Text>
+      </View>
+
+      <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>Your recall ratings</Text>
       <View style={styles.grid}>
-        <StatCard label="Cards Reviewed" value={String(total)} colors={colors} />
-        <StatCard label="Time Spent" value={`${mins} min`} colors={colors} />
-        <StatCard label="Hard" value={String(hard)} colors={colors} valueColor={colors.danger} />
-        <StatCard label="OK" value={String(medium)} colors={colors} valueColor={colors.warning} />
-        <StatCard label="Easy" value={String(easy)} colors={colors} valueColor={colors.success} />
-        <StatCard label="Accuracy" value={`${accuracy}%`} colors={colors} />
+        {ratingCounts ? RECALL_RATINGS.map((rating) => (
+          <StatCard
+            key={rating.quality}
+            label={rating.label}
+            value={String(ratingCounts[rating.quality] ?? 0)}
+            colors={colors}
+          />
+        )) : (
+          <>
+            <StatCard label="Hard" value={String(hard)} colors={colors} />
+            <StatCard label="Okay / Good" value={String(medium)} colors={colors} />
+            <StatCard label="Easy" value={String(easy)} colors={colors} />
+          </>
+        )}
       </View>
 
       {hard > 0 && onReviewHard ? (
@@ -68,7 +86,7 @@ export function StudySessionSummary({
             onReviewHard();
           }}
         >
-          <Text style={styles.primaryBtnText}>Practice Hard Cards Again</Text>
+          <Text style={[styles.primaryBtnText, { color: colors.onPrimary }]}>Practice Hard Cards Again</Text>
         </Pressable>
       ) : null}
 
@@ -129,7 +147,7 @@ function StatCard({
 }
 
 const styles = StyleSheet.create({
-  wrap: { padding: 20, alignItems: "center" },
+  wrap: { padding: TOKENS.spacing.xl, alignItems: "center", width: "100%", maxWidth: 560, alignSelf: "center" },
   emoji: { fontSize: 48, marginBottom: 12 },
   title: { fontSize: 22, fontWeight: "800", textAlign: "center" },
   sub: { fontSize: 14, marginTop: 6, marginBottom: 20, textAlign: "center", lineHeight: 20 },
@@ -140,8 +158,10 @@ const styles = StyleSheet.create({
     width: "100%",
     marginBottom: 20,
   },
+  totalCard: { width: "100%", borderRadius: 12, borderWidth: 1, padding: 16, marginBottom: 16 },
+  sectionLabel: { ...TOKENS.typography.label, alignSelf: "flex-start", marginBottom: 10 },
   statCard: {
-    width: "47%",
+    width: "48%",
     borderRadius: 12,
     borderWidth: 1,
     padding: 14,
@@ -155,7 +175,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
-  primaryBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  primaryBtnText: { fontWeight: "700", fontSize: 16 },
   secondaryBtn: {
     width: "100%",
     borderRadius: 12,

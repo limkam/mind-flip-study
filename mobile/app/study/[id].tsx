@@ -12,9 +12,6 @@ import {
 } from "react-native";
 import Animated, {
   FadeIn,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
 } from "react-native-reanimated";
 
 import { FlashCard } from "../../components/FlashCard";
@@ -22,6 +19,8 @@ import { GameSelector } from "../../components/games";
 import { Screen } from "../../components/Screen";
 import { ChapterSummaryView } from "../../components/study/ChapterSummaryView";
 import { StudySessionSummary } from "../../components/study/StudySessionSummary";
+import { RecallRatingBar } from "../../components/study/RecallRatingBar";
+import { StudyProgressHeader } from "../../components/study/StudyProgressHeader";
 import { StudySetHeader } from "../../components/study/StudySetHeader";
 import { ScenarioView } from "../../components/study/ScenarioView";
 import { EmptyState } from "../../components/EmptyState";
@@ -72,12 +71,14 @@ export default function StudyByIdScreen() {
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [hardReviewMode, setHardReviewMode] = useState(false);
   const [offlineNote, setOfflineNote] = useState(false);
+  const [queuedOfflineCount, setQueuedOfflineCount] = useState(0);
   const [localScenarios, setLocalScenarios] = useState<ScenarioOut[] | null>(null);
-  const sessionStart = useRef(Date.now());
+  const [submittingQuality, setSubmittingQuality] = useState<number | null>(null);
+  const [ratedCardId, setRatedCardId] = useState<string | null>(null);
   const ratingInFlight = useRef(false);
   const serverProgress = useRef<Record<string, StudyProgressOut>>({});
-
-  const progress = useSharedValue(0);
+  const sessionVersionRef = useRef(0);
+  const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: entitlements } = useQuery({
     queryKey: ["billing-entitlements"],
@@ -171,6 +172,8 @@ export default function StudyByIdScreen() {
   const total = activeCards.length;
 
   useEffect(() => {
+    sessionVersionRef.current += 1;
+    if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
     setIdx(0);
     setFlipped(false);
     setSessionComplete(false);
@@ -178,24 +181,20 @@ export default function StudyByIdScreen() {
     setRatings({});
     setHardReviewMode(false);
     setOfflineNote(false);
+    setQueuedOfflineCount(0);
     setLocalScenarios(null);
-    sessionStart.current = Date.now();
-    progress.value = 0;
-  }, [id, progress]);
+    setSubmittingQuality(null);
+    setRatedCardId(null);
+    return () => {
+      if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+    };
+  }, [id]);
 
   useEffect(() => {
     ratingInFlight.current = false;
+    setSubmittingQuality(null);
+    setRatedCardId(null);
   }, [idx, hardReviewMode]);
-
-  useEffect(() => {
-    if (total > 0) {
-      progress.value = withTiming((sessionComplete ? total : idx) / total, { duration: 300 });
-    }
-  }, [idx, total, sessionComplete, progress]);
-
-  const progressStyle = useAnimatedStyle(() => ({
-    width: `${Math.min(100, Math.max(0, progress.value * 100))}%`,
-  }));
 
   const sessionSummaryStats = useMemo(() => {
     const entries = Object.entries(ratings);
@@ -203,20 +202,20 @@ export default function StudyByIdScreen() {
     const medium = entries.filter(([, q]) => q === 3 || q === 4).length;
     const easy = entries.filter(([, q]) => q >= 5).length;
     const totalRated = entries.length;
-    const confidence =
-      totalRated > 0
-        ? Math.round(((easy * 100 + medium * 60 + hard * 20) / totalRated))
-        : 0;
+    const ratingCounts = entries.reduce<Partial<Record<1 | 2 | 3 | 4 | 5, number>>>((counts, [, quality]) => {
+      const key = quality as 1 | 2 | 3 | 4 | 5;
+      counts[key] = (counts[key] ?? 0) + 1;
+      return counts;
+    }, {});
     return {
       total: totalRated,
       hard,
       medium,
       easy,
-      durationMs: Date.now() - sessionStart.current,
-      completionRate: Math.round((totalRated / Math.max(cards.length, 1)) * 100),
-      confidenceScore: confidence,
+      ratingCounts,
+      queuedOfflineCount,
     };
-  }, [ratings, cards.length]);
+  }, [ratings, cards.length, queuedOfflineCount]);
 
   const { requestMany: requestCelebrations } = useCelebration();
 
@@ -228,7 +227,6 @@ export default function StudyByIdScreen() {
       );
       if (result.status === "submitted") {
         serverProgress.current[result.progress.card_id] = result.progress;
-        setOfflineNote(false);
         void requestCelebrations(result.progress);
         if (user?.id) {
           await invalidateAfterStudyProgress(queryClient, {
@@ -239,6 +237,7 @@ export default function StudyByIdScreen() {
         }
       } else if (result.status === "queued") {
         setOfflineNote(true);
+        setQueuedOfflineCount((count) => count + 1);
       }
       return result;
     },
@@ -249,18 +248,24 @@ export default function StudyByIdScreen() {
     async (quality: number) => {
       if (sessionComplete || !card || ratingInFlight.current) return;
       ratingInFlight.current = true;
+      setSubmittingQuality(quality);
       const ratedCard = card;
+      const expectedSessionVersion = sessionVersionRef.current;
+      const expectedUserId = user?.id;
       const result = await submitProgress(ratedCard.id, quality);
+      if (
+        expectedSessionVersion !== sessionVersionRef.current
+        || expectedUserId !== useAuthStore.getState().user?.id
+      ) return;
       if (result.status === "rejected" || result.status === "authentication") {
         ratingInFlight.current = false;
+        setSubmittingQuality(null);
         Alert.alert("Progress not saved", result.reason);
         return;
       }
       setRatings((prev) => ({ ...prev, [ratedCard.id]: quality }));
 
-      if (quality <= 2) void hapticImpact("heavy");
-      else if (quality >= 4) void hapticSuccess();
-      else void hapticImpact("medium");
+      void hapticImpact("light");
 
       const isLast = idx >= activeCards.length - 1;
       const advance = () => {
@@ -274,12 +279,17 @@ export default function StudyByIdScreen() {
         setFlipped(false);
       };
       if (autoAdvance) {
-        setTimeout(advance, autoAdvanceDelay);
+        advanceTimerRef.current = setTimeout(() => {
+          if (expectedSessionVersion === sessionVersionRef.current) advance();
+        }, autoAdvanceDelay);
       } else if (isLast) {
         advance();
+      } else {
+        setRatedCardId(ratedCard.id);
+        setSubmittingQuality(null);
       }
     },
-    [card, activeCards.length, idx, sessionComplete, submitProgress, autoAdvance, autoAdvanceDelay],
+    [card, activeCards.length, idx, sessionComplete, submitProgress, autoAdvance, autoAdvanceDelay, user?.id],
   );
 
 
@@ -352,9 +362,9 @@ export default function StudyByIdScreen() {
         </Text>
       ) : null}
 
-      {mode !== "study" ? null : (
-        <View style={[styles.progressTrack, { backgroundColor: colors.border }]}>
-          <Animated.View style={[styles.progressFill, progressStyle, { backgroundColor: colors.primary }]} />
+      {mode !== "study" || !total ? null : (
+        <View style={styles.progressWrap}>
+          <StudyProgressHeader current={sessionComplete ? total : idx + 1} total={total} title={displayTitle || "Study"} />
         </View>
       )}
 
@@ -435,7 +445,6 @@ export default function StudyByIdScreen() {
                     setSessionComplete(false);
                     setIdx(0);
                     setFlipped(false);
-                    sessionStart.current = Date.now();
                   }
                 : null
             }
@@ -444,7 +453,6 @@ export default function StudyByIdScreen() {
               setHardReviewMode(false);
               setIdx(0);
               setFlipped(false);
-              sessionStart.current = Date.now();
             }}
           />
         </Animated.View>
@@ -458,44 +466,38 @@ export default function StudyByIdScreen() {
               difficulty={card.difficulty}
               chapter={card.chapter}
               onFlippedChange={setFlipped}
-              onSwipeLeft={() => rateAndAdvance(1)}
-              onSwipeRight={() => rateAndAdvance(5)}
             />
           </View>
 
           {flipped ? (
             <Animated.View entering={FadeIn} style={styles.ratingRow}>
-              <RatingButton label="Again" quality={1} color={colors.danger} onPress={() => rateAndAdvance(1)} />
-              <RatingButton label="Hard" quality={2} color={colors.warning} onPress={() => rateAndAdvance(2)} />
-              <RatingButton label="Good" quality={4} color={colors.primary} onPress={() => rateAndAdvance(4)} />
-              <RatingButton label="Easy" quality={5} color={colors.success} onPress={() => rateAndAdvance(5)} />
+              <RecallRatingBar
+                onRate={(quality) => void rateAndAdvance(quality)}
+                qualities={[1, 2, 4, 5]}
+                submittingQuality={submittingQuality}
+                disabled={ratedCardId === card.id}
+              />
             </Animated.View>
           ) : (
             <Text style={[styles.flipHint, { color: colors.muted }]}>Flip the card to rate your recall</Text>
           )}
 
-          <View style={styles.navRow}>
-            <NavButton
-              label="Prev"
-              disabled={idx === 0}
-              onPress={() => {
-                void hapticImpact("light");
-                setIdx((i) => Math.max(0, i - 1));
-                setFlipped(false);
-              }}
-              colors={colors}
-            />
-            <NavButton
-              label="Next"
-              disabled={idx >= total - 1}
-              onPress={() => {
-                void hapticImpact("light");
-                setIdx((i) => Math.min(total - 1, i + 1));
-                setFlipped(false);
-              }}
-              colors={colors}
-            />
-          </View>
+          {!autoAdvance && ratedCardId === card.id ? (
+            <View style={styles.navRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Next card"
+                style={[styles.navBtn, { backgroundColor: colors.primary }]}
+                onPress={() => {
+                  void hapticImpact("light");
+                  setIdx((i) => Math.min(total - 1, i + 1));
+                  setFlipped(false);
+                }}
+              >
+                <Text style={[styles.navBtnText, { color: colors.onPrimary }]}>Next card</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </>
       )}
     </Screen>
@@ -522,53 +524,6 @@ function TabButton({
       }}
     >
       <Text style={[styles.tabBtnText, { color: active ? colors.primary : colors.muted }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function RatingButton({
-  label,
-  quality,
-  color,
-  onPress,
-}: {
-  label: string;
-  quality: number;
-  color: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      style={[styles.rateBtn, { backgroundColor: color }]}
-      onPress={() => {
-        void hapticImpact("light");
-        onPress();
-      }}
-    >
-      <Text style={styles.rateBtnText}>{label}</Text>
-      <Text style={styles.rateQuality}>{quality}</Text>
-    </Pressable>
-  );
-}
-
-function NavButton({
-  label,
-  disabled,
-  onPress,
-  colors,
-}: {
-  label: string;
-  disabled: boolean;
-  onPress: () => void;
-  colors: { surface: string; text: string; muted: string };
-}) {
-  return (
-    <Pressable
-      style={[styles.navBtn, { backgroundColor: colors.surface }, disabled && styles.disabled]}
-      disabled={disabled}
-      onPress={onPress}
-    >
-      <Text style={[styles.navBtnText, { color: colors.text }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -625,34 +580,13 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
   },
-  progressTrack: {
-    height: 4,
-    marginHorizontal: 16,
-    borderRadius: 4,
-    overflow: "hidden",
-    marginBottom: 12,
-  },
-  progressFill: { height: 4, borderRadius: 4 },
+  progressWrap: { paddingHorizontal: 16, marginBottom: 12 },
   cardArea: { flex: 1, paddingHorizontal: 16, justifyContent: "center" },
   flipHint: { textAlign: "center", fontSize: 14, marginBottom: 12, paddingHorizontal: 16 },
   ratingRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     marginBottom: 12,
   },
-  rateBtn: {
-    minHeight: 44,
-    minWidth: 72,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  rateBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  rateQuality: { color: "rgba(255,255,255,0.85)", fontSize: 11, marginTop: 2 },
   navRow: {
     flexDirection: "row",
     justifyContent: "center",
@@ -669,5 +603,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   navBtnText: { fontWeight: "600", fontSize: 15 },
-  disabled: { opacity: 0.35 },
 });

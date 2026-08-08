@@ -1,215 +1,150 @@
-import { useCallback } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { useCallback, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, {
-  Extrapolation,
-  interpolate,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
+  FadeIn,
+  FadeOut,
+  useReducedMotion,
 } from "react-native-reanimated";
 
 import { useTheme } from "../hooks/useTheme";
 import { hapticImpact } from "../lib/haptics";
-import { studyThemeFromPreferences } from "../lib/studyTheme";
-import { useAuthStore } from "../store/authStore";
+import { TOKENS } from "../theme/tokens";
 
 type Props = {
   front: string;
   back: string;
   difficulty?: string | null;
   chapter?: string | null;
-  onSwipeLeft: () => void;
-  onSwipeRight: () => void;
   onFlippedChange?: (flipped: boolean) => void;
 };
+
+const RTL_STRONG = /[\u0590-\u08ff\ufb1d-\ufefc]/;
+const LTR_STRONG = /[A-Za-z\u00c0-\u02af\u0370-\u052f\u0900-\u1fff\u2e80-\u9fff]/;
+
+function contentDirection(value: string) {
+  for (const character of value) {
+    if (RTL_STRONG.test(character)) return "rtl" as const;
+    if (LTR_STRONG.test(character)) return "ltr" as const;
+  }
+  return "auto" as const;
+}
 
 export function FlashCard({
   front,
   back,
   difficulty,
   chapter,
-  onSwipeLeft,
-  onSwipeRight,
   onFlippedChange,
 }: Props) {
   const { colors } = useTheme();
-  const studyTheme = studyThemeFromPreferences(useAuthStore((s) => s.user?.preferences));
-  const rotation = useSharedValue(0);
-  const translateX = useSharedValue(0);
-  const isFlipped = useSharedValue(false);
+  const reduceMotion = useReducedMotion();
+  const [revealed, setRevealed] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
 
-  const notifyFlip = useCallback(
-    (flipped: boolean) => {
-      onFlippedChange?.(flipped);
-      void hapticImpact("light");
-    },
-    [onFlippedChange],
-  );
+  const reveal = useCallback(() => {
+    if (revealed) return;
+    setRevealed(true);
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+    onFlippedChange?.(true);
+    void hapticImpact("light");
+  }, [onFlippedChange, revealed]);
 
-  const tapGesture = Gesture.Tap().onEnd(() => {
-    "worklet";
-    isFlipped.value = !isFlipped.value;
-    rotation.value = withTiming(isFlipped.value ? 180 : 0, { duration: 300 });
-    runOnJS(notifyFlip)(isFlipped.value);
-  });
-
-  const panGesture = Gesture.Pan()
-    .activeOffsetX([-24, 24])
-    .onUpdate((e) => {
-      "worklet";
-      if (isFlipped.value) translateX.value = e.translationX;
-    })
-    .onEnd((e) => {
-      "worklet";
-      if (!isFlipped.value) return;
-      if (e.translationX < -80) {
-        runOnJS(onSwipeLeft)();
-      } else if (e.translationX > 80) {
-        runOnJS(onSwipeRight)();
-      }
-      translateX.value = withTiming(0);
-    });
-
-  const composed = Gesture.Simultaneous(tapGesture, panGesture);
-
-  const frontStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      {
-        rotateY: `${interpolate(rotation.value, [0, 180], [0, 180], Extrapolation.CLAMP)}deg`,
-      },
-    ],
-    backfaceVisibility: "hidden" as const,
-  }));
-
-  const backStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      {
-        rotateY: `${interpolate(rotation.value, [0, 180], [180, 360], Extrapolation.CLAMP)}deg`,
-      },
-    ],
-    backfaceVisibility: "hidden" as const,
-  }));
-
-  const diffColor =
-    difficulty === "easy"
-      ? colors.success
-      : difficulty === "hard"
-        ? colors.danger
-        : colors.warning;
+  const difficultyColor = difficulty === "easy"
+    ? colors.success
+    : difficulty === "hard"
+      ? colors.danger
+      : colors.warning;
+  const content = revealed ? back : front;
 
   return (
-    <GestureDetector gesture={composed}>
-      <Animated.View style={styles.container}>
-        <Animated.View
-          style={[
-            styles.face,
-            frontStyle,
-            { backgroundColor: studyTheme.cardFront, borderColor: colors.border },
-          ]}
-        >
-          <View style={[styles.header, { backgroundColor: studyTheme.questionHeader }]}>
-            <Text style={styles.headerLabel}>Question</Text>
-            {chapter ? <Text style={styles.chapter} numberOfLines={1}>{chapter}</Text> : null}
-          </View>
-          <View style={styles.body}>
-            <Text style={[styles.cardText, { color: colors.text }]}>{front}</Text>
-          </View>
-          {difficulty ? (
-            <Text style={[styles.badge, { color: diffColor, borderColor: diffColor }]}>{difficulty}</Text>
-          ) : null}
-          <Text style={[styles.hint, { color: colors.muted }]}>Tap to reveal</Text>
-        </Animated.View>
+      <View
+        style={[styles.card, { backgroundColor: revealed ? colors.cardBack : colors.cardFront, borderColor: colors.borderStrong }]}
+        accessibilityLabel={revealed ? `Answer. ${back}` : `Question. ${front}`}
+      >
+        <View style={styles.metaRow}>
+          <Text style={[styles.eyebrow, { color: colors.primary }]}>{revealed ? "ANSWER" : "QUESTION"}</Text>
+          {chapter ? <Text style={[styles.chapter, { color: colors.textMuted }]} numberOfLines={1}>{chapter}</Text> : null}
+        </View>
 
-        <Animated.View
-          style={[
-            styles.face,
-            styles.backFace,
-            backStyle,
-            { backgroundColor: studyTheme.cardBack, borderColor: colors.border },
-          ]}
+        <ScrollView
+          ref={scrollRef}
+          style={styles.contentScroll}
+          contentContainerStyle={styles.content}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
         >
-          <View style={[styles.header, { backgroundColor: studyTheme.answerHeader }]}>
-            <Text style={styles.headerLabel}>Answer</Text>
-          </View>
-          <View style={styles.body}>
-            <Text style={[styles.cardText, { color: colors.text }]}>{back}</Text>
-          </View>
-          <Text style={[styles.hint, { color: colors.muted }]}>Swipe ← Again · Swipe → Easy</Text>
-        </Animated.View>
-      </Animated.View>
-    </GestureDetector>
+          <Animated.View
+            key={revealed ? "answer" : "question"}
+            entering={reduceMotion ? undefined : FadeIn.duration(TOKENS.motion.duration.fast)}
+            exiting={reduceMotion ? undefined : FadeOut.duration(TOKENS.motion.duration.fast)}
+          >
+            <Text
+              selectable
+              style={[
+                styles.cardText,
+                { color: colors.text, writingDirection: contentDirection(content) },
+              ]}
+            >
+              {content}
+            </Text>
+          </Animated.View>
+        </ScrollView>
+
+        {!revealed && difficulty ? (
+          <Text style={[styles.badge, { color: difficultyColor, borderColor: difficultyColor }]}>{difficulty}</Text>
+        ) : null}
+
+        {!revealed ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Reveal answer"
+            onPress={reveal}
+            style={({ pressed }) => [
+              styles.revealButton,
+              { backgroundColor: pressed ? colors.primaryPressed : colors.primary },
+            ]}
+          >
+            <Text style={[styles.revealLabel, { color: colors.onPrimary }]}>Reveal answer</Text>
+          </Pressable>
+        ) : (
+          <Text style={[styles.ratingHint, { color: colors.textMuted }]}>Choose a recall rating below</Text>
+        )}
+      </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  card: {
     width: "100%",
-    minHeight: 280,
-    position: "relative",
-  },
-  face: {
-    position: "absolute",
-    width: "100%",
-    minHeight: 280,
-    borderRadius: 16,
+    minHeight: 320,
+    maxHeight: 520,
+    borderRadius: TOKENS.radii.xl,
     borderWidth: 1,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
+    padding: TOKENS.spacing.xl,
   },
-  backFace: {},
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  headerLabel: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 1,
-  },
-  chapter: {
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 11,
-    maxWidth: 140,
-  },
-  body: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 24,
-    minHeight: 180,
-  },
-  cardText: {
-    fontSize: 20,
-    fontWeight: "600",
-    textAlign: "center",
-    lineHeight: 28,
-  },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: TOKENS.spacing.md },
+  eyebrow: { ...TOKENS.typography.caption, letterSpacing: 1.2 },
+  chapter: { ...TOKENS.typography.caption, flex: 1, textAlign: "right" },
+  contentScroll: { flexGrow: 0, marginVertical: TOKENS.spacing.lg },
+  content: { flexGrow: 1, minHeight: 180, justifyContent: "center" },
+  cardText: { fontSize: 22, lineHeight: 32, fontWeight: "600", textAlign: "center" },
   badge: {
     alignSelf: "center",
-    fontSize: 12,
-    fontWeight: "700",
+    ...TOKENS.typography.caption,
     textTransform: "capitalize",
     borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginBottom: 8,
+    borderRadius: TOKENS.radii.pill,
+    paddingHorizontal: TOKENS.spacing.md,
+    paddingVertical: TOKENS.spacing.xs,
+    marginBottom: TOKENS.spacing.sm,
   },
-  hint: {
-    textAlign: "center",
-    fontSize: 13,
-    paddingBottom: 14,
+  revealButton: {
+    minHeight: TOKENS.layout.minTouchTarget,
+    borderRadius: TOKENS.radii.md,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: TOKENS.spacing.lg,
   },
+  revealLabel: { ...TOKENS.typography.buttonLabel },
+  ratingHint: { ...TOKENS.typography.caption, textAlign: "center", minHeight: TOKENS.layout.minTouchTarget, textAlignVertical: "center" },
 });

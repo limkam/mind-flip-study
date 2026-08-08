@@ -126,3 +126,17 @@ The foundation requires physical runtime/device QA verification during later MFU
 ## 7. Anti-Patterns & Critical Rules
 
 > **CRITICAL RULE:** New mobile components MUST NOT introduce raw brand/surface hex values (e.g., `#6366f1`, `#4f46e5`, `#111827`) when an appropriate semantic token exists in `useTheme()` or `TOKENS`.
+
+---
+
+## 8. Focused Study Conventions
+
+- The flashcard is the primary surface; administrative metadata stays secondary.
+- Question and answer content uses a flexible, bounded reading surface with internal scrolling only for long content.
+- Reveal is always an explicit 44dp-or-larger action. Tapping or swiping is never the only way to continue.
+- Recall preserves each workflow's established choices: Study uses `1, 2, 4, 5`; Daily Review uses `2, 3, 5`. The scheduler's wider accepted range does not by itself authorize exposing new choices.
+- Rating components emit a quality value only. Scheduling, persistence, XP, and achievement authority remain outside visual components.
+- Offline copy distinguishes confirmed server progress from locally queued progress.
+- Card-content direction may be RTL independently of the surrounding navigation direction.
+- Study motion uses fast opacity transitions and becomes immediate when reduced motion is enabled.
+- `onPrimary` is the semantic foreground token for content placed on a primary-colored surface.
