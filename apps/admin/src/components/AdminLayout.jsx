@@ -6,6 +6,7 @@ const nav = [
   { to: '/feedback', label: 'Feedback' },
   { to: '/content', label: 'Content' },
   { to: '/metrics', label: 'Metrics' },
+  { to: '/admin/owner-dashboard', label: 'Owner Dashboard' },
   { to: '/admin/platform-stats', label: 'Platform Statistics' },
   { to: '/admin/app-monitoring', label: 'App Monitoring' },
   { to: '/admin/demographics', label: 'Demographics' },

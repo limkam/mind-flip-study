@@ -5,13 +5,13 @@ import { useAuth } from "@/lib/AuthContext";
 import { motion } from "framer-motion";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
 import {
-  Bell, Brain, BookOpen, Moon, Sun, Globe, Shield,
-  Zap, Target, Clock, Save, RotateCcw, Bug,
+  Bell, Brain, Sun, Globe, Shield,
+  Zap, Save, RotateCcw, Bug,
 } from "lucide-react";
 import * as Sentry from "@sentry/react";
 
@@ -59,6 +59,16 @@ const DEFAULTS = {
   spaced_repetition_enabled: true,
   card_font_size: "medium",
   accessibility_high_contrast: false,
+  learning_reminders: true,
+  streak_reminders: true,
+  weekly_summaries: true,
+  achievement_announcements: true,
+  marketing_emails: false,
+  celebration_animations: true,
+  achievement_sounds: false,
+  streak_sounds: false,
+  global_sound_muted: false,
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
 };
 
 export default function Settings() {
@@ -76,18 +86,43 @@ export default function Settings() {
     }
   }, [user]);
 
+  useEffect(() => {
+    let active = true;
+    client.get("/engagement/preferences").then(({ data }) => {
+      if (active) setPrefs((current) => ({ ...current, ...data }));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
   const set = (key, value) => {
     setPrefs(p => ({ ...p, [key]: value }));
+    if (["global_sound_muted", "achievement_sounds", "streak_sounds"].includes(key)) {
+      window.dispatchEvent(new CustomEvent("mindflip:audio-preferences", { detail: {
+        globalMuted: key === "global_sound_muted" ? value : prefs.global_sound_muted,
+        achievement: key === "achievement_sounds" ? value : prefs.achievement_sounds,
+        streak: key === "streak_sounds" ? value : prefs.streak_sounds,
+      } }));
+    }
     setDirty(true);
   };
 
   const save = async () => {
     setSaving(true);
-    await client.patch("/users/me", { preferences: { settings: prefs } });
-    await refreshUser();
-    setSaving(false);
-    setDirty(false);
-    toast({ title: "Settings saved!" });
+    try {
+      const engagementKeys = ["learning_reminders", "streak_reminders", "weekly_summaries", "achievement_announcements", "marketing_emails", "celebration_animations", "achievement_sounds", "streak_sounds", "timezone"];
+      const engagement = Object.fromEntries(engagementKeys.map((key) => [key, prefs[key]]));
+      await Promise.all([
+        client.patch("/users/me", { preferences: { settings: prefs } }),
+        client.patch("/engagement/preferences", engagement),
+      ]);
+      await refreshUser();
+      setDirty(false);
+      toast({ title: "Settings saved" });
+    } catch {
+      toast({ title: "Settings could not be saved", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const reset = () => {
@@ -165,6 +200,10 @@ export default function Settings() {
 
         {/* Notifications */}
         <Section icon={Bell} title="Notifications" description="Choose what you want to be notified about">
+          <ToggleRow label="Learning reminders" description="Occasional prompts when there is a useful next action" checked={prefs.learning_reminders} onChange={v => set("learning_reminders", v)} />
+          <ToggleRow label="Achievement announcements" description="Celebrate meaningful learning milestones" checked={prefs.achievement_announcements} onChange={v => set("achievement_announcements", v)} />
+          <ToggleRow label="Weekly summaries" description="A concise review of your weekly progress" checked={prefs.weekly_summaries} onChange={v => set("weekly_summaries", v)} />
+          <ToggleRow label="Marketing emails" description="Optional product news and offers; off by default" checked={prefs.marketing_emails} onChange={v => set("marketing_emails", v)} />
           <ToggleRow
             label="Quiz Results"
             description="Receive a summary after completing a quiz"
@@ -183,6 +222,14 @@ export default function Settings() {
             checked={prefs.notify_challenges}
             onChange={v => set("notify_challenges", v)}
           />
+        </Section>
+
+        <Section icon={Zap} title="Celebrations" description="Control motion and optional sounds">
+          <ToggleRow label="Celebration animations" description="Show accessible milestone animations" checked={prefs.celebration_animations} onChange={v => set("celebration_animations", v)} />
+          <ToggleRow label="Mute all sounds" description="Immediately stop and suppress every celebration sound" checked={prefs.global_sound_muted} onChange={v => set("global_sound_muted", v)} />
+          <ToggleRow label="Achievement sounds" description="Play a sound after achievement unlocks" checked={prefs.achievement_sounds} onChange={v => set("achievement_sounds", v)} />
+          <ToggleRow label="Streak sounds" description="Play a sound for streak milestones" checked={prefs.streak_sounds} onChange={v => set("streak_sounds", v)} />
+          <div className="space-y-2"><Label>Timezone</Label><Input value={prefs.timezone} onChange={event => set("timezone", event.target.value)} aria-label="IANA timezone" /><p className="text-xs text-muted-foreground">Used for daily streak boundaries, for example Africa/Freetown.</p></div>
         </Section>
 
         {/* Display */}

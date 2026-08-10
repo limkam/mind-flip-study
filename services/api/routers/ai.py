@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -13,7 +14,7 @@ from database_sync import sync_session
 from dependencies import get_current_user
 from models.quiz import StudyEvent
 from models.user import User
-from token_usage_log import log_token_usage
+from token_usage_log import log_failed_ai_request, log_token_usage
 
 router = APIRouter(tags=["ai"])
 
@@ -41,17 +42,27 @@ async def invoke_llm(
         schema_hint = "\nRespond with ONLY valid JSON matching this JSON Schema:\n" + json.dumps(
             body.response_json_schema,
         )
-    msg = client.messages.create(
-        model=CLAUDE_SONNET_MODEL,
-        max_tokens=4096,
-        messages=[{"role": "user", "content": body.prompt + schema_hint}],
-    )
+    started = time.perf_counter()
+    try:
+        msg = client.messages.create(
+            model=CLAUDE_SONNET_MODEL,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": body.prompt + schema_hint}],
+        )
+    except Exception as exc:
+        log_failed_ai_request(task="invoke", user_id=current_user.id, model=CLAUDE_SONNET_MODEL,
+                              duration_ms=int((time.perf_counter() - started) * 1000), error=exc)
+        raise HTTPException(status_code=502, detail="AI provider request failed") from exc
     log_token_usage(
         task="invoke",
         user_id=current_user.id,
         input_tokens=msg.usage.input_tokens,
         output_tokens=msg.usage.output_tokens,
         model=CLAUDE_SONNET_MODEL,
+        cache_read_tokens=int(getattr(msg.usage, "cache_read_input_tokens", 0) or 0),
+        cache_creation_tokens=int(getattr(msg.usage, "cache_creation_input_tokens", 0) or 0),
+        duration_ms=int((time.perf_counter() - started) * 1000),
+        call_metadata={"provider_request_id": getattr(msg, "id", None)},
     )
     with sync_session() as db:
         db.add(

@@ -23,6 +23,7 @@ __all__ = [
     "require_role",
     "enforce_tier_limit",
     "enforce_auth_rate_limit",
+    "enforce_scorecard_share_rate_limit",
 ]
 
 oauth2_scheme = HTTPBearer(auto_error=True)
@@ -64,6 +65,23 @@ def enforce_auth_rate_limit():
             )
 
     return _enforce_auth_rate_limit
+
+
+def enforce_scorecard_share_rate_limit():
+    """Bound anonymous share-page and image requests by the direct peer IP."""
+    async def _enforce(request: Request, redis: Annotated[Redis, Depends(get_redis)]) -> None:
+        maximum = settings.SCORECARD_SHARE_RATE_LIMIT_MAX_REQUESTS
+        if maximum <= 0:
+            return
+        window = max(1, settings.SCORECARD_SHARE_RATE_LIMIT_WINDOW_SEC)
+        client_ip = request.client.host if request.client else "unknown"
+        key = f"scorecard-share:rl:{client_ip}"
+        count = await redis.incr(key)
+        if count == 1:
+            await redis.expire(key, window)
+        if count > maximum:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many requests. Try again later.")
+    return _enforce
 
 
 credentials_exception = HTTPException(
@@ -116,7 +134,7 @@ def require_role(*roles: str):
     return _require_role
 
 
-FREE_TIER_LIMITS = {"books": 3, "flashcard_sets": 3, "cards": 20}
+FREE_TIER_LIMITS = {"books": 1, "flashcard_sets": 1, "cards": 5}
 
 
 def enforce_tier_limit(resource: str):
@@ -163,7 +181,7 @@ def enforce_tier_limit(resource: str):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={
                     "code": "UPGRADE_REQUIRED",
-                    "message": f"Free plan limit reached ({limit} {resource}). Upgrade to Student plan.",
+                    "message": f"Free plan limit reached ({limit} {resource}). Upgrade to a paid plan to continue.",
                     "limit": limit,
                     "upgrade_url": "/billing/checkout",
                 },

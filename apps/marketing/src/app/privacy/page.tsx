@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
-  description: 'How MindFlip collects, uses, and protects your data.',
+  description: 'How Mindflip collects, uses, and protects your data.',
   alternates: { canonical: 'https://mindflip.io/privacy' },
 };
 
@@ -15,7 +15,7 @@ export default function PrivacyPage() {
       <section className="mt-10 space-y-4 text-gray-700">
         <h2 className="text-2xl font-semibold text-gray-900">Overview</h2>
         <p>
-          MindFlip (&quot;we&quot;, &quot;us&quot;) operates mindflip.io and app.mindflip.io. This policy
+          Mindflip (&quot;we&quot;, &quot;us&quot;) operates mindflip.io and app.mindflip.io. This policy
           explains what information we collect when you use our study app and marketing site, and how we
           use it.
         </p>

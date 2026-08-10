@@ -3,13 +3,13 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { BookOpen, Brain, Swords, CalendarCheck } from "lucide-react";
 
-export default function QuickActions({ recentSet, pendingChallenges }) {
+export default function QuickActions({ recentSet, pendingChallenges, challengesEnabled = false }) {
   const actions = [
     recentSet
       ? { label: "Continue Studying", sub: recentSet.title, icon: Brain, color: "from-primary/20 to-primary/5 border-primary/30 text-primary", to: `/study/${recentSet.id}` }
       : { label: "Browse Library", sub: "Find a book to study", icon: BookOpen, color: "from-primary/20 to-primary/5 border-primary/30 text-primary", to: "/library" },
     { label: "Daily Review", sub: "Spaced repetition cards", icon: CalendarCheck, color: "from-green-500/20 to-green-500/5 border-green-500/30 text-green-600", to: "/daily-review" },
-    {
+    challengesEnabled ? {
       label: "Challenges",
       sub: pendingChallenges > 0 ? `${pendingChallenges} waiting for you!` : "Challenge a friend",
       icon: Swords,
@@ -18,11 +18,11 @@ export default function QuickActions({ recentSet, pendingChallenges }) {
         : "from-yellow-500/20 to-yellow-500/5 border-yellow-500/30 text-yellow-600",
       to: "/challenges",
       badge: pendingChallenges > 0 ? pendingChallenges : null,
-    },
-  ];
+    } : null,
+  ].filter(Boolean);
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+    <div className={`grid grid-cols-2 gap-3 mb-6 sm:mb-8 ${challengesEnabled ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
       {actions.map((a, i) => (
         <motion.div
           key={a.label}
@@ -32,7 +32,7 @@ export default function QuickActions({ recentSet, pendingChallenges }) {
         >
           <Link
             to={a.to}
-            className={`flex items-center gap-3 p-4 rounded-2xl bg-gradient-to-br ${a.color} border hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 group`}
+            className={`flex h-full min-h-[7.25rem] flex-col items-start gap-3 p-3.5 sm:min-h-0 sm:flex-row sm:items-center sm:p-4 rounded-2xl bg-gradient-to-br ${a.color} border hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 group`}
           >
             <div className="w-10 h-10 rounded-xl bg-white/40 dark:bg-black/20 flex items-center justify-center flex-shrink-0">
               <a.icon className="w-5 h-5" />
@@ -46,7 +46,7 @@ export default function QuickActions({ recentSet, pendingChallenges }) {
                   </span>
                 )}
               </div>
-              <p className="text-xs opacity-70 truncate">{a.sub}</p>
+              <p className="line-clamp-2 text-[11px] opacity-70 sm:truncate sm:text-xs">{a.sub}</p>
             </div>
           </Link>
         </motion.div>

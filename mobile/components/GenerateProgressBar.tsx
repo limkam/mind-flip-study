@@ -1,8 +1,10 @@
 import { useEffect } from "react";
 import { LayoutChangeEvent, StyleSheet, Text, View } from "react-native";
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
+import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 
+import { useTheme } from "../hooks/useTheme";
 import { generationPhaseLabel } from "../lib/generationPhases";
+import { TOKENS } from "../theme/tokens";
 
 type Props = {
   label?: string;
@@ -34,6 +36,8 @@ export function GenerateProgressBar({
   chaptersDone,
   percentComplete,
 }: Props) {
+  const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
   const trackW = useSharedValue(240);
   const t = useSharedValue(0);
   const fill = useSharedValue(0);
@@ -43,12 +47,17 @@ export function GenerateProgressBar({
 
   useEffect(() => {
     if (hasPercent) {
-      fill.value = withTiming(Math.min(100, percentComplete) / 100, { duration: 350 });
-      return;
+      fill.value = reduceMotion
+        ? Math.min(100, percentComplete) / 100
+        : withTiming(Math.min(100, percentComplete) / 100, { duration: TOKENS.motion.duration.standard });
+      return () => cancelAnimation(fill);
     }
     t.value = 0;
-    t.value = withRepeat(withTiming(1, { duration: 1200, easing: Easing.linear }), -1, false);
-  }, [hasPercent, percentComplete, t, fill]);
+    t.value = reduceMotion
+      ? 0.34
+      : withRepeat(withTiming(1, { duration: 1200, easing: Easing.linear }), -1, false);
+    return () => cancelAnimation(t);
+  }, [hasPercent, percentComplete, reduceMotion, t, fill]);
 
   const onLayout = (e: LayoutChangeEvent) => {
     const w = e.nativeEvent.layout.width;
@@ -70,12 +79,12 @@ export function GenerateProgressBar({
 
   return (
     <View style={styles.wrap}>
-      {displayLabel ? <Text style={styles.label}>{displayLabel}</Text> : null}
-      <View style={styles.track} onLayout={onLayout}>
-        <Animated.View style={[styles.knob, knob]} />
+      {displayLabel ? <Text style={[styles.label, { color: colors.muted }]}>{displayLabel}</Text> : null}
+      <View style={[styles.track, { backgroundColor: colors.skeleton }]} onLayout={onLayout}>
+        <Animated.View style={[styles.knob, { backgroundColor: colors.primary }, knob]} />
       </View>
       {chaptersTotal != null && chaptersDone != null ? (
-        <Text style={styles.chapterMeta}>
+        <Text style={[styles.chapterMeta, { color: colors.muted }]}>
           Chapter {chaptersDone} of {chaptersTotal}
           {hasPercent ? ` · ${percentComplete}% complete` : ""}
         </Text>
@@ -89,8 +98,9 @@ export function GenerateProgressBar({
               key={step.key}
               style={[
                 styles.stepChip,
-                done && styles.stepDone,
-                active && styles.stepActive,
+                { color: colors.muted, borderColor: colors.border },
+                done && { color: colors.success, borderColor: `${colors.success}55`, backgroundColor: `${colors.success}12` },
+                active && { color: colors.text, borderColor: colors.primary, fontWeight: "700" },
               ]}
             >
               {done ? "✓ " : active ? "• " : ""}
@@ -105,19 +115,17 @@ export function GenerateProgressBar({
 
 const styles = StyleSheet.create({
   wrap: { width: "100%", marginVertical: 8 },
-  label: { fontSize: 13, color: "#64748b", marginBottom: 8 },
-  chapterMeta: { fontSize: 11, color: "#64748b", marginTop: 6, fontWeight: "600" },
+  label: { fontSize: 13, marginBottom: 8 },
+  chapterMeta: { fontSize: 11, marginTop: 6, fontWeight: "600" },
   track: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: "#e2e8f0",
     overflow: "hidden",
     width: "100%",
   },
   knob: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: "#0d9488",
     position: "absolute",
     left: 0,
     top: 0,
@@ -125,13 +133,9 @@ const styles = StyleSheet.create({
   steps: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 },
   stepChip: {
     fontSize: 11,
-    color: "#94a3b8",
     borderWidth: 1,
-    borderColor: "#e2e8f0",
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  stepDone: { color: "#0d9488", borderColor: "#99f6e4", backgroundColor: "#f0fdfa" },
-  stepActive: { color: "#0f172a", borderColor: "#5eead4", fontWeight: "700" },
 });

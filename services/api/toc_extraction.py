@@ -4,31 +4,62 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from io import BytesIO
 from typing import Any
+from uuid import UUID
 
 from pypdf import PdfReader
 
 from ai_generation import parse_model_json
 from anthropic_client import CLAUDE_SONNET_MODEL, get_anthropic_client
+from token_usage_log import log_failed_ai_request, log_token_usage
 from content_map import _find_title_pos, build_content_map
-from pdf_text import extract_pdf_text, toc_sample_text
+from pdf_text import extract_document_text, extract_pdf_text, toc_sample_text
 
 log = logging.getLogger(__name__)
 
-TOC_SYSTEM = """You are an expert at reading books, reports, and blog compilations and extracting table of contents structure.
-Always respond with valid JSON only.
-Format: {"chapters":[{"chapter_number":1,"title":"Exact section title from the text","subtopics":[]}]}
-Rules:
-- Include EVERY top-level section/chapter/essay in document order — typical books have 8-30 sections; do NOT stop after 1-2.
-- Blog compilations and memoirs often have 15-25 essay titles with NO "Chapter" prefix — include ALL of them.
-- If a numbered candidate list is provided, return EVERY item from that list unless clearly wrong.
-- Use titles that actually appear in the provided PDF text when possible.
-- Number sections sequentially starting at 1.
-- Always use an empty subtopics array — do NOT include subsections (e.g. 1.1, 1.2, 2.3)."""
+TOC_SYSTEM = """You are analyzing a book to produce its table of contents (TOC).
 
-TOC_SYSTEM_WITH_CONTENTS = TOC_SYSTEM + """
-- This book has a formal table of contents. Return ONLY main chapters (1, 2, 3…), never subsections like 1.1 or 2.3."""
+INPUT: The full document text, chunked with [PAGE n] markers.
+
+STEP 1 — DETECT
+Check the front matter (typically within the first 5-8% of pages) for an existing, author-provided table of contents — a list of chapter/section titles, usually with page numbers.
+
+- If you are uncertain whether something is a real TOC (for example, themes listed in a preface or a marketing blurb), treat it as NOT found. Do not guess.
+- Ignore running headers/footers, copyright pages, dedication pages, and epigraphs. None of these count as a TOC.
+
+STEP 2A — IF A TOC EXISTS
+Extract it verbatim into structured JSON.
+- Preserve the original hierarchy (parts, chapters, subsections) using indentation, numbering style, or heading-level cues from the source.
+- Include page numbers exactly as printed. If a page number is missing for an entry, set "page": null. Never infer or calculate one.
+- Do NOT invent titles, merge entries, reword, or clean up anything. Copy exactly what is printed, including quirks like "Ch. 3" versus "Chapter Three".
+
+STEP 2B — IF NO TOC EXISTS, GENERATE ONE
+Scan the ENTIRE document, not just front matter, for structural divisions:
+- Explicit markers: "Chapter 1", "Part Two", "Section 3.4", roman numerals, and similar labels.
+- Formatting cues: headings that are short, consistently styled, followed by a page break, or clearly separated from body text.
+- Consistent numbering sequences, including unlabeled numbers standing alone before chapter opening text.
+
+Rules for accuracy:
+- Use the EXACT heading text as it appears in the source. Do not summarize, rename, translate, or invent a title for an unnamed section. If a chapter genuinely has only a number, use only that number as its title.
+- Do not fabricate structure. Preserve only levels supported by the document.
+- For generated entries, use the exact [PAGE n] marker where the heading physically occurs. Never fabricate a page number.
+- Exclude uncertain candidate headings rather than include a false entry.
+- If the document has no discernible structural breaks, return an empty entries array.
+
+OUTPUT FORMAT (strict JSON, no commentary):
+{
+  "toc_found": true | false,
+  "entries": [
+    {"level": 1, "title": "string", "page": number | null},
+    {"level": 2, "title": "string", "page": number | null}
+  ]
+}
+
+RULES:
+- Set "toc_found" to true only when an author-provided TOC exists. Set it to false when entries were derived from document headings.
+- Return strict JSON only, with no markdown or commentary."""
 
 _NOISE_LINE = re.compile(
     r"^(page \d|copyright|©|all rights|www\.|http|isbn|table of contents|\d+$|mindflip)",
@@ -37,14 +68,23 @@ _NOISE_LINE = re.compile(
 
 _SUBSECTION_LINE_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?(?:\s|$)")
 _SUBSECTION_TITLE_RE = re.compile(r"^(?:chapter\s+)?\d+\.\d+", re.I)
+_CONTENTS_HEADING_RE = re.compile(r"^\s*(?:table\s+of\s+contents|contents)\s*:?[\s.]*$", re.I)
+
+
+def _contents_heading_index(lines: list[str], *, front_fraction: float = 0.08) -> int | None:
+    """Return a verified standalone TOC heading in the document front matter."""
+    if not lines:
+        return None
+    front_limit = max(40, min(1500, int(len(lines) * front_fraction) + 1))
+    for index, line in enumerate(lines[:front_limit]):
+        if _CONTENTS_HEADING_RE.fullmatch(line.strip()):
+            return index
+    return None
 
 
 def _has_contents_page(full_text: str) -> bool:
     """True when the PDF text includes a table-of-contents region."""
-    for line in full_text.splitlines()[:1500]:
-        if re.search(r"\btable of contents\b|\bcontents\b", line, re.I):
-            return True
-    return False
+    return _contents_heading_index(full_text.splitlines()) is not None
 
 
 def _is_subsection_title(title: str) -> bool:
@@ -425,15 +465,11 @@ def extract_toc_from_text(full_text: str) -> list[dict[str, Any]]:
         return []
 
     lines = full_text.splitlines()
-    start = 0
-    for i, line in enumerate(lines[:1500]):
-        if re.search(r"\btable of contents\b|\bcontents\b", line, re.I):
-            start = i
-            break
+    start = _contents_heading_index(lines)
+    if start is None:
+        return []
 
     search_end = min(len(lines), start + 1200)
-    if start == 0:
-        search_end = min(len(lines), 900)
 
     found: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -498,15 +534,11 @@ def extract_toc_from_numbered_list(full_text: str) -> list[dict[str, Any]]:
         return []
 
     lines = full_text.splitlines()
-    start = 0
-    for i, line in enumerate(lines[:1200]):
-        if re.search(r"\btable of contents\b|\bcontents\b", line, re.I):
-            start = i
-            break
+    start = _contents_heading_index(lines)
+    if start is None:
+        return []
 
     search_end = min(len(lines), start + 800)
-    if start == 0:
-        search_end = min(len(lines), 700)
 
     entries: list[tuple[int, str]] = []
     seen: set[str] = set()
@@ -741,52 +773,80 @@ def extract_toc_with_ai(
     description: str | None = None,
     candidate_titles: list[str] | None = None,
     main_chapters_only: bool = False,
+    user_id: UUID | str | None = None,
+    book_id: UUID | str | None = None,
+    celery_task_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Primary TOC extraction — AI reads a rich sample built from the full PDF text."""
     sample = toc_sample_text(full_text)
     desc = f"\nDescription: {description}" if description else ""
-    candidates_block = ""
-    filtered_candidates = candidate_titles or []
-    if main_chapters_only and filtered_candidates:
-        filtered_candidates = [t for t in filtered_candidates if not _is_subsection_title(t)]
-    if filtered_candidates:
-        listed = "\n".join(f"  {i + 1}. {t}" for i, t in enumerate(filtered_candidates[:40]))
-        candidates_block = (
-            f"\n\nSECTION TITLES DETECTED BY SCANNING THE FULL PDF ({len(filtered_candidates)} found):\n"
-            f"{listed}\n\n"
-            "You MUST return ALL of these as chapters in order (fix numbering/titles only if clearly wrong).\n"
-        )
-
-    system = TOC_SYSTEM_WITH_CONTENTS if main_chapters_only else TOC_SYSTEM
     client = get_anthropic_client()
-    message = client.messages.create(
-        model=CLAUDE_SONNET_MODEL,
-        max_tokens=8192,
-        system=system,
-        messages=[
+    started = time.perf_counter()
+    try:
+        message = client.messages.create(
+            model=CLAUDE_SONNET_MODEL,
+            max_tokens=8192,
+            system=TOC_SYSTEM,
+            messages=[
             {
                 "role": "user",
                 "content": (
-                    f'Extract the COMPLETE table of contents for "{title}" by {author}.{desc}'
-                    f"{candidates_block}\n\n"
-                    f"PDF TEXT (table of contents, document start, end, and headings from the full PDF):\n"
-                    f"{sample}\n\n"
-                    + (
-                        "Return ONLY JSON with every MAIN chapter in order (1, 2, 3…). "
-                        "Skip subsections like 1.1 or 2.3. "
-                        if main_chapters_only
-                        else "Return ONLY JSON with every major section/chapter/essay in order. "
-                    )
-                    + "Typical books have many sections — do not stop after 1-2. Copy titles from the PDF text."
+                    f'Book: "{title}" by {author}.{desc}\n\n'
+                    "INPUT: Full document text with page markers.\n\n"
+                    f"{sample}"
                 ),
             },
-        ],
-    )
+            ],
+        )
+    except Exception as exc:
+        if user_id is not None:
+            log_failed_ai_request(task="extract_toc", user_id=user_id, model=CLAUDE_SONNET_MODEL,
+                                  duration_ms=int((time.perf_counter() - started) * 1000), error=exc,
+                                  book_id=book_id, celery_task_id=celery_task_id)
+        raise
+    if user_id is not None:
+        usage = message.usage
+        log_token_usage(task="extract_toc", user_id=user_id, model=CLAUDE_SONNET_MODEL,
+                        input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+                        output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
+                        cache_read_tokens=int(getattr(usage, "cache_read_input_tokens", 0) or 0),
+                        cache_creation_tokens=int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
+                        cached_tokens=int(getattr(usage, "cache_read_input_tokens", 0) or 0) + int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
+                        duration_ms=int((time.perf_counter() - started) * 1000), book_id=book_id,
+                        celery_task_id=celery_task_id,
+                        call_metadata={"provider_request_id": getattr(message, "id", None)})
     raw = "".join(b.text for b in message.content if hasattr(b, "text"))
     data = parse_model_json(raw)
-    chapters = _normalize_chapters(data.get("chapters") or [])
-    if main_chapters_only:
-        chapters = _strip_to_main_chapters(chapters)
+    entries = data.get("entries")
+    if not isinstance(entries, list):
+        return []
+
+    authored_toc = data.get("toc_found") is True
+
+    chapters: list[dict[str, Any]] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        title_text = str(item.get("title") or "").strip()
+        if not title_text:
+            continue
+        try:
+            level = max(1, int(item.get("level", 1)))
+        except (TypeError, ValueError):
+            level = 1
+        page = item.get("page")
+        if not isinstance(page, int) or isinstance(page, bool):
+            page = None
+        chapters.append(
+            {
+                "chapter_number": len(chapters) + 1,
+                "title": title_text,
+                "subtopics": [],
+                "level": level,
+                "page": page,
+                "authored_toc": authored_toc,
+            },
+        )
     return chapters
 
 
@@ -853,17 +913,27 @@ def extract_toc_from_pdf_bytes(
     author: str,
     description: str | None = None,
     full_text: str | None = None,
+    filename: str = "",
+    user_id: UUID | str | None = None,
+    book_id: UUID | str | None = None,
+    celery_task_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], str, str | None]:
     """
-    Extract TOC — prefer PDF native outline/TOC page; AI only when none found.
+    Extract TOC — prefer document native outline/TOC page; AI only when none found.
     Returns (chapters, method_used, ai_error).
     """
-    text = full_text if full_text is not None else extract_pdf_text(pdf_bytes)
+    fn = filename or title
+    text = full_text if full_text is not None else extract_document_text(pdf_bytes, filename=fn)
     if not text.strip():
-        log.warning("toc_extract_empty_pdf", extra={"title": title})
+        log.warning("toc_extract_empty_doc", extra={"title": title})
         return [], "empty", None
 
     has_contents = _has_contents_page(text)
+    marked_document_text = extract_document_text(
+        pdf_bytes,
+        filename=fn,
+        include_page_markers=True,
+    ) or text[:120_000]
 
     try:
         from presentation_pdf import extract_slides_as_chapters, is_presentation_pdf
@@ -917,12 +987,15 @@ def extract_toc_from_pdf_bytes(
     else:
         try:
             ai_chapters = extract_toc_with_ai(
-                text,
+                marked_document_text,
                 title=title,
                 author=author,
                 description=description,
                 candidate_titles=structural_titles or None,
                 main_chapters_only=has_contents,
+                user_id=user_id,
+                book_id=book_id,
+                celery_task_id=celery_task_id,
             )
         except Exception as exc:
             ai_error = str(exc)
@@ -930,7 +1003,8 @@ def extract_toc_from_pdf_bytes(
 
         candidates: list[tuple[list[dict[str, Any]], str]] = []
         if ai_chapters:
-            candidates.append((ai_chapters, "ai"))
+            ai_method = "ai" if ai_chapters[0].get("authored_toc") is True else "ai_generated"
+            candidates.append((ai_chapters, ai_method))
         if structural:
             candidates.append((structural, structural_method))
 
@@ -967,8 +1041,10 @@ def extract_toc_from_pdf_bytes(
             f"Detail: {ai_error[:200]}"
         )
 
-    aligned = _align_chapter_titles(chapters, text)
-    if has_contents:
+    # AI-detected TOC entries are already verbatim and carry level/page metadata.
+    # Do not rewrite or flatten them after strict extraction.
+    aligned = chapters if method.startswith("ai") else _align_chapter_titles(chapters, text)
+    if has_contents and not method.startswith("ai"):
         aligned = _strip_to_main_chapters(aligned)
     log.info(
         "toc_extracted",

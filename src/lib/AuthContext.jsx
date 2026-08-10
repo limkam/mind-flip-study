@@ -14,6 +14,8 @@ import client, {
   setAccessToken,
   setRememberMe,
 } from '@/api/client';
+import { activateCoreDataCache, deactivateCoreDataCache } from '@/lib/coreDataCache';
+import { queryClientInstance } from '@/lib/query-client';
 
 const AuthContext = createContext(null);
 
@@ -43,6 +45,7 @@ export function AuthProvider({ children }) {
       }
       const { data } = await client.get('/users/me');
       if (seq !== loadUserSeq.current) return;
+      activateCoreDataCache(data.id);
       setUser(data);
     } catch {
       if (seq !== loadUserSeq.current) return;
@@ -59,16 +62,17 @@ export function AuthProvider({ children }) {
     loadUser();
   }, [loadUser]);
 
-  const login = useCallback(async (email, password, rememberMe = true) => {
+  const loginWithEmailCode = useCallback(async (challengeId, code, rememberMe = true) => {
     loadUserSeq.current += 1;
     setIsLoading(false);
     setRememberMe(rememberMe);
-    const { data } = await client.post('/auth/login', {
-      email: email.trim().toLowerCase(),
-      password,
+    const { data } = await client.post('/auth/email/verify', {
+      challenge_id: challengeId,
+      code,
       remember_me: rememberMe,
     });
     setAccessToken(data.access_token);
+    activateCoreDataCache(data.user.id);
     setUser(data.user);
     return data.user;
   }, []);
@@ -82,6 +86,7 @@ export function AuthProvider({ children }) {
       remember_me: rememberMe,
     });
     setAccessToken(data.access_token);
+    activateCoreDataCache(data.user.id);
     setUser(data.user);
     return data.user;
   }, []);
@@ -91,6 +96,8 @@ export function AuthProvider({ children }) {
     try {
       await client.post('/auth/logout');
     } finally {
+      deactivateCoreDataCache();
+      queryClientInstance.clear();
       clearAccessToken();
       setUser(null);
     }
@@ -101,13 +108,13 @@ export function AuthProvider({ children }) {
       user,
       isLoading,
       isAuthenticated: !!user,
-      login,
+      loginWithEmailCode,
       loginWithGoogle,
       logout,
       refreshUser: loadUser,
       rememberMe: getRememberMe(),
     }),
-    [user, isLoading, login, loginWithGoogle, logout, loadUser],
+    [user, isLoading, loginWithEmailCode, loginWithGoogle, logout, loadUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -16,7 +16,9 @@ from models.flashcard import FlashcardSet
 from models.quiz import QuizChallenge
 from models.user import User
 from services.achievement_sync import sync_user_achievements
+from services.credits import consume_extra_credits
 from schemas.quiz_api import QuizChallengeCreate
+from services.entitlements import Action, can_user_do
 
 router = APIRouter(tags=["quiz-challenges"])
 
@@ -95,6 +97,12 @@ async def create_challenge(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
+    decision = await can_user_do(db, current_user, Action.SEND_CHALLENGE)
+    if not decision.get("allowed"):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={"code": "UPGRADE_REQUIRED", "message": "Challenges are available on Standard 15 and Premium 30."},
+        )
     er = await db.execute(select(User).where(User.email == body.opponent_email.strip().lower()))
     challengee = er.scalar_one_or_none()
     if challengee is None or challengee.id == current_user.id:
@@ -108,6 +116,21 @@ async def create_challenge(
     fset = sr.scalar_one_or_none()
     if fset is None:
         raise HTTPException(status_code=404, detail="Flashcard set not found")
+
+    # Prevent duplicate active/pending challenge between same users for same content
+    existing_dup = await db.execute(
+        select(QuizChallenge).where(
+            QuizChallenge.challenger_id == current_user.id,
+            QuizChallenge.challengee_id == challengee.id,
+            QuizChallenge.set_id == body.flashcard_set_id,
+            QuizChallenge.status.in_((QuizChallengeStatus.pending, QuizChallengeStatus.active)),
+        )
+    )
+    if existing_dup.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "DUPLICATE_CHALLENGE", "message": "A challenge already exists for this content."},
+        )
 
     now = datetime.now(timezone.utc)
     rd = {
@@ -171,6 +194,13 @@ async def patch_challenge(
     if ch.challenger_id != current_user.id and ch.challengee_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    decision = await can_user_do(db, current_user, Action.SEND_CHALLENGE)
+    if not decision.get("allowed"):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={"code": "UPGRADE_REQUIRED", "message": "Quiz challenges require a Standard 15 or Premium 30 plan upgrade."},
+        )
+
     rd = dict(ch.result_data or {})
     patch = dict(body)
     status_val = patch.pop("status", None)
@@ -191,8 +221,23 @@ async def patch_challenge(
     if status_val == "completed":
         if not is_challengee:
             raise HTTPException(status_code=403, detail="Only the opponent can complete the challenge.")
+        if ch.status == QuizChallengeStatus.completed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "CHALLENGE_ALREADY_ACCEPTED", "message": "This challenge has already been accepted and completed."},
+            )
         if ch.status != QuizChallengeStatus.pending:
             raise HTTPException(status_code=400, detail="Challenge is no longer pending.")
+        
+        # Deduct 1 extra credit from the opponent for accepting/completing the challenge
+        await consume_extra_credits(
+            db,
+            current_user.id,
+            amount=1,
+            reason="Accepted Challenge",
+            metadata={"challenge_id": str(ch.id), "set_id": str(ch.set_id)},
+        )
+
         opp_pct = int(rd.get("opponent_percentage") or patch.get("opponent_percentage") or 0)
         opp_time = int(rd.get("opponent_time_seconds") or patch.get("opponent_time_seconds") or 9999)
         ch_pct = int(rd.get("challenger_percentage") or 0)

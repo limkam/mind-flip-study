@@ -75,18 +75,18 @@ export function AppButton({
         };
       case "destructive":
         return {
-          backgroundColor: pressed ? "#991b1b" : colors.danger,
+          backgroundColor: pressed ? `${colors.danger}DD` : colors.danger,
           borderColor: "transparent",
-          textColor: "#ffffff",
-          spinnerColor: "#ffffff",
+          textColor: colors.onDanger,
+          spinnerColor: colors.onDanger,
         };
       case "primary":
       default:
         return {
           backgroundColor: pressed ? colors.primaryPressed : colors.primary,
           borderColor: "transparent",
-          textColor: "#ffffff",
-          spinnerColor: "#ffffff",
+          textColor: colors.onPrimary,
+          spinnerColor: colors.onPrimary,
         };
     }
   };
@@ -183,7 +183,7 @@ export function AppButton({
                 },
                 labelStyle,
               ]}
-              numberOfLines={1}
+              numberOfLines={2}
             >
               {label}
             </Text>

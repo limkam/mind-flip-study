@@ -3,6 +3,7 @@
 import re
 import pytest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from toc_extraction import (
     _align_chapter_titles,
@@ -11,6 +12,7 @@ from toc_extraction import (
     extract_toc_from_text,
     extract_toc_from_numbered_list,
     extract_toc_from_pdf_bytes,
+    extract_toc_with_ai,
 )
 from pypdf import PdfWriter
 from io import BytesIO
@@ -22,6 +24,50 @@ CAFIA_TOC = [
     {"chapter_number": 14, "title": "References", "subtopics": []},
     {"chapter_number": 15, "title": "Appendix A: Full Statistical Tables", "subtopics": []},
 ]
+
+
+def _anthropic_response(payload: str):
+    return SimpleNamespace(
+        messages=SimpleNamespace(
+            create=lambda **_kwargs: SimpleNamespace(content=[SimpleNamespace(text=payload)]),
+        ),
+    )
+
+
+@patch("toc_extraction.get_anthropic_client")
+def test_ai_toc_detector_returns_nothing_when_no_authored_toc(mock_client):
+    mock_client.return_value = _anthropic_response('{"toc_found": false}')
+    assert extract_toc_with_ai("[PAGE 1]\nCopyright\n[PAGE 2]\nDedication", title="Book", author="Author") == []
+
+
+@patch("toc_extraction.get_anthropic_client")
+def test_ai_toc_detector_returns_conservative_generated_structure(mock_client):
+    mock_client.return_value = _anthropic_response(
+        '{"toc_found":false,"entries":['
+        '{"level":1,"title":"Chapter 1","page":9},'
+        '{"level":1,"title":"Chapter 2","page":27}'
+        ']}'
+    )
+    chapters = extract_toc_with_ai("[PAGE 9]\nChapter 1\n[PAGE 27]\nChapter 2", title="Book", author="Author")
+    assert [c["title"] for c in chapters] == ["Chapter 1", "Chapter 2"]
+    assert all(c["authored_toc"] is False for c in chapters)
+
+
+@patch("toc_extraction.get_anthropic_client")
+def test_ai_toc_detector_preserves_hierarchy_titles_and_pages(mock_client):
+    mock_client.return_value = _anthropic_response(
+        '{"toc_found":true,"entries":['
+        '{"level":1,"title":"PART I — Foundations","page":1},'
+        '{"level":2,"title":"1. Why Study?","page":3},'
+        '{"level":3,"title":"A question without a printed page","page":null}'
+        ']}'
+    )
+    chapters = extract_toc_with_ai("[PAGE 1]\nContents", title="Book", author="Author")
+    assert [(c["level"], c["title"], c["page"]) for c in chapters] == [
+        (1, "PART I — Foundations", 1),
+        (2, "1. Why Study?", 3),
+        (3, "A question without a printed page", None),
+    ]
 
 
 def test_extract_toc_from_text_finds_all_chapters():
@@ -49,6 +95,20 @@ def test_extract_toc_from_text_continues_past_blank_gaps():
     chapters = extract_toc_from_text(text)
     assert len(chapters) == 12, f"expected 12 chapters, got {len(chapters)}"
     assert chapters[11]["title"] == "Topic Number 12"
+
+
+def test_content_word_in_bibliography_url_is_not_a_toc_heading():
+    text = "\n".join(
+        [
+            "Executive Summary",
+            "1 Access to digital finance is widespread but active usage remains limited.",
+            "2 Mobile money functions mainly as a payment receipt channel.",
+            *("Report body paragraph" for _ in range(150)),
+            "https://www.ifc.org/content/dam/ifc/doc/report.pdf",
+            "3 References and citations",
+        ]
+    )
+    assert extract_toc_from_text(text) == []
 
 
 def test_extract_toc_from_text_skips_subsections():
@@ -317,7 +377,12 @@ WEAK_HEADINGS = [
 @patch("toc_extraction.extract_toc_with_ai")
 def test_pipeline_calls_ai_for_weak_headings(mock_ai, _mock_structural, _mock_native):
     ai_chapters = [
-        {"chapter_number": i, "title": f"Full Chapter {i}", "subtopics": [f"Section {i}.1"]}
+        {
+            "chapter_number": i,
+            "title": f"Full Chapter {i}",
+            "subtopics": [f"Section {i}.1"],
+            "authored_toc": True,
+        }
         for i in range(1, 16)
     ]
     mock_ai.return_value = ai_chapters
@@ -337,7 +402,7 @@ def test_pipeline_calls_ai_for_weak_headings(mock_ai, _mock_structural, _mock_na
     assert ai_err is None
     assert method == "ai"
     assert len(chapters) == 15
-    assert all(c["subtopics"] == [] for c in chapters)
+    assert chapters[0]["subtopics"] == ["Section 1.1"]
 
 
 @patch("toc_extraction._best_native_toc", return_value=([], "none"))

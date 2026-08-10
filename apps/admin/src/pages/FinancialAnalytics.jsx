@@ -90,7 +90,13 @@ export default function FinancialAnalytics() {
         <MetricCard label="MRR" value={`$${d.mrr_usd.toFixed(2)}`} />
         <MetricCard label="ARR" value={`$${d.arr_usd.toFixed(2)}`} />
         <MetricCard label="Paying Users" value={d.paying_users} />
+        <MetricCard label="Active Subscriptions" value={d.active_subscriptions} />
         <MetricCard label="Avg Revenue per User" value={`$${d.avg_revenue_per_user_usd.toFixed(2)}`} />
+        <MetricCard label="Revenue Growth" value={`${d.revenue_growth_pct.toFixed(1)}%`} />
+        <MetricCard label="Churn" value={`${d.churn_rate_pct.toFixed(1)}%`} />
+        <MetricCard label="Customer LTV" value={`$${d.lifetime_value_usd.toFixed(2)}`} />
+        <MetricCard label="New Customers" value={d.new_customers} />
+        <MetricCard label="Subscription Conflicts" value={d.subscription_conflicts} />
       </div>
 
       <h3 className="section-title">Revenue Over Time (Monthly)</h3>

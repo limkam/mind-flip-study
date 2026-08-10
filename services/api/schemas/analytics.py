@@ -38,6 +38,9 @@ class AnalyticsSummaryOut(BaseModel):
     avg_score: float = Field(0, ge=0, le=100)
     cards_mastered_easy_band: int = Field(0, ge=0, description="Cards in the easy mastery band (SM-2 heuristic)")
     flashcard_sets_count: int = Field(0, ge=0)
+    flashcards_created: int = Field(0, ge=0)
+    total_study_time_seconds: int = Field(0, ge=0)
+    badges_earned: int = Field(0, ge=0)
     has_perfect_quiz: bool = False
     score_trend: list[ScoreTrendDayOut] = Field(default_factory=list)
     weak_topics: list[WeakTopicOut] = Field(default_factory=list)

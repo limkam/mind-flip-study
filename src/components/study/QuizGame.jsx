@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { CheckCircle2, XCircle, Timer, Zap, Trophy, ArrowRight } from "lucide-react";
-import { useConfetti } from "@/components/common/ConfettiEffect";
 import { buildMcqQuestions, difficultyLabel, QUIZ_DIFFICULTY_MODES } from "@/lib/gameUtils";
 import GameResultScreen from "@/components/games/GameResultScreen";
 import { useFinishOnce } from "@/lib/gameLifecycle";
@@ -23,7 +22,6 @@ export default function QuizGame({ cards, setTitle, onComplete, generationSeed =
   const [streak, setStreak] = useState(0);
   const [maxStreak, setMaxStreak] = useState(0);
   const timerRef = useRef(null);
-  const { fire: fireConfetti } = useConfetti();
 
   const questions = useMemo(
     () => buildMcqQuestions(cards, { count: 20, seed: generationSeed, mode }),
@@ -84,8 +82,6 @@ export default function QuizGame({ cards, setTitle, onComplete, generationSeed =
     if (currentIndex + 1 >= questions.length) {
       if (timerRef.current) clearInterval(timerRef.current);
       const finalPct = Math.round((score / questions.length) * 100);
-      if (finalPct === 100) fireConfetti("perfect");
-      else if (finalPct >= 80) fireConfetti("default");
       setPendingResult({
         score,
         total_questions: questions.length,
@@ -121,7 +117,7 @@ export default function QuizGame({ cards, setTitle, onComplete, generationSeed =
         }
         title="Quiz Complete!"
         subtitle={`${setTitle} · ${difficultyLabel(mode)} · ${answeredCount} of ${questions.length} answered`}
-        onContinue={finishGame}
+        onContinue={onComplete}
         result={pendingResult}
         continueLabel="Continue"
       >

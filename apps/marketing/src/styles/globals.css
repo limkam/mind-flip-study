@@ -2,16 +2,99 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --ink: #101828;
+  --muted: #667085;
+  --line: rgba(16, 24, 40, 0.09);
+  --brand: #5b4cf0;
+  --brand-dark: #4038c9;
+  --mint: #24c7a3;
+  --paper: #fbfbfe;
+}
+
 html {
   scroll-behavior: smooth;
 }
 
 body {
   @apply bg-white text-gray-900 antialiased;
+  overflow-x: hidden;
+  color: var(--ink);
+  background-image: radial-gradient(circle at 15% -10%, rgba(91, 76, 240, 0.06), transparent 30%);
+}
+
+::selection {
+  color: white;
+  background: var(--brand);
+}
+
+*:focus-visible {
+  outline: 3px solid rgba(91, 76, 240, 0.35);
+  outline-offset: 3px;
+}
+
+.site-grid {
+  background-image: linear-gradient(rgba(91, 76, 240, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(91, 76, 240, 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(to bottom, black, transparent 88%);
+}
+
+.noise {
+  position: relative;
+}
+
+.noise::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  opacity: 0.22;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.07'/%3E%3C/svg%3E");
+}
+
+.gradient-text {
+  color: transparent;
+  background: linear-gradient(120deg, #5b4cf0 5%, #8f5cf7 48%, #16a88b 95%);
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.glass-card {
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 24px 80px rgba(70, 54, 160, 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.eyebrow {
+  @apply inline-flex items-center gap-2 rounded-full border border-indigo-200/70 bg-indigo-50/80 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-indigo-700;
+}
+
+.section-shell {
+  @apply mx-auto max-w-7xl px-6 sm:px-8;
+}
+
+.button-primary {
+  @apply inline-flex items-center justify-center rounded-full bg-indigo-600 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition duration-300 hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-xl;
+}
+
+.button-secondary {
+  @apply inline-flex items-center justify-center rounded-full border border-gray-200 bg-white px-6 py-3.5 text-sm font-bold text-gray-800 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-indigo-200 hover:text-indigo-700 hover:shadow-md;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

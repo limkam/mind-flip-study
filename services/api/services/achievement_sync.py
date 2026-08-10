@@ -101,7 +101,7 @@ async def compute_achievement_stats(db: AsyncSession, user_id: UUID) -> dict[str
     }
 
 
-async def sync_user_achievements(db: AsyncSession, user_id: UUID) -> None:
+async def sync_user_achievements(db: AsyncSession, user_id: UUID) -> list[Achievement]:
     """Award any achievements the user has earned but not yet stored."""
     stats = await compute_achievement_stats(db, user_id)
 
@@ -110,14 +110,13 @@ async def sync_user_achievements(db: AsyncSession, user_id: UUID) -> None:
     )
     existing = set(existing_r.scalars().all())
 
-    created = False
+    created: list[Achievement] = []
     for ach in ACHIEVEMENT_DEFS:
         if ach.achievement_type in existing:
             continue
         if not ach.check(stats):
             continue
-        db.add(
-            Achievement(
+        row = Achievement(
                 user_id=user_id,
                 achievement_type=ach.achievement_type,
                 metadata_={
@@ -125,10 +124,13 @@ async def sync_user_achievements(db: AsyncSession, user_id: UUID) -> None:
                     "description": ach.description,
                     "icon": ach.icon,
                 },
-            ),
-        )
+            )
+        db.add(row)
         existing.add(ach.achievement_type)
-        created = True
+        created.append(row)
 
     if created:
         await db.commit()
+        for row in created:
+            await db.refresh(row)
+    return created

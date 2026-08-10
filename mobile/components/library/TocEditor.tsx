@@ -13,6 +13,7 @@ import { api } from "../../api/client";
 import { getApiErrorMessage } from "../../lib/apiErrors";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact, hapticSuccess } from "../../lib/haptics";
+import { displayChapterHeading } from "../../lib/studySetDisplay";
 
 export type TocChapter = {
   chapter_number?: number;
@@ -162,7 +163,6 @@ export function TocEditor({ bookId, chapters: initial, onSaved }: Props) {
               <Text style={{ color: colors.muted, fontSize: 16 }}>↓</Text>
             </Pressable>
           </View>
-          <Text style={[styles.num, { color: colors.primary }]}>{idx + 1}</Text>
           {editingIdx === idx ? (
             <View style={styles.editRow}>
               <TextInput
@@ -180,7 +180,7 @@ export function TocEditor({ bookId, chapters: initial, onSaved }: Props) {
             </View>
           ) : (
             <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
-              {ch.title}
+              {displayChapterHeading(ch.title, idx + 1)}
             </Text>
           )}
           {editingIdx !== idx && (

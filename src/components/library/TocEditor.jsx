@@ -7,6 +7,7 @@ import {
   Pencil, Check, X, Loader2, Save,
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { displayChapterHeading } from "@/lib/studySetDisplay";
 
 function normalizeChapters(raw) {
   return (raw || []).map((ch, i) => ({
@@ -131,7 +132,6 @@ export default function TocEditor({ bookId, chapters: initial, onSaved, readOnly
                 </button>
               </div>
             )}
-            <span className="text-xs font-bold text-primary w-6">{idx + 1}</span>
             {editingIdx === idx ? (
               <div className="flex-1 flex gap-2">
                 <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="h-8" autoFocus />
@@ -139,7 +139,9 @@ export default function TocEditor({ bookId, chapters: initial, onSaved, readOnly
                 <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditingIdx(null)}><X className="w-4 h-4" /></Button>
               </div>
             ) : (
-              <span className="flex-1 text-sm font-medium truncate">{ch.title}</span>
+              <span className="flex-1 text-sm font-medium truncate">
+                {displayChapterHeading(ch.title, idx + 1)}
+              </span>
             )}
             {!readOnly && editingIdx !== idx && (
               <div className="flex gap-1">

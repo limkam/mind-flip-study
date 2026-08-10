@@ -11,6 +11,7 @@ from config import settings
 from database_sync import sync_session
 from models.quiz import CardProgress, QuizResult
 from models.user import User
+from models.xp import XPTransaction
 from tasks.celery_app import celery
 from user_identity import resolve_display_name
 
@@ -78,10 +79,11 @@ def refresh_leaderboard_task() -> dict[str, int]:
         ).all()
 
         xp_rows = db.execute(
-            select(User.id, func.coalesce(func.sum(QuizResult.score), 0).label("v"))
-            .join(QuizResult, QuizResult.user_id == User.id)
+            select(User.id, func.coalesce(func.sum(XPTransaction.amount), 0).label("v"))
+            .join(XPTransaction, XPTransaction.user_id == User.id)
+            .where(User.is_banned.is_(False))
             .group_by(User.id)
-            .having(func.coalesce(func.sum(QuizResult.score), 0) > 0),
+            .having(func.coalesce(func.sum(XPTransaction.amount), 0) > 0),
         ).all()
 
     metric_data = {

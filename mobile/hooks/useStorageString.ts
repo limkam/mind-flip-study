@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { storage } from "../store/storage";
 
@@ -6,6 +6,10 @@ export function useStorageString(
   key: string,
 ): [string | undefined, (value: string | undefined) => void] {
   const [value, setValue] = useState<string | undefined>(() => storage.getString(key));
+
+  useEffect(() => {
+    setValue(storage.getString(key));
+  }, [key]);
 
   const setStored = useCallback(
     (next: string | undefined) => {

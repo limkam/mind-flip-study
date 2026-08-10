@@ -19,6 +19,7 @@
 
     /* Electric violet primary */
     --primary: 258 80% 58%;
+    --theme-highlight: 258 80% 58%;
     --primary-foreground: 0 0% 100%;
 
     /* Soft lavender secondary */
@@ -109,13 +110,84 @@
   }
   body {
     @apply bg-background text-foreground font-body;
+    -webkit-tap-highlight-color: transparent;
   }
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-heading);
   }
 }
 
+@media (max-width: 1023px) {
+  html, body, #root { min-height: 100%; }
+  body {
+    overscroll-behavior-y: none;
+    background:
+      radial-gradient(circle at 100% 0%, hsl(var(--primary) / 0.09), transparent 32rem),
+      hsl(var(--background));
+  }
+
+  .mobile-app-main {
+    min-height: calc(100dvh - 4.25rem);
+  }
+
+  .mobile-app-main > * {
+    animation: mobile-page-in 220ms ease-out both;
+  }
+
+  .mobile-app-main :is(input, textarea, select) {
+    font-size: 16px;
+  }
+
+  .mobile-app-main .rounded-2xl {
+    border-radius: 1.15rem;
+  }
+
+  .mobile-app-main button,
+  .mobile-app-main a {
+    touch-action: manipulation;
+  }
+
+  .mobile-bottom-nav a,
+  .mobile-bottom-nav button {
+    transform: none !important;
+  }
+
+
+  @keyframes mobile-page-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@media (max-width: 639px) {
+  .mobile-app-main h1 { font-size: 1.65rem; line-height: 1.2; }
+  .mobile-app-main h2 { letter-spacing: -0.02em; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-app-main > * { animation: none; }
+}
+
 @layer components {
+  .celebration-card.subtle { animation: celebration-pulse 600ms ease-out both; }
+  .celebration-card.medium, .celebration-card.major { animation: celebration-reveal 240ms ease-out both; }
+  @keyframes celebration-pulse { 0% { box-shadow: 0 0 0 0 hsl(var(--success) / .3); } 100% { box-shadow: 0 0 0 10px transparent; } }
+  @keyframes celebration-reveal { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .celebration-card.subtle, .celebration-card.medium, .celebration-card.major { animation: none; border-color: hsl(var(--success)); }
+  }
+  .account-menu-content [role="menuitem"][data-highlighted],
+  .account-menu-content [role="menuitemradio"][data-highlighted],
+  .account-menu-content [role="menuitem"][data-state="open"] {
+    background-color: hsl(var(--theme-highlight) / 0.12) !important;
+    color: hsl(var(--theme-highlight)) !important;
+  }
+
+  .account-menu-content [role="menuitemradio"] [data-state="checked"],
+  .account-menu-content [role="menuitemradio"][data-state="checked"] {
+    color: hsl(var(--theme-highlight));
+  }
+
   /* Global smooth button transitions */
   button, a[role="button"], [class*="Button"] {
     transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, background-color 0.15s ease;

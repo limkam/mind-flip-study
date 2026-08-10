@@ -2,13 +2,13 @@ import React, { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "@/api/client";
 import { motion } from "framer-motion";
-import { Users, Search, Shield, User, UserPlus } from "lucide-react";
+import { Search, Shield, User, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import UserAvatar from "@/components/account/UserAvatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
@@ -82,11 +82,6 @@ export default function UserManagement() {
     toast({ title: "Role updated" });
   };
 
-  const getInitials = (name) => {
-    if (!name) return "?";
-    return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
-  };
-
   return (
     <div className="max-w-5xl mx-auto">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
@@ -128,11 +123,7 @@ export default function UserManagement() {
               transition={{ delay: i * 0.02 }}
               className="bg-card rounded-xl border border-border p-4 flex items-center gap-4"
             >
-              <Avatar className="w-10 h-10">
-                <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
-                  {getInitials(u.full_name)}
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar user={u} className="h-10 w-10" />
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-sm truncate">{u.full_name || "Unnamed"}</p>
                 <p className="text-xs text-muted-foreground truncate">{u.email}</p>

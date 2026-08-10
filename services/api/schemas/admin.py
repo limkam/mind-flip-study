@@ -20,6 +20,7 @@ class AdminUserRow(BaseModel):
     id: UUID
     full_name: str
     email: str
+    plan: str = "Free"
     role: UserRole
     created_at: datetime
     is_banned: bool
@@ -33,12 +34,13 @@ class AdminUserRow(BaseModel):
     job_title: str | None = None
 
 
-def admin_user_row_from_model(user: User) -> AdminUserRow:
+def admin_user_row_from_model(user: User, *, plan: str = "Free") -> AdminUserRow:
     age = calculate_age(user.date_of_birth) if user.date_of_birth else None
     return AdminUserRow(
         id=user.id,
         full_name=user.full_name,
         email=user.email,
+        plan=plan,
         role=user.role,
         created_at=user.created_at,
         is_banned=user.is_banned,
@@ -102,7 +104,7 @@ class AdminMetricsOut(BaseModel):
     total_books: int
     ai_generations_30d: int
     paying_users: int
-    mrr_usd: int
+    mrr_usd: float
     top_books: list[TopBookMetric]
     ai_cost_30d_usd: float = 0.0
 

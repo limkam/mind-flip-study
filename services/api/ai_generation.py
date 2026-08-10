@@ -381,53 +381,24 @@ def validate_study_content_bundle(
     for failure in failures:
         failure["attempt"] = attempt
 
-    if not chapter_titles:
-        if not scenarios:
-            msg = "No scenarios generated"
-            errors.append(msg)
-            failures.append(
-                {
-                    "validator": "validate_scenario_count",
-                    "section": "scenarios",
-                    "error": msg,
-                    "attempt": attempt,
-                },
-            )
-        else:
-            sc_errors, sc_failures = validate_scenario_types(scenarios[:5])
-            errors.extend(sc_errors)
-            for failure in sc_failures:
-                failure["attempt"] = attempt
-            failures.extend(sc_failures)
+    if not chapter_titles and not scenarios:
+        msg = "No scenarios generated"
+        errors.append(msg)
+        failures.append(
+            {
+                "validator": "validate_scenario_count",
+                "section": "scenarios",
+                "error": msg,
+                "attempt": attempt,
+            },
+        )
         return errors, failures
 
-    by_chapter: dict[str, list[dict[str, str]]] = {t: [] for t in chapter_titles}
-    for sc in scenarios:
-        ch = str(sc.get("chapter") or "").strip()
-        if ch in by_chapter:
-            by_chapter[ch].append(sc)
-
-    for title in chapter_titles:
-        group = by_chapter.get(title, [])
-        if not group:
-            msg = f"Chapter '{title}' has no scenarios"
-            errors.append(msg)
-            failures.append(
-                {
-                    "validator": "validate_scenario_count",
-                    "section": "scenarios",
-                    "error": msg,
-                    "chapter": title,
-                    "attempt": attempt,
-                },
-            )
-            continue
-        sc_errors, sc_failures = validate_scenario_types(group[:5])
-        errors.extend(sc_errors)
-        for failure in sc_failures:
-            failure["attempt"] = attempt
-            failure["chapter"] = title
-        failures.extend(sc_failures)
+    sc_errors, sc_failures = validate_all_scenario_groups(scenarios, chapter_titles)
+    errors.extend(sc_errors)
+    for failure in sc_failures:
+        failure["attempt"] = attempt
+    failures.extend(sc_failures)
     return errors, failures
 
 

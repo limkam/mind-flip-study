@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { api } from "../../api/client";
+import { getApiErrorMessage } from "../../lib/apiErrors";
 import { useTheme } from "../../hooks/useTheme";
 import type { ScenarioOut } from "../../types/api";
 
@@ -128,6 +129,7 @@ export function ScenarioView({ scenarios = [], setId, onScenariosChange }: Props
   const [openIndex, setOpenIndex] = useState("0-0");
   const [loading, setLoading] = useState(false);
   const [displayScenarios, setDisplayScenarios] = useState(scenarios);
+  const completionAttemptedForSet = useRef<string | null>(null);
 
   useEffect(() => {
     setDisplayScenarios(scenarios);
@@ -135,27 +137,34 @@ export function ScenarioView({ scenarios = [], setId, onScenariosChange }: Props
 
   const chapterGroups = useMemo(() => groupScenariosByChapter(displayScenarios), [displayScenarios]);
 
-  const regenerateScenarios = async () => {
+  const completeScenarios = useCallback(async () => {
     if (!setId) return;
     setLoading(true);
     try {
       const { data } = await api.post<{ scenarios: ScenarioOut[] }>(
-        `/flashcard-sets/${setId}/scenarios/regenerate`,
+        `/flashcard-sets/${setId}/scenarios/complete`,
       );
       const next = data.scenarios || [];
       setDisplayScenarios(next);
       onScenariosChange?.(next);
       setOpenIndex("0-0");
     } catch (e: unknown) {
-      const msg =
-        e && typeof e === "object" && "response" in e
-          ? String((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Regeneration failed")
-          : "Regeneration failed";
-      Alert.alert("Regeneration failed", msg);
+      Alert.alert("Couldn't refresh scenarios", getApiErrorMessage(e, "Please try again."));
     } finally {
       setLoading(false);
     }
-  };
+  }, [onScenariosChange, setId]);
+
+  useEffect(() => {
+    if (
+      setId &&
+      displayScenarios.length < 5 &&
+      completionAttemptedForSet.current !== setId
+    ) {
+      completionAttemptedForSet.current = setId;
+      void completeScenarios();
+    }
+  }, [completeScenarios, displayScenarios.length, setId]);
 
   if (!displayScenarios.length && !loading) {
     return (
@@ -173,7 +182,7 @@ export function ScenarioView({ scenarios = [], setId, onScenariosChange }: Props
     return (
       <View style={[styles.loading, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <ActivityIndicator color={colors.primary} size="large" />
-        <Text style={[styles.loadingTitle, { color: colors.text }]}>Regenerating scenarios...</Text>
+        <Text style={[styles.loadingTitle, { color: colors.text }]}>Completing your scenarios...</Text>
         <Text style={[styles.loadingBody, { color: colors.muted }]}>
           Please wait while we create a new set of scenarios.
         </Text>
@@ -185,14 +194,9 @@ export function ScenarioView({ scenarios = [], setId, onScenariosChange }: Props
     <View style={styles.wrap}>
       <View style={styles.topRow}>
         <Text style={[styles.lead, { color: colors.muted, flex: 1 }]}>
-          {displayScenarios.length} scenarios across {chapterGroups.length} chapter
+          {displayScenarios.length} scenario{displayScenarios.length !== 1 ? "s" : ""} across {chapterGroups.length} chapter
           {chapterGroups.length !== 1 ? "s" : ""}
         </Text>
-        {setId ? (
-          <Pressable onPress={() => void regenerateScenarios()} hitSlop={8}>
-            <Text style={[styles.regen, { color: colors.primary }]}>Regenerate Scenarios</Text>
-          </Pressable>
-        ) : null}
       </View>
 
       {chapterGroups.map((group, gi) => (

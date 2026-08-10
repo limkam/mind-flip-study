@@ -9,8 +9,8 @@ const inter = Inter({ subsets: ['latin'] });
 export const metadata: Metadata = {
   metadataBase: new URL('https://mindflip.io'),
   title: {
-    default: 'MindFlip — Turn Any Textbook Into a Study Game',
-    template: '%s | MindFlip',
+    default: 'Mindflip: Turn Any Textbook Into a Study Game',
+    template: '%s | Mindflip',
   },
   description:
     'Upload a PDF, get AI-generated flashcards and 8 study games in 30 seconds. The smarter Anki alternative.',
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   ],
   openGraph: {
     type: 'website',
-    siteName: 'MindFlip',
+    siteName: 'Mindflip',
     images: [{ url: '/og-image.png', width: 1200, height: 630 }],
   },
   twitter: {

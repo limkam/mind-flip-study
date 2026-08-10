@@ -11,3 +11,4 @@
 | **MFUX-007** | Games Engine UI & Shell Polish | **Complete** |
 | **MFUX-008** | Celebration & Micro-Feedback System | **Complete** |
 | **MFUX-009** | Profile, Settings, Billing & Scorecards | **Complete** |
+| **MFUX-010** | Full-App Visual Polish, Motion & Physical QA | **Implementation complete · Physical QA pending** |

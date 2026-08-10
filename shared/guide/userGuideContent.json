@@ -1,0 +1,265 @@
+{
+  "categories": [
+    {
+      "id": "getting-started",
+      "title": "Getting Started",
+      "icon": "rocket",
+      "description": "Learn the basics of creating study sets, uploading notes, and AI content generation."
+    },
+    {
+      "id": "studying",
+      "title": "Studying & Spaced Repetition",
+      "icon": "book-open",
+      "description": "Master flashcards with smart spaced repetition, daily reviews, and interactive quizzes."
+    },
+    {
+      "id": "xp-and-leaderboard",
+      "title": "XP & Leaderboard System",
+      "icon": "trophy",
+      "description": "Understand how server-validated XP works, weekly reset schedules, and competitive rankings."
+    },
+    {
+      "id": "social-and-challenges",
+      "title": "Social & Challenges",
+      "icon": "users",
+      "description": "Join study groups, send 1v1 quiz challenges, and compete on the challenge leaderboard."
+    },
+    {
+      "id": "progress-and-analytics",
+      "title": "Progress & Scorecards",
+      "icon": "bar-chart",
+      "description": "Track your learning stats, card mastery progress, and share automated scorecards."
+    },
+    {
+      "id": "account-and-billing",
+      "title": "Account & Subscriptions",
+      "icon": "credit-card",
+      "description": "Manage your profile, subscription tiers, extra AI generation credits, and trial status."
+    }
+  ],
+  "articles": [
+    {
+      "id": "how-to-create-flashcard-sets",
+      "categoryId": "getting-started",
+      "title": "How to Create Flashcard Sets with AI",
+      "summary": "Generate high-quality flashcard sets in seconds using PDFs, notes, or chapter topics.",
+      "articleType": "walkthrough",
+      "keywords": ["create", "generate", "ai", "pdf", "notes", "flashcards"],
+      "platforms": ["web", "mobile"],
+      "action": {
+        "type": "product_route",
+        "webRoute": "/library",
+        "mobileRoute": "/(tabs)/library",
+        "marketingAction": "get_started",
+        "label": "Try This in MindFlip: Upload & Build Set"
+      },
+      "steps": [
+        {
+          "id": "upload",
+          "title": "Upload Study Material",
+          "description": "Choose a PDF textbook, lecture notes, or paste document text into the source parser.",
+          "visualType": "upload_demo",
+          "platformText": {
+            "web": "Click 'Upload Book' in Library or drag your PDF/DOCX into the upload area.",
+            "mobile": "Tap the Library tab, then tap the '+' button to select your document."
+          },
+          "tip": "Supported formats: PDF, DOCX, PPTX up to 10MB."
+        },
+        {
+          "id": "select_chapters",
+          "title": "Select Specific Chapters",
+          "description": "Keep your study set focused by selecting only the target chapters or sections you need.",
+          "visualType": "chapter_selection_demo",
+          "platformText": {
+            "web": "Check the boxes next to the desired chapters on the Book Details page before generating.",
+            "mobile": "Tap chapter chips to toggle selection on or off in the Book view."
+          }
+        },
+        {
+          "id": "generate",
+          "title": "AI Generation & Instant Study",
+          "description": "MindFlip AI extracts key terms, definitions, and quiz scenarios in seconds.",
+          "visualType": "ai_generation_demo",
+          "platformText": {
+            "web": "Click 'Generate Flashcards' to launch your new study set.",
+            "mobile": "Tap 'Generate' and start studying immediately."
+          }
+        }
+      ],
+      "sections": [
+        {
+          "heading": "Creating a Set from Uploaded PDF or Notes",
+          "body": "Navigate to the Library page and upload a PDF textbook or document (.pdf, .docx, .pptx). MindFlip's AI automatically parses chapter structure and generates key term-definition pairs."
+        },
+        {
+          "heading": "Chapter-Specific AI Generation",
+          "body": "Select specific chapters or sections to keep your study sets targeted. AI generation uses your available AI credits based on your subscription tier."
+        }
+      ],
+      "relatedArticleIds": ["sm2-spaced-repetition-and-daily-review"]
+    },
+    {
+      "id": "sm2-spaced-repetition-and-daily-review",
+      "categoryId": "studying",
+      "title": "Understanding Daily Review & Smart Spaced Repetition",
+      "summary": "Learn how automated memory scheduling calculates optimal review dates to maximize retention.",
+      "articleType": "visual_explanation",
+      "visualType": "card_rating_demo",
+      "keywords": ["spaced repetition", "daily review", "ease factor", "interval", "memory"],
+      "platforms": ["web", "mobile"],
+      "action": {
+        "type": "product_route",
+        "webRoute": "/daily-review",
+        "mobileRoute": "/daily-review",
+        "marketingAction": "get_started",
+        "label": "Try This in MindFlip: Start Daily Review"
+      },
+      "sections": [
+        {
+          "heading": "How Spaced Repetition Works",
+          "body": "Every card in MindFlip tracks an Ease Factor and Interval. When you rate your recall performance (1 to 5), our smart algorithm computes when you should next review the card to lock it into long-term memory."
+        },
+        {
+          "heading": "Daily Review Queue",
+          "body": "Your Daily Review queue automatically gathers all flashcards due on or before today. Completing your Daily Review session once per day earns +30 XP!"
+        }
+      ],
+      "relatedArticleIds": ["xp-system-and-scoring-rules"]
+    },
+    {
+      "id": "xp-system-and-scoring-rules",
+      "categoryId": "xp-and-leaderboard",
+      "title": "Server-Validated XP Rules & Scoring",
+      "summary": "Complete breakdown of all XP activities, server-side validation, and leaderboard integrity.",
+      "articleType": "reference",
+      "keywords": ["xp", "scoring", "rules", "quiz completion", "mastery", "streak"],
+      "action": {
+        "type": "product_route",
+        "webRoute": "/leaderboard",
+        "mobileRoute": "/leaderboard",
+        "marketingAction": "get_started",
+        "label": "Try This in MindFlip: View Leaderboard & Earn XP"
+      },
+      "sections": [
+        {
+          "heading": "XP Reward Breakdown",
+          "body": "All XP is processed and recorded by the server XP ledger:\n- Quiz Completion: +20 XP\n- Correct Quiz Answer: +2 XP per verified correct answer\n- Daily Review Completion: +30 XP (once per UTC day)\n- Card Mastery: +10 XP (awarded once per card when mastered)\n- 3-Day Streak: +30 XP\n- 7-Day Streak: +75 XP\n- 30-Day Streak: +250 XP"
+        },
+        {
+          "heading": "Score Integrity & Security",
+          "body": "Quiz scores and completion totals are validated against server flashcard set records. Manipulated client score submissions are automatically rejected and corrected."
+        }
+      ],
+      "relatedArticleIds": ["global-vs-friends-leaderboard"]
+    },
+    {
+      "id": "global-vs-friends-leaderboard",
+      "categoryId": "xp-and-leaderboard",
+      "title": "Global vs Friends & Groups Leaderboard & Weekly Cycle",
+      "summary": "How rankings work across Weekly (Mon 00:00 UTC) and All-Time views.",
+      "articleType": "visual_explanation",
+      "visualType": "leaderboard_overtake_demo",
+      "keywords": ["global", "friends", "groups", "weekly", "all time", "overtake", "rankings"],
+      "platforms": ["web", "mobile"],
+      "action": {
+        "type": "product_route",
+        "webRoute": "/leaderboard",
+        "mobileRoute": "/leaderboard",
+        "marketingAction": "get_started",
+        "label": "Try This in MindFlip: Check Your Rank"
+      },
+      "sections": [
+        {
+          "heading": "Weekly vs All-Time Periods",
+          "body": "The Weekly Leaderboard resets every Monday at 00:00 UTC, providing a fresh competitive cycle every week. The All-Time view reflects total cumulative XP."
+        },
+        {
+          "heading": "Global Top 25 & Around You View",
+          "body": "Global scope displays the Top 25 learners across MindFlip. If you are outside the Top 25, the 'Around You' card shows your exact rank and competitors directly above and below you."
+        },
+        {
+          "heading": "Friends & Groups Scope",
+          "body": "Switch to Friends & Groups scope to filter rankings down to your active study group members and connected peers."
+        },
+        {
+          "heading": "Strict Overtake Calculation",
+          "body": "Your standing card indicates the exact XP required to strictly overtake the learner immediately above you, accounting for tie-breaker rules."
+        }
+      ],
+      "relatedArticleIds": ["xp-system-and-scoring-rules"]
+    },
+    {
+      "id": "study-groups-and-quiz-challenges",
+      "categoryId": "social-and-challenges",
+      "title": "Study Groups & 1v1 Quiz Challenges",
+      "summary": "Collaborate with peers, share materials, and compete on challenge scorecards.",
+      "articleType": "walkthrough",
+      "keywords": ["groups", "challenges", "social", "peer", "study group"],
+      "platforms": ["web", "mobile"],
+      "action": {
+        "type": "product_route",
+        "webRoute": "/challenges",
+        "mobileRoute": "/(tabs)/challenges",
+        "marketingAction": "get_started",
+        "label": "Try This in MindFlip: Challenge a Friend"
+      },
+      "steps": [
+        {
+          "id": "select_opponent",
+          "title": "Send a 1v1 Quiz Challenge",
+          "description": "Pick a study set and invite a peer or group member to compete.",
+          "visualType": "challenge_send_demo",
+          "platformText": {
+            "web": "Click 'New Challenge' on the Challenges page, select a flashcard set, and choose an opponent.",
+            "mobile": "Tap the '+' button in the Challenges tab, select a set, and send an invite."
+          }
+        },
+        {
+          "id": "compete_result",
+          "title": "View Live Challenge Scorecards",
+          "description": "Track head-to-head quiz scores and share automated scorecard badges.",
+          "visualType": "challenge_result_demo",
+          "platformText": {
+            "web": "Check your pending and completed matches on the Challenges page.",
+            "mobile": "Review challenge cards directly in your Challenges tab feed."
+          }
+        }
+      ],
+      "sections": [
+        {
+          "heading": "Study Groups",
+          "body": "Create or join study groups to share set materials and compete on the Friends & Groups leaderboard scope."
+        },
+        {
+          "heading": "Challenge Leaderboard vs Normal Leaderboard",
+          "body": "The Challenge Leaderboard tracks head-to-head quiz challenges and challenge scorecards separately from the XP-based Normal Leaderboard."
+        }
+      ]
+    },
+    {
+      "id": "subscriptions-and-ai-credits",
+      "categoryId": "account-and-billing",
+      "title": "Subscription Plans, Extra Credits & Trials",
+      "summary": "Understand plan entitlements, extra AI credit usage, and trial activation.",
+      "articleType": "reference",
+      "keywords": ["subscription", "credits", "billing", "trial", "pro", "free"],
+      "action": {
+        "type": "product_route",
+        "webRoute": "/pricing",
+        "mobileRoute": "/pricing",
+        "marketingAction": "get_started",
+        "label": "Try This in MindFlip: View Plans & Credits"
+      },
+      "sections": [
+        {
+          "heading": "Subscription Tiers",
+          "body": "Free accounts include core study tools and monthly AI generation credits. Pro subscriptions unlock unlimited AI set generations, advanced analytics, and priority features."
+        },
+        {
+          "heading": "Purchasing Extra Credits",
+          "body": "Extra AI credits can be purchased to top up your generation quota anytime. Extra credits never expire."
+        }
+      ]
+    }
+  ]
+}

@@ -270,8 +270,14 @@ def _author_looks_unreliable(author: str, *, title: str = "") -> bool:
 
 
 def title_from_upload_filename(filename: str) -> str:
-    """Derive book title from the uploaded file name (no PDF parsing)."""
-    stem = PurePosixPath(str(filename).replace("\\", "/")).stem.strip()
+    """Derive book title from the uploaded file name (no document parsing)."""
+    name = str(filename).replace("\\", "/")
+    # Remove file extension if supported (.pdf, .docx, .pptx)
+    for ext in (".pdf", ".docx", ".pptx"):
+        if name.lower().endswith(ext):
+            name = name[:-len(ext)]
+            break
+    stem = PurePosixPath(name).name.strip()
     if not stem or _looks_like_file_path(stem):
         return ""
     title = re.sub(r"[_-]+", " ", stem)

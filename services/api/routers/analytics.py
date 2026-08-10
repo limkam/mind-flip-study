@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from dependencies import get_current_user
 from models.flashcard import Flashcard, FlashcardSet
+from models.achievement import Achievement
 from models.quiz import CardProgress, QuizResult
 from models.user import User
 from schemas.analytics import (
@@ -67,6 +68,19 @@ async def analytics_summary(
         select(func.count()).select_from(FlashcardSet).where(FlashcardSet.user_id == uid),
     )
     flashcard_sets_count = int(sets_n or 0)
+    cards_n = await db.scalar(
+        select(func.count())
+        .select_from(Flashcard)
+        .join(FlashcardSet, FlashcardSet.id == Flashcard.set_id)
+        .where(FlashcardSet.user_id == uid),
+    )
+    flashcards_created = int(cards_n or 0)
+    study_seconds = await db.scalar(
+        select(func.coalesce(func.sum(QuizResult.time_taken_seconds), 0)).where(QuizResult.user_id == uid),
+    )
+    badges_n = await db.scalar(
+        select(func.count()).select_from(Achievement).where(Achievement.user_id == uid),
+    )
 
     trend_rows = await db.execute(
         select(
@@ -167,6 +181,9 @@ async def analytics_summary(
         avg_score=avg_score,
         cards_mastered_easy_band=cards_mastered_easy_band,
         flashcard_sets_count=flashcard_sets_count,
+        flashcards_created=flashcards_created,
+        total_study_time_seconds=int(study_seconds or 0),
+        badges_earned=int(badges_n or 0),
         has_perfect_quiz=has_perfect,
         score_trend=score_trend,
         weak_topics=weak_topics,

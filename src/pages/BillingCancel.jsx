@@ -9,7 +9,7 @@ export default function BillingCancel() {
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="mx-auto flex max-w-lg flex-col items-center py-10 text-center"
+      className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center px-6 py-10 text-center"
     >
       <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
         <XCircle className="h-9 w-9 text-muted-foreground" />
@@ -20,9 +20,9 @@ export default function BillingCancel() {
       </p>
       <div className="mt-8 flex w-full flex-col gap-3 sm:flex-row sm:justify-center">
         <Button asChild size="lg" className="gap-2">
-          <Link to="/profile">
+          <Link to="/pricing">
             <ArrowLeft className="h-4 w-4" />
-            Back to profile
+            Back to pricing
           </Link>
         </Button>
         <Button asChild variant="outline" size="lg">

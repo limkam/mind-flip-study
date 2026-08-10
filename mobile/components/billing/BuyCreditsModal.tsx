@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { useReducedMotion } from "react-native-reanimated";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -22,6 +23,7 @@ type BuyCreditsModalProps = {
 };
 
 export function BuyCreditsModal({ visible, onClose }: BuyCreditsModalProps) {
+  const reduceMotion = useReducedMotion();
   const { colors } = useTheme();
   const user = useAuthStore((state) => state.user);
 
@@ -114,10 +116,10 @@ export function BuyCreditsModal({ visible, onClose }: BuyCreditsModalProps) {
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType={reduceMotion ? "none" : "fade"}
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
+      <Pressable style={[styles.backdrop, { backgroundColor: colors.overlay }]} onPress={onClose}>
         <Pressable
           style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
           onPress={(e) => e.stopPropagation()}
@@ -235,9 +237,9 @@ export function BuyCreditsModal({ visible, onClose }: BuyCreditsModalProps) {
                   disabled={!isValidQuantity || isSubmitting}
                 >
                   {isSubmitting ? (
-                    <ActivityIndicator size="small" color="#ffffff" />
+                    <ActivityIndicator size="small" color={colors.onPrimary} />
                   ) : (
-                    <Text style={styles.submitText}>Checkout {formattedTotal}</Text>
+                    <Text style={[styles.submitText, { color: colors.onPrimary }]}>Checkout {formattedTotal}</Text>
                   )}
                 </Pressable>
               </View>
@@ -252,7 +254,6 @@ export function BuyCreditsModal({ visible, onClose }: BuyCreditsModalProps) {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,

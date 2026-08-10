@@ -1,4 +1,4 @@
-"""Leaderboard integration tests."""
+"""Leaderboard V2 integration tests."""
 
 from __future__ import annotations
 
@@ -39,13 +39,11 @@ def _mock_db_session() -> AsyncMock:
     count_result.scalar.return_value = 0
     empty_result = MagicMock()
     empty_result.all.return_value = []
-    empty_scalars = MagicMock()
-    empty_scalars.all.return_value = []
     scalars_result = MagicMock()
-    scalars_result.scalars.return_value = empty_scalars
+    scalars_result.scalars.return_value = MagicMock(all=MagicMock(return_value=[]))
 
     async def _execute(_stmt):
-        return count_result
+        return empty_result
 
     mock_db.execute = AsyncMock(side_effect=_execute)
     return mock_db
@@ -72,7 +70,12 @@ async def test_leaderboard_queries_database():
             r = await client.get("/leaderboard")
         assert r.status_code == 200
         data = r.json()
-        assert data["metric"] == "avg_score"
+        assert data["metric"] == "xp"
+        assert data["period"] == "weekly"
+        assert data["scope"] == "global"
+        assert "items" in data
+        assert "me" in data
+        assert "around_me" in data
         assert mock_db.execute.await_count >= 1
     finally:
         app.dependency_overrides.pop(get_current_user, None)
@@ -80,7 +83,7 @@ async def test_leaderboard_queries_database():
 
 
 @pytest.mark.asyncio
-async def test_leaderboard_pagination():
+async def test_leaderboard_pagination_and_metrics():
     student = _student()
     mock_db = _mock_db_session()
 
@@ -97,12 +100,14 @@ async def test_leaderboard_pagination():
     connected_users_module.connected_user_ids = _connected
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            r = await client.get("/leaderboard?page=1&size=10&metric=most_quizzes")
+            r = await client.get("/leaderboard?page=1&size=10&metric=most_quizzes&scope=connections&period=all_time")
         assert r.status_code == 200
         data = r.json()
+        assert data["metric"] == "most_quizzes"
+        assert data["period"] == "all_time"
+        assert data["scope"] == "connections"
         assert "items" in data
         assert "total" in data
-        assert data["metric"] == "most_quizzes"
         assert len(data["items"]) <= 10
     finally:
         app.dependency_overrides.pop(get_current_user, None)

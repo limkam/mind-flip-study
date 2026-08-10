@@ -284,7 +284,11 @@ export function getPlanIntervalPriceDetails(
   };
 }
 
-async function validateAndOpenCheckoutUrl(urlStr: unknown, expectedUserId?: string): Promise<void> {
+async function validateAndOpenCheckoutUrl(
+  urlStr: unknown,
+  expectedUserId?: string,
+  options?: { isCreditCheckout?: boolean },
+): Promise<void> {
   if (!urlStr || typeof urlStr !== "string") {
     throw new Error("Stripe did not return a valid checkout URL");
   }
@@ -318,7 +322,7 @@ async function validateAndOpenCheckoutUrl(urlStr: unknown, expectedUserId?: stri
     if (entitlements.subscription_status === "subscription_conflict") {
       throw new Error("SUBSCRIPTION_CONFLICT: Multiple active subscriptions require support review.");
     }
-    if (entitlements.plan_slug !== "free") {
+    if (!options?.isCreditCheckout && entitlements.plan_slug !== "free") {
       throw new Error("ALREADY_SUBSCRIBED: An active subscription already exists for this account.");
     }
   }
@@ -545,7 +549,7 @@ export async function startCreditCheckout(
     throw new Error("User identity changed during credit checkout request");
   }
 
-  await validateAndOpenCheckoutUrl(data?.checkout_url, expectedUserId);
+  await validateAndOpenCheckoutUrl(data?.checkout_url, expectedUserId, { isCreditCheckout: true });
 }
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;

@@ -61,6 +61,19 @@ async def patch_current_user(
 ) -> User:
     if body.full_name is not None:
         current_user.full_name = body.full_name
+    if body.avatar_url is not None:
+        if current_user.auth_provider == "google":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Google profile photos are managed by Google",
+            )
+        avatar_url = body.avatar_url.strip()
+        if avatar_url and not avatar_url.lower().startswith(("https://", "http://")):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Profile photo must be a valid web address",
+            )
+        current_user.avatar_url = avatar_url or None
     if body.date_of_birth is not None:
         try:
             current_user.date_of_birth = validate_date_of_birth(body.date_of_birth)

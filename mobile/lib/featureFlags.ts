@@ -21,6 +21,6 @@ export const mobileFeatures = {
   ),
   subscriptions: parseBoolFlag(
     process.env.EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED,
-    false,
+    true,
   ),
 } as const;

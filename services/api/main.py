@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import logging
+import re
 
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request, status
@@ -16,10 +17,14 @@ from middleware.ip_capture import IPCaptureMiddleware
 from middleware.onboarding_gate import OnboardingGateMiddleware
 from s3_service import S3ConfigurationError, validate_s3_configuration
 from routers.admin import router as admin_router
+from routers.admin_owner_dashboard import router as admin_owner_dashboard_router
 from routers.achievements import router as achievements_router
 from routers.ai import router as ai_router
 from routers.analytics import router as analytics_router
 from routers.auth import router as auth_router
+from routers.engagement import router as engagement_router
+from routers.scorecards import public_router as public_scorecards_router, router as scorecards_router
+from routers.credits import router as credits_router
 from routers.feedback import router as feedback_router
 from routers.billing import router as billing_router
 from routers.books import router as books_router
@@ -34,6 +39,8 @@ from routers.quiz_results import router as quiz_results_router
 from routers.study import router as study_router
 from routers.study_groups import router as study_groups_router
 from routers.users import router as users_router
+from routers.email_webhooks import router as email_webhooks_router
+from routers.email_preferences import router as email_preferences_router
 
 if settings.SENTRY_DSN_API:
     sentry_sdk.init(
@@ -47,9 +54,29 @@ if settings.SENTRY_DSN_API:
 logger = logging.getLogger(__name__)
 
 
+class _PublicShareAccessLogFilter(logging.Filter):
+    """Keep bearer share tokens out of Uvicorn's request-target access logs."""
+
+    _share_path = re.compile(r"(/share/scorecard/)[A-Za-z0-9_-]{1,256}(/image)?")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 3:
+            args = list(record.args)
+            if isinstance(args[2], str):
+                args[2] = self._share_path.sub(r"\1[redacted]\2", args[2])
+                record.args = tuple(args)
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_PublicShareAccessLogFilter())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.validate_refresh_cookie_policy()
+    settings.validate_email_policy()
+    settings.validate_automation_policy()
+    settings.validate_scorecard_share_policy()
     try:
         validate_s3_configuration()
     except S3ConfigurationError as exc:
@@ -122,9 +149,16 @@ async def sentry_verify(body: SentryVerifyIn) -> dict[str, bool]:
 
 
 app.include_router(auth_router, prefix="/auth")
+app.include_router(email_webhooks_router, prefix="/email-provider")
+app.include_router(email_preferences_router, prefix="/email")
+app.include_router(engagement_router, prefix="/engagement")
+app.include_router(scorecards_router, prefix="/scorecards")
+app.include_router(public_scorecards_router)
 app.include_router(admin_router, prefix="/admin")
+app.include_router(admin_owner_dashboard_router, prefix="/admin/owner-dashboard")
 app.include_router(analytics_router, prefix="/analytics")
 app.include_router(billing_router, prefix="/billing")
+app.include_router(credits_router)
 app.include_router(users_router, prefix="/users")
 app.include_router(books_router, prefix="/books")
 app.include_router(flashcards_router, prefix="/flashcard-sets")

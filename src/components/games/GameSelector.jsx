@@ -68,7 +68,8 @@ const GAMES = [
   },
 ];
 
-export default function GameSelector({ onSelect }) {
+export default function GameSelector({ onSelect, maxGames = GAMES.length }) {
+  const unlockedCount = Math.max(0, Math.min(Number(maxGames) || 0, GAMES.length));
   return (
     <div className="max-w-3xl mx-auto">
       <div className="text-center mb-8">
@@ -78,17 +79,26 @@ export default function GameSelector({ onSelect }) {
           className="text-muted-foreground">Pick a challenge and test your knowledge!</motion.p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {GAMES.map((game, i) => (
+        {GAMES.map((game, i) => {
+          const isLocked = i >= unlockedCount;
+          return (
           <motion.button
             key={game.id}
             initial={{ opacity: 0, y: 30, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ delay: i * 0.08, type: "spring", stiffness: 260, damping: 22 }}
-            whileHover={{ scale: 1.04, y: -4, boxShadow: "0 20px 40px -12px rgba(0,0,0,0.25)" }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => onSelect(game.id)}
-            className={`w-full text-left bg-gradient-to-br ${game.color} border rounded-2xl p-6 transition-colors duration-200`}
+            whileHover={isLocked ? undefined : { scale: 1.04, y: -4, boxShadow: "0 20px 40px -12px rgba(0,0,0,0.25)" }}
+            whileTap={isLocked ? undefined : { scale: 0.97 }}
+            onClick={() => !isLocked && onSelect(game.id)}
+            disabled={isLocked}
+            aria-label={isLocked ? `${game.title} — locked for your plan` : game.title}
+            className={`relative w-full text-left bg-gradient-to-br ${game.color} border rounded-2xl p-6 transition-colors duration-200 ${isLocked ? "cursor-not-allowed opacity-60 grayscale-[35%]" : ""}`}
           >
+            {isLocked && (
+              <span className="absolute right-4 top-4 rounded-full border border-border bg-background/90 px-2.5 py-1 text-xs font-semibold text-foreground shadow-sm">
+                🔒 Locked
+              </span>
+            )}
             <motion.div
               animate={{ rotate: [0, -5, 5, -3, 3, 0] }}
               transition={{ duration: 1.5, delay: i * 0.2 + 0.5, repeat: Infinity, repeatDelay: 4 }}
@@ -102,7 +112,8 @@ export default function GameSelector({ onSelect }) {
             </div>
             <p className="text-sm text-muted-foreground leading-relaxed">{game.description}</p>
           </motion.button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

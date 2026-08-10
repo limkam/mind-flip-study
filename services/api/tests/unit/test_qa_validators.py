@@ -8,6 +8,8 @@ from ai_generation import (
     validate_scenario_types,
     validate_study_content_bundle,
 )
+from routers.flashcards import _has_complete_scenarios
+from tasks.ai_tasks import _max_tokens_for_study_content
 from difficulty_engine import validate_cognitive_depth, validate_difficulty_mix
 from qa_types import classify_repair_sections
 
@@ -211,3 +213,61 @@ def test_validate_study_content_bundle_rejects_missing_scenarios():
     )
     assert errors
     assert any(f["validator"] == "validate_scenario_count" for f in failures)
+
+
+def test_validate_study_content_bundle_requires_five_scenarios():
+    cards = _cards({"easy": 7, "medium": 7, "hard": 6})
+    scenarios = [
+        {
+            "type": "real_life",
+            "title": f"S{i}",
+            "description": f"Desc {i}",
+            "question": f"Q{i}",
+            "chapter": "Ch1",
+        }
+        for i in range(3)
+    ]
+    errors, failures = validate_study_content_bundle(
+        cards=cards,
+        scenarios=scenarios,
+        chapter_titles=["Ch1"],
+        quotas={"Ch1": 20},
+        num_cards=20,
+        attempt=1,
+    )
+    assert "expected 5, got 3" in errors[0]
+    assert any(f["validator"] == "validate_scenario_count" for f in failures)
+
+
+def test_existing_set_reuse_requires_five_scenarios_per_chapter():
+    one = {
+        "scenarios": [
+            {"chapter": "Ch1", "title": "Only one", "description": "Description", "question": "Question"},
+        ],
+    }
+    five = {
+        "scenarios": [
+            {
+                "chapter": "Ch1",
+                "title": f"Scenario {index}",
+                "description": f"Description {index}",
+                "question": f"Question {index}",
+            }
+            for index in range(5)
+        ],
+    }
+    malformed_five = {
+        "scenarios": [
+            {"chapter": "Ch1", "title": "Visible", "description": "Description", "question": "Question"},
+            *[{"chapter": "Ch1", "title": ""} for _ in range(4)],
+        ],
+    }
+    assert _has_complete_scenarios(one, ["Ch1"]) is False
+    assert _has_complete_scenarios(five, ["Ch1"]) is True
+    assert _has_complete_scenarios(malformed_five, ["Ch1"]) is False
+
+
+def test_small_flashcard_bundle_reserves_space_for_all_five_scenarios():
+    assert _max_tokens_for_study_content(5, "standard") >= 2800
+    assert _max_tokens_for_study_content(5, "brief") >= 1600
+    assert _max_tokens_for_study_content(20, "standard") >= _max_tokens_for_study_content(5, "standard")

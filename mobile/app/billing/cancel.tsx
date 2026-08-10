@@ -37,7 +37,7 @@ export default function BillingCancelScreen() {
               style={[styles.secondaryBtn, { borderColor: colors.border }]}
               onPress={() => router.replace("/billing")}
             >
-              <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Open Billing & Usage</Text>
+              <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Open Billing & Credits</Text>
             </Pressable>
           </View>
         </View>

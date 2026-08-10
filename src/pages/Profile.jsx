@@ -1,249 +1,235 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
+import {
+  BadgeCheck,
+  CalendarDays,
+  Clock3,
+  Layers3,
+  Palette,
+  Save,
+  Sparkles,
+  Trophy,
+  Check,
+} from "lucide-react";
 import client from "@/api/client";
 import { useAuth } from "@/lib/AuthContext";
-import { motion } from "framer-motion";
-import { User, Palette, Bell, Save, CheckCircle2, CreditCard } from "lucide-react";
-import UpgradeSection from "@/components/billing/UpgradeSection";
-import { subscriptionLabel, subscriptionsEnabled } from "@/lib/billing";
+import UserAvatar from "@/components/account/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/components/ui/use-toast";
-
 import { STUDY_THEMES } from "@/lib/studyTheme";
+import { applyTheme } from "@/lib/appTheme";
 
-const DAILY_GOAL_OPTIONS = [10, 20, 30, 50, 100];
+function formatStudyTime(seconds = 0) {
+  if (seconds < 60) return `${seconds}s`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+
+function Stat({ icon: Icon, label, value }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <Icon className="h-4 w-4" />
+      </div>
+      <p className="text-xl font-semibold text-foreground">{value}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
+    </div>
+  );
+}
 
 export default function Profile() {
   const { user } = useOutletContext();
   const { refreshUser } = useAuth();
   const { toast } = useToast();
-
-  const prefs = user?.preferences || {};
-  const [selectedTheme, setSelectedTheme] = useState(prefs.study_theme || "indigo");
-  const [dailyGoal, setDailyGoal] = useState(prefs.daily_goal || 20);
-  const [notifications, setNotifications] = useState(prefs.notifications !== false);
+  const [displayName, setDisplayName] = useState(user?.full_name || "");
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatar_url || "");
+  const [selectedTheme, setSelectedTheme] = useState(user?.preferences?.study_theme || "indigo");
   const [saving, setSaving] = useState(false);
+  const [savingTheme, setSavingTheme] = useState(false);
 
-  const getInitials = (name) => {
-    if (!name) return "U";
-    return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+  useEffect(() => {
+    setDisplayName(user?.full_name || "");
+    setAvatarUrl(user?.avatar_url || "");
+    setSelectedTheme(user?.preferences?.study_theme || "indigo");
+  }, [user?.id, user?.full_name, user?.avatar_url, user?.preferences?.study_theme]);
+
+  const { data: stats = {} } = useQuery({
+    queryKey: ["analytics-summary"],
+    queryFn: async () => (await client.get("/analytics/summary")).data,
+  });
+
+  const saveProfile = async () => {
+    const name = displayName.trim();
+    if (!name) {
+      toast({ title: "Enter a display name", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const body = { full_name: name };
+      if (user?.auth_provider !== "google") body.avatar_url = avatarUrl.trim();
+      await client.patch("/users/me", body);
+      await refreshUser();
+      toast({ title: "Profile updated" });
+    } catch (error) {
+      toast({
+        title: "Could not update profile",
+        description: error.response?.data?.detail || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    await client.patch("/users/me", {
-      preferences: {
-        study_theme: selectedTheme,
-        daily_goal: dailyGoal,
-        notifications,
-      },
-    });
-    await refreshUser();
-    setSaving(false);
-    toast({ title: "Preferences saved!" });
+  const joined = user?.created_at
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(user.created_at))
+    : "Not available";
+  const provider = user?.auth_provider === "google" ? "Google" : user?.auth_provider === "apple" ? "Apple" : "Email";
+
+  const changeTheme = async (themeId) => {
+    const previous = selectedTheme;
+    setSelectedTheme(themeId);
+    applyTheme(themeId);
+    setSavingTheme(true);
+    try {
+      await client.patch("/users/me", { preferences: { study_theme: themeId } });
+      await refreshUser();
+      toast({ title: "App theme updated" });
+    } catch {
+      setSelectedTheme(previous);
+      applyTheme(previous);
+      toast({ title: "Could not update theme", variant: "destructive" });
+    } finally {
+      setSavingTheme(false);
+    }
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="font-heading text-3xl font-bold">My Profile</h1>
-        <p className="text-muted-foreground mt-1">Manage your account and study preferences</p>
-      </motion.div>
+    <div className="mx-auto max-w-4xl space-y-6 pb-10">
+      <motion.header initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
+        <h1 className="font-heading text-3xl font-bold">Profile</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Your identity and study progress in one place.</p>
+      </motion.header>
 
-      {/* Account Info */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
-        className="bg-card rounded-2xl border border-border p-6"
+      <motion.section
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="rounded-lg border border-border bg-card p-5 sm:p-6"
       >
-        <div className="flex items-center gap-3 mb-5">
-          <User className="w-5 h-5 text-primary" />
-          <h2 className="font-heading font-semibold text-lg">Account</h2>
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+          <UserAvatar user={{ ...user, avatar_url: avatarUrl || user?.avatar_url }} className="h-20 w-20" fallbackClassName="text-xl" />
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-xl font-semibold">{user?.full_name || "MindFlip user"}</h2>
+            <p className="truncate text-sm text-muted-foreground">{user?.email}</p>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-primary/10 px-2 py-1 font-medium text-primary">{provider}</span>
+              <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground capitalize">{user?.subscription_tier || "free"} plan</span>
+            </div>
+          </div>
+          <div className="text-left text-xs text-muted-foreground sm:text-right">
+            <p className="font-medium text-foreground">Member since</p>
+            <p>{joined}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-4 mb-5">
-          <Avatar className="w-16 h-16">
-            <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
-              {getInitials(user?.full_name)}
-            </AvatarFallback>
-          </Avatar>
+
+        <div className="mt-6 grid gap-4 border-t border-border pt-6 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="display-name">Display name</Label>
+            <Input id="display-name" value={displayName} maxLength={255} onChange={(event) => setDisplayName(event.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="profile-email">Email address</Label>
+            <Input id="profile-email" value={user?.email || ""} disabled className="bg-muted/50" />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="avatar-url">Profile picture</Label>
+            {user?.auth_provider === "google" ? (
+              <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                <BadgeCheck className="h-4 w-4 text-primary" />
+                Synced from your Google account and refreshed when you sign in.
+              </div>
+            ) : (
+              <>
+                <Input
+                  id="avatar-url"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://example.com/your-photo.jpg"
+                  value={avatarUrl}
+                  onChange={(event) => setAvatarUrl(event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Use a public HTTPS image URL, or leave this blank to show your initials.</p>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end">
+          <Button onClick={saveProfile} disabled={saving} className="gap-2">
+            <Save className="h-4 w-4" /> {saving ? "Saving..." : "Save profile"}
+          </Button>
+        </div>
+      </motion.section>
+
+      <section className="rounded-lg border border-border bg-card p-5 sm:p-6" aria-labelledby="app-theme-heading">
+        <div className="mb-4 flex items-start gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Palette className="h-4 w-4" />
+          </div>
           <div>
-            <p className="font-semibold text-lg">{user?.full_name || "User"}</p>
-            <p className="text-sm text-muted-foreground">{user?.email}</p>
-            <motion.div className="mt-1 flex flex-wrap gap-2">
-              <span className="inline-block text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">
-                {user?.role || "student"}
-              </span>
-              {subscriptionsEnabled() && (
-                <span className="inline-block text-xs font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                  {subscriptionLabel(user?.subscription_tier)} plan
+            <h2 id="app-theme-heading" className="font-heading text-lg font-semibold">App theme</h2>
+            <p className="text-sm text-muted-foreground">Choose the accent colors used across MindFlip and your study cards.</p>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy={savingTheme}>
+          {STUDY_THEMES.map((theme) => {
+            const active = selectedTheme === theme.id;
+            return (
+              <button
+                key={theme.id}
+                type="button"
+                onClick={() => changeTheme(theme.id)}
+                disabled={savingTheme}
+                aria-pressed={active}
+                className={`relative overflow-hidden rounded-lg border-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                  active ? "border-primary shadow-sm" : "border-border hover:border-primary/40"
+                }`}
+              >
+                <span className={`block h-9 bg-gradient-to-r ${theme.question}`} />
+                <span className="block p-3">
+                  <span className="block pr-6 text-sm font-semibold">{theme.label}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">{theme.description}</span>
                 </span>
-              )}
-            </motion.div>
-          </div>
+                {active ? (
+                  <span className="absolute right-2 top-11 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Check className="h-3 w-3" />
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Full Name</Label>
-            <Input value={user?.full_name || ""} disabled className="bg-muted/50" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Email</Label>
-            <Input value={user?.email || ""} disabled className="bg-muted/50" />
-          </div>
+      </section>
+
+      <section aria-labelledby="study-overview-heading">
+        <div className="mb-3 flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <h2 id="study-overview-heading" className="font-heading text-lg font-semibold">Study overview</h2>
         </div>
-        <p className="text-xs text-muted-foreground mt-3">Name and email are managed by your account provider.</p>
-        {(user?.date_of_birth || user?.country || user?.occupation || user?.job_title) && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5 pt-5 border-t border-border">
-            {user?.date_of_birth && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Date of birth</Label>
-                <Input value={user.date_of_birth} disabled className="bg-muted/50" />
-              </div>
-            )}
-            {user?.age != null && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Age</Label>
-                <Input value={String(user.age)} disabled className="bg-muted/50" />
-              </div>
-            )}
-            {user?.country && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Country</Label>
-                <Input value={user.country} disabled className="bg-muted/50" />
-              </div>
-            )}
-            {user?.custom_country && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Custom Country</Label>
-                <Input value={user.custom_country} disabled className="bg-muted/50" />
-              </div>
-            )}
-            {user?.continent && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Continent</Label>
-                <Input value={user.continent} disabled className="bg-muted/50" />
-              </div>
-            )}
-            {user?.occupation && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Occupation</Label>
-                <Input value={user.occupation} disabled className="bg-muted/50" />
-              </div>
-            )}
-            {user?.job_title && (
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Job Title</Label>
-                <Input value={user.job_title} disabled className="bg-muted/50" />
-              </div>
-            )}
-          </div>
-        )}
-      </motion.div>
-
-      {subscriptionsEnabled() && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}
-          className="bg-card rounded-2xl border border-border p-6"
-        >
-          <div className="flex items-center gap-3 mb-5">
-            <CreditCard className="w-5 h-5 text-primary" />
-            <h2 className="font-heading font-semibold text-lg">Subscription</h2>
-          </div>
-          <UpgradeSection subscriptionTier={user?.subscription_tier} />
-        </motion.div>
-      )}
-
-      {/* Study Theme */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-        className="bg-card rounded-2xl border border-border p-6"
-      >
-        <div className="flex items-center gap-3 mb-5">
-          <Palette className="w-5 h-5 text-primary" />
-          <h2 className="font-heading font-semibold text-lg">Study Theme</h2>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+          <Stat icon={CalendarDays} label="Current streak" value={`${stats.streak_days || 0} days`} />
+          <Stat icon={Clock3} label="Total quiz time" value={formatStudyTime(stats.total_study_time_seconds)} />
+          <Stat icon={Sparkles} label="Flashcards created" value={stats.flashcards_created || 0} />
+          <Stat icon={Layers3} label="Decks created" value={stats.flashcard_sets_count || 0} />
+          <Stat icon={Trophy} label="Quiz attempts" value={stats.quiz_count || 0} />
+          <Stat icon={BadgeCheck} label="Badges earned" value={stats.badges_earned || 0} />
         </div>
-        <p className="text-sm text-muted-foreground mb-4">Choose the color theme for your flashcards.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {STUDY_THEMES.map(theme => (
-            <button
-              key={theme.id}
-              onClick={() => setSelectedTheme(theme.id)}
-              className={`relative text-left rounded-xl border-2 overflow-hidden transition-all
-                ${selectedTheme === theme.id ? "border-primary shadow-md" : "border-border hover:border-primary/40"}`}
-            >
-              {/* Mini flashcard preview */}
-              <div className="flex h-14">
-                <div className={`flex-1 bg-gradient-to-r ${theme.question} flex items-center justify-center`}>
-                  <span className="text-white text-[10px] font-semibold opacity-80 uppercase tracking-wider">Q</span>
-                </div>
-                <div className={`flex-1 bg-gradient-to-r ${theme.answer} flex items-center justify-center`}>
-                  <span className="text-white text-[10px] font-semibold opacity-80 uppercase tracking-wider">A</span>
-                </div>
-              </div>
-              <div className="p-3">
-                <p className="font-medium text-sm">{theme.label}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{theme.description}</p>
-              </div>
-              {selectedTheme === theme.id && (
-                <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                </div>
-              )}
-            </button>
-          ))}
-        </div>
-      </motion.div>
-
-      {/* Study Preferences */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-        className="bg-card rounded-2xl border border-border p-6"
-      >
-        <div className="flex items-center gap-3 mb-5">
-          <Bell className="w-5 h-5 text-primary" />
-          <h2 className="font-heading font-semibold text-lg">Study Preferences</h2>
-        </div>
-
-        <div className="space-y-5">
-          <div>
-            <Label className="text-sm font-medium mb-3 block">Daily Card Goal</Label>
-            <div className="flex flex-wrap gap-2">
-              {DAILY_GOAL_OPTIONS.map(n => (
-                <button
-                  key={n}
-                  onClick={() => setDailyGoal(n)}
-                  className={`px-4 py-2 rounded-lg border-2 text-sm font-semibold transition-all
-                    ${dailyGoal === n ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/40"}`}
-                >
-                  {n} cards/day
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between py-3 border-t border-border">
-            <div>
-              <p className="text-sm font-medium">Study Reminders</p>
-              <p className="text-xs text-muted-foreground">Get reminded to keep your streak alive</p>
-            </div>
-            <button
-              onClick={() => setNotifications(!notifications)}
-              className={`relative w-11 h-6 rounded-full transition-colors ${notifications ? "bg-primary" : "bg-muted"}`}
-            >
-              <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${notifications ? "left-5" : "left-0.5"}`} />
-            </button>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Save */}
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
-        <Button onClick={handleSave} disabled={saving} size="lg" className="w-full gap-2 h-12 font-semibold">
-          {saving ? "Saving..." : <><Save className="w-4 h-4" /> Save Preferences</>}
-        </Button>
-      </motion.div>
+      </section>
     </div>
   );
 }

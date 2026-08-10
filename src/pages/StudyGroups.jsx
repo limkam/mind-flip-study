@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/components/ui/use-toast";
 import { fetchAllBooksPages } from "@/lib/fetchAllBooksPages";
+import { fetchEntitlementsSnapshot } from "@/lib/billing";
 
 export default function StudyGroups() {
   const { toast } = useToast();
@@ -26,6 +27,11 @@ export default function StudyGroups() {
     weekly_card_goal: 20,
     book_ids: [],
   });
+  const { data: entitlements } = useQuery({
+    queryKey: ["billing-entitlements"],
+    queryFn: fetchEntitlementsSnapshot,
+  });
+  const canCreateGroup = entitlements?.features?.study_group_creation === true;
 
   const { data: myGroups = [], isLoading: loadingMine } = useQuery({
     queryKey: ["study-groups", "mine"],
@@ -61,6 +67,7 @@ export default function StudyGroups() {
       queryClient.invalidateQueries({ queryKey: ["study-groups"] });
     },
     onError: (err) => {
+      if (err?.response?.status === 402) return;
       toast({
         title: "Could not join",
         description: err.response?.data?.detail || "Check the code and try again.",
@@ -123,7 +130,7 @@ export default function StudyGroups() {
         </div>
       </section>
 
-      <section className="bg-card border border-border rounded-2xl p-6 space-y-4">
+      {canCreateGroup ? <section className="bg-card border border-border rounded-2xl p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="font-heading font-semibold flex items-center gap-2">
             <Plus className="w-4 h-4" /> New Group
@@ -237,7 +244,7 @@ export default function StudyGroups() {
             </Button>
           </div>
         )}
-      </section>
+      </section> : null}
 
       <section className="bg-card border border-border rounded-2xl p-6 space-y-4">
         <h2 className="font-heading font-semibold flex items-center gap-2">

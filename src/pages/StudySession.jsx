@@ -13,8 +13,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-  ArrowLeft, GraduationCap, Gamepad2, Loader2,
-  BookOpen, Lightbulb
+  ArrowLeft,
+  GraduationCap,
+  Gamepad2,
+  Loader2,
+  BookOpen,
+  Lightbulb,
 } from "lucide-react";
 import { selectGameCards } from "@/lib/gameUtils";
 import FlashCard from "@/components/study/FlashCard";
@@ -23,6 +27,8 @@ import StudySetHeader from "@/components/study/StudySetHeader";
 import SummaryView from "@/components/study/SummaryView";
 import ScenarioView from "@/components/study/ScenarioView";
 import QuizGame from "@/components/study/QuizGame";
+import RegenerateScenarios from "@/components/study/RegenerateScenarios";
+import { RefreshCw } from "lucide-react";
 import GameSelector from "@/components/games/GameSelector";
 import HangmanGame from "@/components/games/HangmanGame";
 import TugOfWarGame from "@/components/games/TugOfWarGame";
@@ -38,6 +44,10 @@ import { useToast } from "@/components/ui/use-toast";
 import { studyThemeFromUser } from "@/lib/studyTheme";
 import { trackClientEvent } from "@/lib/analytics";
 import { logGameEvent } from "@/lib/gameLifecycle";
+import { fetchEntitlementsSnapshot } from "@/lib/billing";
+import ContextualNudge from "@/components/engagement/ContextualNudge";
+import { useCelebration } from "@/lib/celebrations/CelebrationContext";
+import { parseTrustedCelebrationEvents } from "@/lib/celebrations/trustedEvents";
 
 export default function StudySession() {
   const { id } = useParams();
@@ -45,6 +55,7 @@ export default function StudySession() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user } = useAuth();
+  const { requestMany } = useCelebration();
   const studyThemeId = studyThemeFromUser(user).id;
   const [mode, setMode] = useState("flashcards");
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -61,7 +72,8 @@ export default function StudySession() {
   const [cardRevealed, setCardRevealed] = useState(false);
 
   const autoAdvance = user?.preferences?.settings?.auto_advance_cards ?? false;
-  const autoAdvanceDelay = user?.preferences?.settings?.auto_advance_delay_ms ?? 2000;
+  const autoAdvanceDelay =
+    user?.preferences?.settings?.auto_advance_delay_ms ?? 2000;
 
   const { data: flashcardSet, isLoading } = useQuery({
     queryKey: ["flashcard-set", id],
@@ -85,6 +97,15 @@ export default function StudySession() {
       }
     },
   });
+
+  const { data: entitlements } = useQuery({
+    queryKey: ["billing-entitlements"],
+    queryFn: fetchEntitlementsSnapshot,
+  });
+  const gameLimit = entitlements?.features?.games_limit ?? 2;
+  const canRegenerate = ["standard_15", "premium_30"].includes(
+    entitlements?.plan_slug,
+  );
 
   // Load card progress for this set
   useEffect(() => {
@@ -115,17 +136,28 @@ export default function StudySession() {
     ? cards.filter((_, i) => cardProgressMap[i]?.rating === "hard")
     : cards;
   const gameSeed = flashcardSet?.generation_seed || 0;
-  const hardCount = Object.values(cardProgressMap).filter(p => p.rating === "hard").length;
-  const easyCount = Object.values(cardProgressMap).filter(p => p.rating === "easy").length;
+  const hardCount = Object.values(cardProgressMap).filter(
+    (p) => p.rating === "hard",
+  ).length;
+  const easyCount = Object.values(cardProgressMap).filter(
+    (p) => p.rating === "easy",
+  ).length;
   const ratedCount = Object.values(cardProgressMap).length;
 
-  const handleSelectGame = useCallback((gameId) => {
-    const perf = ratedCount / Math.max(cards.length, 1);
-    const pool = selectGameCards(cards, cards.length, gameSeed, perf);
-    setSessionGameCards(pool);
-    setSelectedGame(gameId);
-    logGameEvent("start", { game: gameId, set_id: id, card_count: pool.length });
-  }, [cards, gameSeed, ratedCount, id]);
+  const handleSelectGame = useCallback(
+    (gameId) => {
+      const perf = ratedCount / Math.max(cards.length, 1);
+      const pool = selectGameCards(cards, cards.length, gameSeed, perf);
+      setSessionGameCards(pool);
+      setSelectedGame(gameId);
+      logGameEvent("start", {
+        game: gameId,
+        set_id: id,
+        card_count: pool.length,
+      });
+    },
+    [cards, gameSeed, ratedCount, id],
+  );
 
   const exitGameMenu = useCallback(() => {
     setSelectedGame(null);
@@ -145,7 +177,12 @@ export default function StudySession() {
     const realIndex = cards.findIndex((c) => c.id === card.id);
     setCardProgressMap((prev) => ({
       ...prev,
-      [realIndex]: { ...(prev[realIndex] || {}), card_id: card.id, quality, rating },
+      [realIndex]: {
+        ...(prev[realIndex] || {}),
+        card_id: card.id,
+        quality,
+        rating,
+      },
     }));
     try {
       if (navigator.onLine) {
@@ -153,7 +190,13 @@ export default function StudySession() {
           card_id: card.id,
           quality,
         });
-        setCardProgressMap((prev) => ({ ...prev, [realIndex]: { ...record, rating } }));
+        const trustedEvents = parseTrustedCelebrationEvents(record);
+        if (trustedEvents.length) requestMany(trustedEvents);
+        void queryClient.invalidateQueries({ queryKey: ["scorecards"] });
+        setCardProgressMap((prev) => ({
+          ...prev,
+          [realIndex]: { ...record, rating },
+        }));
         setOfflineHint(false);
       } else {
         await queueProgressSync({
@@ -166,7 +209,9 @@ export default function StudySession() {
       if (autoAdvance && index < cardsList.length - 1) {
         setTimeout(() => {
           setSlideDirection(1);
-          setCurrentCardIndex((prev) => Math.min(cardsList.length - 1, prev + 1));
+          setCurrentCardIndex((prev) =>
+            Math.min(cardsList.length - 1, prev + 1),
+          );
           setCardRevealed(false);
         }, autoAdvanceDelay);
       } else if (index >= cardsList.length - 1) {
@@ -186,7 +231,7 @@ export default function StudySession() {
     exitGameMenu();
     void (async () => {
       try {
-        await client.post("/quiz-results/", {
+        const { data: savedResult } = await client.post("/quiz-results/", {
           set_id: id,
           score: result.score,
           total_questions: result.total_questions,
@@ -198,14 +243,17 @@ export default function StudySession() {
             answers: result.answers || [],
           },
         });
-        queryClient.invalidateQueries({ queryKey: ['quiz-results'] });
-        queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
-        queryClient.invalidateQueries({ queryKey: ['achievements'] });
+        const trustedEvents = parseTrustedCelebrationEvents(savedResult);
+        if (trustedEvents.length) requestMany(trustedEvents);
+        void queryClient.invalidateQueries({ queryKey: ["scorecards"] });
+        queryClient.invalidateQueries({ queryKey: ["quiz-results"] });
+        queryClient.invalidateQueries({ queryKey: ["analytics-summary"] });
+        queryClient.invalidateQueries({ queryKey: ["achievements"] });
         toast({ title: `Quiz saved! You scored ${result.percentage}%` });
         if (result.answers) {
           const wrong = result.answers
-            .filter(a => !a.is_correct)
-            .map(a => cards.find(c => c.front === a.question))
+            .filter((a) => !a.is_correct)
+            .map((a) => cards.find((c) => c.front === a.question))
             .filter(Boolean);
           if (wrong.length > 0) setRetryCards(wrong);
         }
@@ -227,7 +275,7 @@ export default function StudySession() {
 
     void (async () => {
       try {
-        await client.post("/quiz-results/", {
+        const { data: savedResult } = await client.post("/quiz-results/", {
           set_id: id,
           score: result.playerScore,
           total_questions: totalRounds,
@@ -238,10 +286,15 @@ export default function StudySession() {
             percentage: pct,
           },
         });
-        queryClient.invalidateQueries({ queryKey: ['quiz-results'] });
-        queryClient.invalidateQueries({ queryKey: ['analytics-summary'] });
-        queryClient.invalidateQueries({ queryKey: ['achievements'] });
-        toast({ title: `Game over! ${result.playerScore} / ${totalRounds} rounds won` });
+        const trustedEvents = parseTrustedCelebrationEvents(savedResult);
+        if (trustedEvents.length) requestMany(trustedEvents);
+        void queryClient.invalidateQueries({ queryKey: ["scorecards"] });
+        queryClient.invalidateQueries({ queryKey: ["quiz-results"] });
+        queryClient.invalidateQueries({ queryKey: ["analytics-summary"] });
+        queryClient.invalidateQueries({ queryKey: ["achievements"] });
+        toast({
+          title: `Game over! ${result.playerScore} / ${totalRounds} rounds won`,
+        });
       } catch (err) {
         logGameEvent("save_error", { game, set_id: id, message: String(err) });
         toast({
@@ -270,26 +323,50 @@ export default function StudySession() {
   }
 
   if (sessionDone && mode === "flashcards") {
-    const sessionRatings = Object.values(cardProgressMap).filter((p) => p.rating);
+    const sessionRatings = Object.values(cardProgressMap).filter(
+      (p) => p.rating,
+    );
     const hard = sessionRatings.filter((p) => p.rating === "hard").length;
     const medium = sessionRatings.filter((p) => p.rating === "medium").length;
     const easy = sessionRatings.filter((p) => p.rating === "easy").length;
-    const confidence = sessionRatings.length > 0
-      ? Math.round(((easy * 100 + medium * 60 + hard * 20) / sessionRatings.length))
-      : 0;
+    const confidence =
+      sessionRatings.length > 0
+        ? Math.round(
+            (easy * 100 + medium * 60 + hard * 20) / sessionRatings.length,
+          )
+        : 0;
     return (
       <SessionSummary
         stats={{
           total: sessionRatings.length,
-          hard, medium, easy,
+          hard,
+          medium,
+          easy,
           durationMs: Date.now() - sessionStart,
-          completionRate: Math.round((sessionRatings.length / Math.max(cards.length, 1)) * 100),
+          completionRate: Math.round(
+            (sessionRatings.length / Math.max(cards.length, 1)) * 100,
+          ),
           confidenceScore: confidence,
         }}
         mode="study"
-        onReviewHard={hard > 0 ? () => { setHardReviewMode(true); setSessionDone(false); setCurrentCardIndex(0); } : null}
-        onContinue={() => { setSessionDone(false); setHardReviewMode(false); setCurrentCardIndex(0); }}
-        onGenerateQuiz={() => { setSessionDone(false); setMode("quiz"); }}
+        onReviewHard={
+          hard > 0
+            ? () => {
+                setHardReviewMode(true);
+                setSessionDone(false);
+                setCurrentCardIndex(0);
+              }
+            : null
+        }
+        onContinue={() => {
+          setSessionDone(false);
+          setHardReviewMode(false);
+          setCurrentCardIndex(0);
+        }}
+        onGenerateQuiz={() => {
+          setSessionDone(false);
+          setMode("quiz");
+        }}
       />
     );
   }
@@ -299,11 +376,19 @@ export default function StudySession() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <Button variant="ghost" className="gap-2 mb-6 text-muted-foreground" onClick={() => navigate(-1)}>
+      <ContextualNudge placement="learning" />
+      <Button
+        variant="ghost"
+        className="gap-2 mb-6 text-muted-foreground"
+        onClick={() => navigate(-1)}
+      >
         <ArrowLeft className="w-4 h-4" /> Back
       </Button>
 
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
         <StudySetHeader
           flashcardSet={flashcardSet}
           cardCount={cards.length}
@@ -314,15 +399,37 @@ export default function StudySession() {
         />
       </motion.div>
 
-      <Tabs value={mode} onValueChange={(v) => { setMode(v); exitGameMenu(); }} className="mb-8">
+      <Tabs
+        value={mode}
+        onValueChange={(v) => {
+          setMode(v);
+          exitGameMenu();
+        }}
+        className="mb-8"
+      >
+        {canRegenerate ? <TabsList className="w-full max-w-2xl mx-auto mb-4 flex justify-center">
+          <TabsTrigger
+            value="regenerate"
+            className="gap-1.5 text-sm font-medium"
+          >
+            <RefreshCw className="w-4 h-4" /> Regenerate Scenarios
+          </TabsTrigger>
+        </TabsList> : null}
+
         <TabsList className="w-full max-w-2xl mx-auto grid grid-cols-4 h-12">
-          <TabsTrigger value="flashcards" className="gap-1.5 text-sm font-medium">
+          <TabsTrigger
+            value="flashcards"
+            className="gap-1.5 text-sm font-medium"
+          >
             <GraduationCap className="w-4 h-4" /> Study Cards
           </TabsTrigger>
           <TabsTrigger value="summary" className="gap-1.5 text-sm font-medium">
             <BookOpen className="w-4 h-4" /> Summary
           </TabsTrigger>
-          <TabsTrigger value="scenarios" className="gap-1.5 text-sm font-medium">
+          <TabsTrigger
+            value="scenarios"
+            className="gap-1.5 text-sm font-medium"
+          >
             <Lightbulb className="w-4 h-4" /> Scenarios
           </TabsTrigger>
           <TabsTrigger value="quiz" className="gap-1.5 text-sm font-medium">
@@ -333,24 +440,35 @@ export default function StudySession() {
         {/* ── FLASHCARD TAB ── */}
         <TabsContent value="flashcards" className="mt-10">
           <div className="mb-6 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-center">
-            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Study Mode</p>
-            <p className="text-xs text-muted-foreground">Learning & retention — self-rating powers spaced repetition</p>
+            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+              Study Mode
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Learning & retention — self-rating powers spaced repetition
+            </p>
           </div>
           {displayCards.length === 0 ? (
-            <p className="text-center text-muted-foreground py-12">No cards in this set</p>
+            <p className="text-center text-muted-foreground py-12">
+              No cards in this set
+            </p>
           ) : (
             <div className="flex flex-col items-center gap-8">
-
               {/* Progress bar */}
               <div className="w-full max-w-lg">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Progress</span>
-                  <span className="text-xs font-bold text-primary">{currentCardIndex + 1} / {displayCards.length}</span>
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Progress
+                  </span>
+                  <span className="text-xs font-bold text-primary">
+                    {currentCardIndex + 1} / {displayCards.length}
+                  </span>
                 </div>
                 <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                   <motion.div
                     className="h-full bg-gradient-to-r from-primary to-violet-500 rounded-full"
-                    animate={{ width: `${((currentCardIndex + 1) / displayCards.length) * 100}%` }}
+                    animate={{
+                      width: `${((currentCardIndex + 1) / displayCards.length) * 100}%`,
+                    }}
                     transition={{ type: "spring", stiffness: 200, damping: 25 }}
                   />
                 </div>
@@ -363,9 +481,17 @@ export default function StudySession() {
                     key={currentCardIndex}
                     custom={slideDirection}
                     variants={{
-                      enter: (dir) => ({ x: dir * 360, opacity: 0, scale: 0.96 }),
+                      enter: (dir) => ({
+                        x: dir * 360,
+                        opacity: 0,
+                        scale: 0.96,
+                      }),
                       center: { x: 0, opacity: 1, scale: 1 },
-                      exit: (dir) => ({ x: dir * -360, opacity: 0, scale: 0.96 }),
+                      exit: (dir) => ({
+                        x: dir * -360,
+                        opacity: 0,
+                        scale: 0.96,
+                      }),
                     }}
                     initial="enter"
                     animate="center"
@@ -388,24 +514,42 @@ export default function StudySession() {
                 currentIndex={currentCardIndex}
                 total={displayCards.length}
                 cardProgressMap={cardProgressMap}
-                onPrev={() => { setSlideDirection(-1); setCurrentCardIndex(prev => Math.max(0, prev - 1)); }}
-                onNext={() => { setSlideDirection(1); setCurrentCardIndex(prev => Math.min(displayCards.length - 1, prev + 1)); }}
-                onSelect={(i) => { setSlideDirection(i > currentCardIndex ? 1 : -1); setCurrentCardIndex(i); }}
+                onPrev={() => {
+                  setSlideDirection(-1);
+                  setCurrentCardIndex((prev) => Math.max(0, prev - 1));
+                }}
+                onNext={() => {
+                  setSlideDirection(1);
+                  setCurrentCardIndex((prev) =>
+                    Math.min(displayCards.length - 1, prev + 1),
+                  );
+                }}
+                onSelect={(i) => {
+                  setSlideDirection(i > currentCardIndex ? 1 : -1);
+                  setCurrentCardIndex(i);
+                }}
               />
 
               {/* Spaced repetition rating */}
               <div className="w-full max-w-xl">
                 <SpacedRepetitionBar
                   onRate={(rating) => handleCardRate(currentCardIndex, rating)}
-                  cardProgress={cardProgressMap[cards.findIndex((c) => c.id === displayCards[currentCardIndex]?.id)]}
+                  cardProgress={
+                    cardProgressMap[
+                      cards.findIndex(
+                        (c) => c.id === displayCards[currentCardIndex]?.id,
+                      )
+                    ]
+                  }
                   required={false}
                   onSkip={() => {
                     setSlideDirection(1);
-                    setCurrentCardIndex((prev) => Math.min(displayCards.length - 1, prev + 1));
+                    setCurrentCardIndex((prev) =>
+                      Math.min(displayCards.length - 1, prev + 1),
+                    );
                   }}
                 />
               </div>
-
             </div>
           )}
         </TabsContent>
@@ -413,7 +557,10 @@ export default function StudySession() {
         {/* ── RETRY DECK ── */}
         {retryCards && mode === "flashcards" && (
           <div className="mt-6">
-            <RetryDeck wrongCards={retryCards} onDone={() => setRetryCards(null)} />
+            <RetryDeck
+              wrongCards={retryCards}
+              onDone={() => setRetryCards(null)}
+            />
           </div>
         )}
 
@@ -428,6 +575,13 @@ export default function StudySession() {
           />
         </TabsContent>
 
+        {canRegenerate ? <TabsContent value="regenerate" className="mt-8">
+          <RegenerateScenarios
+            setId={id}
+            onScenariosChange={setLocalScenarios}
+          />
+        </TabsContent> : null}
+
         <TabsContent value="scenarios" className="mt-8">
           <ScenarioView
             scenarios={scenarios}
@@ -439,8 +593,13 @@ export default function StudySession() {
         {/* ── GAMES TAB ── */}
         <TabsContent value="quiz" className="mt-8">
           <div className="mb-6 rounded-xl border border-amber-500/20 bg-gradient-to-r from-amber-500/10 to-orange-500/10 px-4 py-3 text-center">
-            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Games Mode</p>
-            <p className="text-xs text-muted-foreground">Engagement & speed — timers, streaks, points, and competitive scoring</p>
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+              Games Mode
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Engagement & speed — timers, streaks, points, and competitive
+              scoring
+            </p>
           </div>
           {cards.length < 4 ? (
             <p className="text-center text-muted-foreground py-12">
@@ -449,16 +608,33 @@ export default function StudySession() {
           ) : (
             <AnimatePresence>
               {!selectedGame && (
-                <motion.div key="selector" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                  <GameSelector onSelect={handleSelectGame} />
+                <motion.div
+                  key="selector"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <GameSelector onSelect={handleSelectGame} maxGames={gameLimit} />
                 </motion.div>
               )}
 
               {selectedGame === "mcq" && (
-                <motion.div key="mcq" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <motion.div
+                  key="mcq"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-heading text-lg font-semibold">Classic Quiz</h3>
-                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">
+                    <h3 className="font-heading text-lg font-semibold">
+                      Classic Quiz
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={exitGameMenu}
+                      className="text-muted-foreground"
+                    >
                       ← Change Game
                     </Button>
                   </div>
@@ -473,10 +649,22 @@ export default function StudySession() {
               )}
 
               {selectedGame === "hangman" && (
-                <motion.div key="hangman" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <motion.div
+                  key="hangman"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-heading text-lg font-semibold">🎯 Hangman</h3>
-                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">
+                    <h3 className="font-heading text-lg font-semibold">
+                      🎯 Hangman
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={exitGameMenu}
+                      className="text-muted-foreground"
+                    >
                       ← Change Game
                     </Button>
                   </div>
@@ -489,10 +677,22 @@ export default function StudySession() {
               )}
 
               {selectedGame === "tugofwar" && (
-                <motion.div key="tugofwar" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <motion.div
+                  key="tugofwar"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-heading text-lg font-semibold">🪢 Tug of War</h3>
-                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">
+                    <h3 className="font-heading text-lg font-semibold">
+                      🪢 Tug of War
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={exitGameMenu}
+                      className="text-muted-foreground"
+                    >
                       ← Change Game
                     </Button>
                   </div>
@@ -505,52 +705,142 @@ export default function StudySession() {
               )}
 
               {selectedGame === "bricks" && (
-                <motion.div key="bricks" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <motion.div
+                  key="bricks"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-heading text-lg font-semibold">🧱 Brick Breaker</h3>
-                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">← Change Game</Button>
+                    <h3 className="font-heading text-lg font-semibold">
+                      🧱 Brick Breaker
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={exitGameMenu}
+                      className="text-muted-foreground"
+                    >
+                      ← Change Game
+                    </Button>
                   </div>
-                  <BricksGame key="bricks-game" cards={gameCards} onRoundComplete={handleGameComplete} />
+                  <BricksGame
+                    key="bricks-game"
+                    cards={gameCards}
+                    onRoundComplete={handleGameComplete}
+                  />
                 </motion.div>
               )}
 
               {selectedGame === "memory" && (
-                <motion.div key="memory" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <motion.div
+                  key="memory"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-heading text-lg font-semibold">🃏 Memory Match</h3>
-                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">← Change Game</Button>
+                    <h3 className="font-heading text-lg font-semibold">
+                      🃏 Memory Match
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={exitGameMenu}
+                      className="text-muted-foreground"
+                    >
+                      ← Change Game
+                    </Button>
                   </div>
-                  <MemoryMatchGame key="memory-game" cards={gameCards} onRoundComplete={handleGameComplete} />
+                  <MemoryMatchGame
+                    key="memory-game"
+                    cards={gameCards}
+                    onRoundComplete={handleGameComplete}
+                  />
                 </motion.div>
               )}
 
               {selectedGame === "lightning" && (
-                <motion.div key="lightning" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <motion.div
+                  key="lightning"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-heading text-lg font-semibold">⚡ Lightning Round</h3>
-                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">← Change Game</Button>
+                    <h3 className="font-heading text-lg font-semibold">
+                      ⚡ Lightning Round
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={exitGameMenu}
+                      className="text-muted-foreground"
+                    >
+                      ← Change Game
+                    </Button>
                   </div>
-                  <LightningRoundGame key="lightning-game" cards={gameCards} onRoundComplete={handleGameComplete} />
+                  <LightningRoundGame
+                    key="lightning-game"
+                    cards={gameCards}
+                    onRoundComplete={handleGameComplete}
+                  />
                 </motion.div>
               )}
 
               {selectedGame === "battle" && (
-                <motion.div key="battle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <motion.div
+                  key="battle"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-heading text-lg font-semibold">⚔️ Battle RPG</h3>
-                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">← Change Game</Button>
+                    <h3 className="font-heading text-lg font-semibold">
+                      ⚔️ Battle RPG
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={exitGameMenu}
+                      className="text-muted-foreground"
+                    >
+                      ← Change Game
+                    </Button>
                   </div>
-                  <BattleRPGGame key="battle-game" cards={gameCards} onRoundComplete={handleGameComplete} />
+                  <BattleRPGGame
+                    key="battle-game"
+                    cards={gameCards}
+                    onRoundComplete={handleGameComplete}
+                  />
                 </motion.div>
               )}
 
               {selectedGame === "scramble" && (
-                <motion.div key="scramble" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <motion.div
+                  key="scramble"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
                   <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-heading text-lg font-semibold">🔤 Word Scramble</h3>
-                    <Button variant="ghost" size="sm" onClick={exitGameMenu} className="text-muted-foreground">← Change Game</Button>
+                    <h3 className="font-heading text-lg font-semibold">
+                      🔤 Word Scramble
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={exitGameMenu}
+                      className="text-muted-foreground"
+                    >
+                      ← Change Game
+                    </Button>
                   </div>
-                  <WordScrambleGame key="scramble-game" cards={gameCards} onRoundComplete={handleGameComplete} />
+                  <WordScrambleGame
+                    key="scramble-game"
+                    cards={gameCards}
+                    onRoundComplete={handleGameComplete}
+                  />
                 </motion.div>
               )}
             </AnimatePresence>

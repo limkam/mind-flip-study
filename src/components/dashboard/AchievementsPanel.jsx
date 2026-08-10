@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import React, { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import client from "@/api/client";
 import { motion } from "framer-motion";
 import { Trophy } from "lucide-react";
@@ -15,8 +15,6 @@ export default function AchievementsPanel({
   streak = 0,
   challenges = [],
 }) {
-  const queryClient = useQueryClient();
-
   const totalCards = flashcardSets.reduce(
     (sum, s) => sum + (s.cards?.length ?? s.card_count ?? 0),
     0,
@@ -37,7 +35,7 @@ export default function AchievementsPanel({
     [statsProp, quizCountProp, quizResults, hasPerfectQuiz, streak, totalCards, challengesSent],
   );
 
-  const { data: earned = [], isFetched } = useQuery({
+  const { data: earned = [] } = useQuery({
     queryKey: ['achievements', user?.email],
     queryFn: async () => {
       if (!user?.id) return [];
@@ -50,36 +48,7 @@ export default function AchievementsPanel({
   });
 
   const earnedIds = useMemo(() => new Set(earned.map((a) => a.achievement_type)), [earned]);
-  const earnedKey = useMemo(() => [...earnedIds].sort().join(","), [earnedIds]);
-  const statsKey = JSON.stringify(stats);
-
   const isUnlocked = (ach) => earnedIds.has(ach.id) || ach.check(stats);
-
-  useEffect(() => {
-    if (!isFetched || !user?.email) return;
-    const missing = ALL_ACHIEVEMENTS.filter((ach) => !earnedIds.has(ach.id) && ach.check(stats));
-    if (missing.length === 0) return;
-    let cancelled = false;
-    (async () => {
-      for (const ach of missing) {
-        if (cancelled) return;
-        try {
-          await client.post("/achievements/", {
-            achievement_type: ach.id,
-            metadata: { title: ach.title, description: ach.description, icon: ach.icon },
-          });
-        } catch {
-          /* duplicate / race */
-        }
-      }
-      if (!cancelled) {
-        await queryClient.invalidateQueries({ queryKey: ["achievements"] });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isFetched, user?.email, earnedKey, statsKey, queryClient]);
 
   const unlocked = ALL_ACHIEVEMENTS.filter((a) => isUnlocked(a));
   const locked = ALL_ACHIEVEMENTS.filter((a) => !isUnlocked(a));

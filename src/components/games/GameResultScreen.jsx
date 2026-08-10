@@ -24,8 +24,20 @@ export default function GameResultScreen({
       <h2 className="font-heading text-3xl font-bold mb-2">{title}</h2>
       {subtitle ? <p className="text-muted-foreground mb-6">{subtitle}</p> : null}
       {children}
-      <Button type="button" className="mt-6" onClick={() => finish(result)}>
-        {continueLabel}
+      <Button
+        type="button"
+        className="mt-6 gap-2"
+        disabled={finish.isSubmitting}
+        onClick={() => finish.trigger(result)}
+      >
+        {finish.isSubmitting ? (
+          <>
+            <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            Processing...
+          </>
+        ) : (
+          continueLabel
+        )}
       </Button>
     </motion.div>
   );

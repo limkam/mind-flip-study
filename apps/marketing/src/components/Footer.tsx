@@ -8,25 +8,33 @@ export function Footer() {
   const studyLinks = subjects.filter((s) => footerStudySlugs.includes(s.slug));
 
   return (
-    <footer className="border-t border-gray-200 bg-gray-50 px-6 py-16">
-      <div className="mx-auto grid max-w-6xl gap-12 sm:grid-cols-2 lg:grid-cols-4">
+    <footer className="border-t border-gray-200 bg-[#0e1024] px-6 py-16 text-white">
+      <div className="mx-auto grid max-w-7xl gap-12 sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <p className="text-lg font-bold text-indigo-600">MindFlip</p>
-          <p className="mt-2 text-sm text-gray-600">
-            Turn any PDF into flashcard games in 30 seconds.
+          <div className="flex items-center gap-2.5 text-xl font-black tracking-[-0.04em]">
+            <span className="grid h-8 w-8 place-items-center rounded-xl bg-indigo-600 text-xs font-black text-white shadow-md shadow-indigo-500/20 rotate-[30deg] my-1 ml-1">
+              <span className="-rotate-[30deg]">M</span>
+            </span>
+            <span>Mind<span className="text-indigo-400">flip</span></span>
+          </div>
+          <p className="mt-3 max-w-xs text-sm leading-6 text-slate-400">
+            Turn your course material into a study system that helps knowledge stick.
           </p>
         </div>
 
         <div>
-          <h3 className="font-semibold text-gray-900">Product</h3>
-          <ul className="mt-4 space-y-2 text-sm text-gray-600">
+          <h3 className="font-semibold text-white">Product</h3>
+          <ul className="mt-4 space-y-3 text-sm text-slate-400">
             <li>
-              <Link href="/#features" className="hover:text-indigo-600">
+              <Link href="/features" className="hover:text-white">
                 Features
               </Link>
             </li>
             <li>
-              <Link href="/pricing" className="hover:text-indigo-600">
+              <Link href="/how-it-works" className="hover:text-white">How it works</Link>
+            </li>
+            <li>
+              <Link href="/pricing" className="hover:text-white">
                 Pricing
               </Link>
             </li>
@@ -37,11 +45,11 @@ export function Footer() {
         </div>
 
         <div>
-          <h3 className="font-semibold text-gray-900">Study</h3>
-          <ul className="mt-4 space-y-2 text-sm text-gray-600">
+          <h3 className="font-semibold text-white">Study</h3>
+          <ul className="mt-4 space-y-3 text-sm text-slate-400">
             {studyLinks.map((s) => (
               <li key={s.slug}>
-                <Link href={`/study/${s.slug}`} className="hover:text-indigo-600">
+                <Link href={`/study/${s.slug}`} className="hover:text-white">
                   {s.name}
                 </Link>
               </li>
@@ -50,15 +58,16 @@ export function Footer() {
         </div>
 
         <div>
-          <h3 className="font-semibold text-gray-900">Company</h3>
-          <ul className="mt-4 space-y-2 text-sm text-gray-600">
+          <h3 className="font-semibold text-white">Support</h3>
+          <ul className="mt-4 space-y-3 text-sm text-slate-400">
+            <li><Link href="/help" className="hover:text-white">Help center</Link></li>
             <li>
-              <Link href="/privacy" className="hover:text-indigo-600">
+              <Link href="/privacy" className="hover:text-white">
                 Privacy Policy
               </Link>
             </li>
             <li>
-              <a href="mailto:hello@mindflip.io" className="hover:text-indigo-600">
+              <a href="mailto:hello@mindflip.io" className="hover:text-white">
                 Contact
               </a>
             </li>
@@ -67,7 +76,7 @@ export function Footer() {
                 href="https://twitter.com/mindflipapp"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hover:text-indigo-600"
+                className="hover:text-white"
               >
                 @mindflipapp
               </a>
@@ -76,8 +85,8 @@ export function Footer() {
         </div>
       </div>
 
-      <p className="mx-auto mt-12 max-w-6xl border-t border-gray-200 pt-8 text-center text-sm text-gray-500">
-        © 2025 MindFlip. Made for students, by students.
+      <p className="mx-auto mt-12 max-w-7xl border-t border-white/10 pt-8 text-center text-sm text-slate-500">
+        © {new Date().getFullYear()} Mindflip. Learn with momentum.
       </p>
     </footer>
   );

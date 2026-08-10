@@ -42,3 +42,14 @@ export function cardsGeneratedLabel(count: number | null | undefined) {
   if (!Number.isFinite(n) || n <= 0) return null;
   return `${n} card${n === 1 ? "" : "s"} generated`;
 }
+
+export function displayChapterHeading(title: string | null | undefined, chapterNumber: number) {
+  const text = String(title || "").trim();
+  if (!text || !Number.isInteger(chapterNumber) || chapterNumber < 1) return text;
+
+  const chapterTitle = text
+    .replace(/^(?:(?:ch(?:apter)?\.?\s*)?\d+\s*[.):-–—]\s*)+/i, "")
+    .trim();
+
+  return `Ch. ${chapterNumber} – ${chapterTitle || text}`;
+}

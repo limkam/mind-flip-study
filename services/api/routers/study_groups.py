@@ -19,6 +19,8 @@ from models.quiz import StudyEvent
 from models.study_group import StudyGroup, StudyGroupMaterial, StudyGroupMember
 from models.user import User
 from user_identity import resolve_display_name
+from services.credits import consume_extra_credits, get_user_balance
+from services.entitlements import Action, can_user_do
 
 router = APIRouter(tags=["study-groups"])
 
@@ -199,6 +201,20 @@ async def get_group_detail(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
     group = await _require_member(db, group_id, current_user)
+
+    # Require available extra credits (pool='purchased') to access study group materials & flashcards
+    purchased_balance = await get_user_balance(db, current_user.id, pool="purchased")
+    if purchased_balance < 1:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "INSUFFICIENT_CREDITS",
+                "message": "Extra credits are required to access study group materials. Purchase credits to continue.",
+                "balance": purchased_balance,
+                "required": 1,
+            },
+        )
+
     base = await _serialize_group(db, group, is_member=True)
 
     members_r = await db.execute(
@@ -273,6 +289,12 @@ async def create_group(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
+    decision = await can_user_do(db, current_user, Action.CREATE_STUDY_GROUP)
+    if not decision.get("allowed"):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={"code": "UPGRADE_REQUIRED", "message": "Upgrade to Standard 15 or Premium 30 to create study groups."},
+        )
     code = _new_group_code()
     for _ in range(5):
         exists = await db.execute(select(StudyGroup.id).where(StudyGroup.code == code))
@@ -330,6 +352,14 @@ async def join_group(
     )
     if existing.scalar_one_or_none() is not None:
         return await _serialize_group(db, group, is_member=True)
+
+    await consume_extra_credits(
+        db,
+        current_user.id,
+        amount=1,
+        reason="Accessed Study Group Flashcards",
+        metadata={"group_id": str(group.id), "group_name": group.name},
+    )
 
     db.add(StudyGroupMember(group_id=group.id, user_id=current_user.id, role="member"))
     await db.commit()

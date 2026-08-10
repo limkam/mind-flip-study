@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from database import get_db
-from dependencies import enforce_tier_limit, get_current_user
+from dependencies import get_current_user
 from models.book import Book
 from models.enums import BookStatus
 from models.user import User
@@ -30,6 +30,8 @@ from services.book_deletion import cascade_delete_book
 from services.book_duplicate import PDF_SHA256_EXTRAS_KEY, find_duplicate_books, pdf_sha256
 from services.chapter_cards import chapter_card_counts_for_book
 from services.toc_editor import normalize_toc_chapters, validate_toc_chapters
+from services import credits as credits_service
+from services.entitlements import can_user_do, Action as EntitlementAction
 from schemas.book import (
     BookCreate,
     BookListPage,
@@ -123,13 +125,25 @@ def _assert_key_owned_by_user(*, s3_key: str, user_id: UUID) -> None:
         )
 
 
+ALLOWED_EXTENSIONS = (".pdf", ".docx", ".pptx")
+
 @router.post("/upload-url", response_model=BookUploadUrlResponse)
 async def create_upload_url(
     body: BookUploadUrlRequest,
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> BookUploadUrlResponse:
+    safe_name = _sanitize_filename(body.filename)
+    if not safe_name.lower().endswith(ALLOWED_EXTENSIONS):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported document format. Please upload a PDF (.pdf), Word (.docx), or PowerPoint (.pptx) file.",
+        )
+    if body.file_size_bytes > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The selected file exceeds the 10 MB upload limit. Please upload a smaller document.",
+        )
     try:
-        safe_name = _sanitize_filename(body.filename)
         key = f"{_user_book_prefix(current_user.id)}{uuid.uuid4()}/{safe_name}"
         upload_url = generate_presigned_put_url(key=key, content_type=body.content_type)
         return BookUploadUrlResponse(upload_url=upload_url, s3_key=key, expires_in=3600)
@@ -189,7 +203,7 @@ async def validate_pdf_upload(
         if code in ("404", "403", "NoSuchKey", "NotFound"):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="S3 object not found") from exc
         raise
-    if pdf_is_likely_image_only(pdf_bytes):
+    if pdf_is_likely_image_only(pdf_bytes, filename=body.s3_key):
         return ValidatePdfResponse(ok=False, message=IMAGE_ONLY_PDF_MESSAGE)
     return ValidatePdfResponse(ok=True)
 
@@ -210,6 +224,7 @@ async def extract_toc_from_upload(
             title=body.title,
             author=body.author,
             description=body.description,
+            user_id=current_user.id,
         )
         return ExtractTocResponse(chapters=chapters, method=_method)
     except RuntimeError as exc:
@@ -229,10 +244,9 @@ async def detect_metadata_from_filename(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> DetectMetadataResponse:
     """Prefill upload title from the PDF file name. Author is entered manually."""
-    _ = current_user
     filename = body.filename.strip()
-    if not filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are supported")
+    if not filename.lower().endswith(ALLOWED_EXTENSIONS):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported document format. Please upload a PDF (.pdf), Word (.docx), or PowerPoint (.pptx) file.")
     title = title_from_upload_filename(filename)
     return DetectMetadataResponse(
         title=title,
@@ -294,7 +308,6 @@ async def create_book(
     body: BookCreate,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[None, Depends(enforce_tier_limit("books"))],
 ) -> BookOut:
     # Never trust client-supplied s3_key: must match this user's prefix (same as presign path).
     _assert_key_owned_by_user(s3_key=body.s3_key, user_id=current_user.id)
@@ -308,14 +321,19 @@ async def create_book(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book to replace not found")
         await cascade_delete_book(db, existing)
 
-    pdf_bytes = _fetch_uploaded_pdf(s3_key=body.s3_key, expected_size=body.file_size_bytes)
-    if pdf_is_likely_image_only(pdf_bytes):
+    if body.file_size_bytes > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The selected file exceeds the 10 MB upload limit. Please upload a smaller document.",
+        )
+    doc_bytes = _fetch_uploaded_pdf(s3_key=body.s3_key, expected_size=body.file_size_bytes)
+    if pdf_is_likely_image_only(doc_bytes, filename=body.s3_key):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=IMAGE_ONLY_PDF_MESSAGE,
         )
 
-    content_hash = pdf_sha256(pdf_bytes)
+    content_hash = pdf_sha256(doc_bytes)
     if body.replace_book_id is None:
         duplicates = await find_duplicate_books(
             db,
@@ -330,10 +348,31 @@ async def create_book(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    f'This PDF is already in your library as "{existing.title}" '
+                    f'This document is already in your library as "{existing.title}" '
                     f"by {existing.author}. Open that book instead of uploading again."
                 ),
             )
+
+    ent = await can_user_do(db, current_user, EntitlementAction.CREATE_BOOK)
+    if not ent.get("allowed"):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "UPGRADE_REQUIRED",
+                "message": "Your plan's book allowance has been reached.",
+                "reason": ent.get("reason"),
+                "upgrade_hook": ent.get("upgrade_hook"),
+            },
+        )
+    consume = ent.get("consume")
+    if consume:
+        await credits_service.consume_credits(
+            db,
+            current_user.id,
+            int(consume.get("amount", 1)),
+            pool=str(consume.get("pool", "content")),
+            reason="create_book",
+        )
 
     book = Book(
         user_id=current_user.id,

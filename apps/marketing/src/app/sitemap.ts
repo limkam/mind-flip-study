@@ -22,6 +22,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'monthly',
       priority: 0.9,
     },
+    ...['how-it-works', 'features', 'help'].map((path) => ({
+      url: `https://mindflip.io/${path}`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: 0.85,
+    })),
     {
       url: 'https://mindflip.io/privacy',
       lastModified: new Date(),

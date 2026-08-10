@@ -85,6 +85,8 @@ function isAuthNoRefreshUrl(config) {
     || u.includes('/auth/logout')
     || u.includes('/auth/google')
     || u.includes('/auth/apple')
+    || u.includes('/auth/email/start')
+    || u.includes('/auth/email/verify')
   );
 }
 
@@ -114,6 +116,20 @@ client.interceptors.response.use(null, async (error) => {
     && window.location.pathname !== '/onboarding'
   ) {
     window.location.assign('/onboarding');
+    return Promise.reject(error);
+  }
+
+  if (
+    error.response?.status === 402
+    && typeof window !== 'undefined'
+    && window.location.pathname !== '/pricing'
+  ) {
+    const detail = error.response?.data?.detail;
+    const reason = typeof detail === 'object' && detail?.message
+      ? detail.message
+      : 'You reached a limit on your current plan.';
+    error.isPlanLimitError = true;
+    window.dispatchEvent(new CustomEvent('mindflip:plan-limit', { detail: { reason } }));
     return Promise.reject(error);
   }
 

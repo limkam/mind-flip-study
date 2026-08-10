@@ -58,10 +58,10 @@ export function AppListRow({
     if (!icon) return null;
     if (typeof icon === "string") {
       const defaultIconColor = active
-        ? "#ffffff"
+        ? colors.onPrimary
         : iconColor ?? colors.primary;
       const defaultBg = active
-        ? "rgba(255,255,255,0.2)"
+        ? `${colors.onPrimary}20`
         : iconBgColor ?? `${colors.primary}18`;
 
       return (
@@ -85,9 +85,9 @@ export function AppListRow({
         ? colors.surfaceElevated
         : colors.surfaceMuted
       : colors.surface;
-    const textColor = active ? "#ffffff" : colors.textPrimary;
-    const subColor = active ? "rgba(255,255,255,0.8)" : colors.textMuted;
-    const chevronColor = active ? "#ffffff" : colors.textMuted;
+    const textColor = active ? colors.onPrimary : colors.textPrimary;
+    const subColor = active ? `${colors.onPrimary}CC` : colors.textMuted;
+    const chevronColor = active ? colors.onPrimary : colors.textMuted;
 
     return (
       <View
@@ -105,14 +105,14 @@ export function AppListRow({
         <View style={styles.textContainer}>
           <Text
             style={[styles.title, { color: textColor }]}
-            numberOfLines={1}
+            numberOfLines={2}
           >
             {title}
           </Text>
           {subtitle ? (
             <Text
               style={[styles.subtitle, { color: subColor }]}
-              numberOfLines={1}
+              numberOfLines={2}
             >
               {subtitle}
             </Text>

@@ -183,18 +183,20 @@ export default function DailyReviewScreen() {
   const item = displayItems[currentIdx];
 
   useEffect(() => {
-    if (books.length && Object.keys(selectedBooks).length === 0) {
+    if (!books.length) return;
+    setSelectedBooks((prev) => {
+      if (Object.keys(prev).length > 0) return prev;
       const init: Record<string, boolean> = {};
       books.forEach((b) => {
         init[b.id] = true;
       });
-      setSelectedBooks(init);
-    }
-  }, [books, selectedBooks]);
+      return init;
+    });
+  }, [books]);
 
   useEffect(() => {
     if (!availableChapters.length) {
-      setSelectedChapters({});
+      setSelectedChapters((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
     setSelectedChapters((prev) => {
@@ -207,18 +209,21 @@ export default function DailyReviewScreen() {
     });
   }, [availableChapters]);
 
-  useEffect(() => {
-    setCurrentIdx(0);
-    setFlipped(false);
-    setPendingRating(null);
-    setSelectedChapters({});
-  }, [activeBookIds.join("|")]);
+  const activeBookKey = activeBookIds.join("|");
+  const activeChapterKey = activeChapterNames?.join("|") ?? "";
 
   useEffect(() => {
     setCurrentIdx(0);
     setFlipped(false);
     setPendingRating(null);
-  }, [activeChapterNames?.join("|")]);
+    setSelectedChapters((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+  }, [activeBookKey]);
+
+  useEffect(() => {
+    setCurrentIdx(0);
+    setFlipped(false);
+    setPendingRating(null);
+  }, [activeChapterKey]);
 
   useEffect(() => {
     setPendingRating(null);

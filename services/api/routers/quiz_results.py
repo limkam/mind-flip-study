@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
+from config import settings
 from dependencies import get_current_user
 from models.book import Book
 from models.flashcard import FlashcardSet
@@ -16,7 +17,10 @@ from models.quiz import QuizResult
 from models.user import User
 from schemas.pagination import total_pages
 from schemas.quiz_api import QuizResultCreate, QuizResultOut, QuizResultPage
-from services.achievement_sync import sync_user_achievements
+from services.engagement import EventInput, emit_trusted_event
+from services.celebration_events import events_for_trusted_row
+from services.scorecards import refresh_current_scorecards
+from datetime import UTC, datetime
 
 router = APIRouter(tags=["quiz-results"])
 log = logging.getLogger(__name__)
@@ -82,6 +86,8 @@ async def list_quiz_results(
     )
 
 
+from services.xp_service import process_quiz_completion_xp
+
 @router.post("/", response_model=QuizResultOut, status_code=status.HTTP_201_CREATED)
 async def create_quiz_result(
     body: QuizResultCreate,
@@ -93,9 +99,12 @@ async def create_quiz_result(
     )
     if sr.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Flashcard set not found")
+
     extras: dict[str, Any] = dict(body.extras or {})
-    if extras.get("percentage") is None and body.total_questions:
-        extras["percentage"] = round(100.0 * body.score / body.total_questions, 1)
+    submitted_answers = extras.get("answers") or extras.get("user_answers")
+    attempt_id = str(extras.get("attempt_id") or "") if extras.get("attempt_id") else None
+
+    # Create initial QuizResult row first to get authoritative ID
     row = QuizResult(
         user_id=current_user.id,
         set_id=body.set_id,
@@ -105,9 +114,56 @@ async def create_quiz_result(
         extras=extras,
     )
     db.add(row)
+    await db.flush()
+
+    # Server-side answer verification & XP ledger award
+    val_score, val_total, xp_awarded = await process_quiz_completion_xp(
+        db,
+        user_id=current_user.id,
+        quiz_result_id=row.id,
+        set_id=body.set_id,
+        client_score=body.score,
+        client_total=body.total_questions,
+        submitted_answers=submitted_answers,
+        attempt_id=attempt_id,
+        created_at=row.completed_at,
+    )
+
+    # Update QuizResult with validated numbers & XP metadata
+    row.score = val_score
+    row.total_questions = val_total
+    extras["validated_score"] = val_score
+    extras["validated_total"] = val_total
+    extras["xp_awarded"] = xp_awarded
+    extras["percentage"] = round(100.0 * val_score / val_total, 1) if val_total > 0 else 0.0
+    row.extras = extras
     await db.commit()
     await db.refresh(row)
-    await sync_user_achievements(db, current_user.id)
+    assessment_event, assessment_created = await emit_trusted_event(
+        db,
+        user_id=current_user.id,
+        event=EventInput(
+            event_type="assessment.completed",
+            source="quiz_results",
+            entity_type="lesson",
+            entity_id=str(body.set_id),
+            metadata={"percentage": extras.get("percentage", 0), "quiz_result_id": str(row.id)},
+            idempotency_key=f"quiz-result:{row.id}:completed",
+            occurred_at=row.completed_at or datetime.now(UTC),
+        ),
+    )
+    celebration_events = events_for_trusted_row(assessment_event) if assessment_created else []
+    lesson_event, lesson_created = await emit_trusted_event(
+        db, user_id=current_user.id, event=EventInput(
+            event_type="lesson.completed", source="quiz_results", entity_type="lesson", entity_id=str(body.set_id),
+            metadata={"quiz_result_id": str(row.id)}, idempotency_key=f"quiz-result:{row.id}:lesson-completed",
+            occurred_at=row.completed_at or datetime.now(UTC),
+        ),
+    )
+    if lesson_created:
+        celebration_events.extend(events_for_trusted_row(lesson_event, title="Quiz lesson complete"))
+    if settings.ENGAGEMENT_SCORECARDS_ENABLED:
+        await refresh_current_scorecards(db, current_user.id, affected_set_id=body.set_id)
     enriched = await _enrich_extras_for_results(db, [row])
     try:
         # Send by name so the API process never imports task modules at startup (avoids
@@ -117,7 +173,7 @@ async def create_quiz_result(
         celery_app.send_task("tasks.leaderboard_tasks.refresh_leaderboard_task")
     except Exception as exc:
         log.warning("leaderboard refresh enqueue failed: %s", exc)
-    return enriched[0]
+    return enriched[0].model_copy(update={"celebration_events": celebration_events})
 
 
 @router.get("/{result_id}", response_model=QuizResultOut)

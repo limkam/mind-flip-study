@@ -1,46 +1,73 @@
-import React, { useState } from 'react';
-import { GoogleLogin } from '@react-oauth/google';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '@/lib/AuthContext';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { PasswordInput } from '@/components/ui/password-input';
-import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
-import { useToast } from '@/components/ui/use-toast';
-import { getApiErrorMessage } from '@/lib/apiError';
-import { Loader2 } from 'lucide-react';
-import { MindFlipBrand } from '@/components/brand/MindFlipLogo';
+import React, { useEffect, useState } from "react";
+import { GoogleLogin } from "@react-oauth/google";
+import { useNavigate } from "react-router-dom";
+import { ArrowRight, BookOpen, Check, Loader2, Mail, Sparkles } from "lucide-react";
+
+import client from "@/api/client";
+import { MindFlipBrand } from "@/components/brand/MindFlipLogo";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ui/use-toast";
+import { useAuth } from "@/lib/AuthContext";
+import { getApiErrorMessage } from "@/lib/apiError";
 
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 export default function Login() {
-  const { login, loginWithGoogle, isAuthenticated, isLoading } = useAuth();
+  const { loginWithGoogle, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   const { toast } = useToast();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [keepSignedIn, setKeepSignedIn] = useState(true);
+  const [authMode, setAuthMode] = useState("signin");
+  const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      navigate(location.state?.from?.pathname || '/', { replace: true });
+      navigate("/", { replace: true });
     }
-  }, [isLoading, isAuthenticated, navigate, location.state]);
+  }, [isLoading, isAuthenticated, navigate]);
 
-  const onSubmit = async (e) => {
-    e.preventDefault();
+  const continueWithEmail = async (event) => {
+    event.preventDefault();
     setBusy(true);
     try {
-      await login(email, password, keepSignedIn);
-      navigate(location.state?.from?.pathname || '/', { replace: true });
-    } catch (err) {
+      const normalizedEmail = email.trim().toLowerCase();
+      const { data } = await client.post("/auth/email/start", {
+        email: normalizedEmail,
+      });
+      navigate("/auth/email/verify", {
+        state: {
+          email: normalizedEmail,
+          challengeId: data.challenge_id,
+          resendAfter: data.resend_after,
+        },
+      });
+    } catch (error) {
       toast({
-        title: 'Login failed',
-        description: getApiErrorMessage(err, 'Login failed'),
-        variant: 'destructive',
+        title: "Could not send code",
+        description: getApiErrorMessage(error, "Please try again shortly."),
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse) => {
+    if (!credentialResponse.credential) {
+      toast({ title: "Google sign-in failed", description: "No credential returned.", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      await loginWithGoogle(credentialResponse.credential, true);
+      navigate("/", { replace: true });
+    } catch (error) {
+      toast({
+        title: "Google sign-in failed",
+        description: getApiErrorMessage(error, "Google sign-in failed."),
+        variant: "destructive",
       });
     } finally {
       setBusy(false);
@@ -48,108 +75,136 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md space-y-6 rounded-2xl border border-border bg-card p-8 shadow-sm">
-        <div className="flex flex-col items-center text-center mb-2">
-          <MindFlipBrand centered className="mb-4" surface="on-light" />
-          <h1 className="font-heading text-2xl font-bold">Sign in</h1>
-          <p className="text-sm text-muted-foreground mt-1">Welcome back to MindFlip</p>
+    <main className="min-h-screen bg-[#f6f8fb] lg:grid lg:grid-cols-[minmax(0,1.08fr)_minmax(460px,0.92fr)]">
+      <section className="relative hidden min-h-screen overflow-hidden lg:flex lg:flex-col lg:justify-between">
+        <img
+          src="/login-learning-hero.webp"
+          alt="Student studying in a library"
+          className="absolute inset-0 h-full w-full object-cover object-[42%_center]"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#07172d]/55 via-[#07172d]/20 to-[#07172d]/90" />
+
+        <div className="relative z-10 p-10 xl:p-14">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3.5 py-2 text-xs font-semibold tracking-wide text-white shadow-sm backdrop-blur-md">
+            <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+            Learn smarter, every day
+          </div>
         </div>
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
+
+        <div className="relative z-10 max-w-2xl p-10 text-white xl:p-14">
+          <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/20 bg-white/10 backdrop-blur-md">
+            <BookOpen className="h-6 w-6" />
           </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password">Password</Label>
-              <Link to="/forgot-password" className="text-xs text-primary hover:underline">
-                Forgot password?
-              </Link>
-            </div>
-            <PasswordInput
-              id="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+          <h2 className="max-w-xl font-heading text-4xl font-bold leading-tight tracking-tight xl:text-5xl">
+            Turn what you study into what you remember.
+          </h2>
+          <p className="mt-5 max-w-lg text-base leading-7 text-white/75">
+            Build focused study sessions, review with intelligent flashcards, and make steady progress toward your goals.
+          </p>
+          <div className="mt-7 flex flex-wrap gap-x-6 gap-y-3 text-sm text-white/90">
+            {["Focused study tools", "Progress that stays visible", "Built for every subject"].map((item) => (
+              <span key={item} className="flex items-center gap-2">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400/20 text-emerald-300">
+                  <Check className="h-3 w-3" strokeWidth={3} />
+                </span>
+                {item}
+              </span>
+            ))}
           </div>
-          <label className="flex items-center gap-2.5 cursor-pointer">
-            <Checkbox
-              id="keep-signed-in"
-              checked={keepSignedIn}
-              onCheckedChange={(v) => setKeepSignedIn(v === true)}
-            />
-            <span className="text-sm text-muted-foreground">Keep me signed in</span>
-          </label>
-          <Button type="submit" className="w-full" disabled={busy}>
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sign in'}
-          </Button>
-        </form>
-        {googleClientId ? (
-          <div className="space-y-4">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-border" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase tracking-wide">
-                <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-              </div>
-            </div>
-            <div className="flex justify-center [&>div]:w-full">
+        </div>
+      </section>
+
+      <section className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 sm:px-10 lg:px-12">
+        <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full bg-primary/5 blur-3xl" />
+        <div className="absolute -bottom-32 -left-24 h-80 w-80 rounded-full bg-amber-200/25 blur-3xl" />
+
+        <div className="relative w-full max-w-md">
+          <div className="mb-9">
+            <MindFlipBrand className="mb-10" surface="on-light" />
+            <p className="mb-2 text-sm font-semibold text-primary">
+              {authMode === "signup" ? "Start your journey" : "Welcome back"}
+            </p>
+            <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+              {authMode === "signup" ? "Create your account" : "Sign in to MindFlip"}
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              {authMode === "signup" ? "Create an account and make every study session count." : "Pick up where you left off and keep your momentum going."}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_24px_70px_-30px_rgba(15,23,42,0.3)] sm:p-7">
+            <div className="space-y-5">
+          <div className="grid grid-cols-2 rounded-lg border border-border bg-muted/40 p-1" aria-label="Authentication mode">
+            {[
+              ["signin", "Sign in"],
+              ["signup", "Sign up"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setAuthMode(value)}
+                className={`h-10 rounded-md text-sm font-semibold transition-all ${authMode === value ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                aria-pressed={authMode === value}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {googleClientId ? (
+            <div className="flex min-h-10 justify-center [&>div]:w-full">
               <GoogleLogin
-                width="100%"
-                onSuccess={async (credentialResponse) => {
-                  const token = credentialResponse.credential;
-                  if (!token) {
-                    toast({
-                      title: 'Google sign-in failed',
-                      description: 'No credential returned.',
-                      variant: 'destructive',
-                    });
-                    return;
-                  }
-                  setBusy(true);
-                  try {
-                    await loginWithGoogle(token, keepSignedIn);
-                    navigate(location.state?.from?.pathname || '/', { replace: true });
-                  } catch (err) {
-                    toast({
-                      title: 'Google sign-in failed',
-                      description: getApiErrorMessage(err, 'Google sign-in failed'),
-                      variant: 'destructive',
-                    });
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-                onError={() => {
-                  toast({
-                    title: 'Google sign-in failed',
-                    description: 'The popup was closed or sign-in was cancelled.',
-                    variant: 'destructive',
-                  });
-                }}
+                width={352}
+                type="standard"
+                theme="outline"
+                size="large"
+                text={authMode === "signup" ? "signup_with" : "continue_with"}
+                shape="rectangular"
+                logo_alignment="left"
+                onSuccess={handleGoogleSuccess}
+                onError={() => toast({ title: "Google sign-in failed", description: "Please try again.", variant: "destructive" })}
                 useOneTap={false}
               />
             </div>
+          ) : null}
+
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+              <span className="uppercase tracking-[0.16em]">or continue with email</span>
+            <span className="h-px flex-1 bg-border" />
           </div>
-        ) : null}
-        <p className="text-center text-sm text-muted-foreground">
-          No account?{' '}
-          <Link to="/register" className="text-primary font-medium hover:underline">
-            Register
-          </Link>
-        </p>
-      </div>
-    </div>
+
+          <form className="space-y-4" onSubmit={continueWithEmail}>
+            <div className="space-y-2">
+              <Label htmlFor="email">Email address</Label>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  className="h-12 rounded-lg border-slate-200 bg-slate-50/70 pl-10 transition-colors focus:bg-white"
+                  placeholder="you@example.com"
+                  required
+                />
+              </div>
+            </div>
+            <Button type="submit" className="h-12 w-full rounded-lg font-semibold shadow-sm" disabled={busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+              Continue with Email
+              {!busy ? <ArrowRight className="ml-auto h-4 w-4" /> : null}
+            </Button>
+          </form>
+            </div>
+          </div>
+
+          <p className="mt-6 text-center text-xs leading-5 text-muted-foreground">
+            By continuing, you agree to MindFlip&apos;s Terms of Service and Privacy Policy.
+          </p>
+        </div>
+      </section>
+    </main>
   );
 }

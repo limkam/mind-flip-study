@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, date, datetime, timedelta, time
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -16,9 +17,13 @@ from models.book import Book
 from models.enums import BookStatus, UserRole, FeedbackStatus
 from models.feedback import Feedback
 from models.flashcard import Flashcard, FlashcardSet, Workbook
+from models.license import License
 from models.quiz import StudyEvent
 from models.token_usage import TokenUsage
+from models.user_subscription import UserSubscription
 from models.user import User
+from services import entitlements as entitlements_service
+from services.plan_catalog import plan_label_from_slug
 from services.book_deletion import cascade_delete_book
 from age_utils import AGE_GROUP_LABELS, dob_range_for_age_group
 from schemas.admin import (
@@ -38,9 +43,19 @@ from schemas.feedback import FeedbackAdminUpdate, FeedbackPublic
 from celery_health import inspect_celery_workers
 from routers.admin_analytics import router as admin_analytics_router
 from schemas.admin import AdminUserIpListPage, AdminUserIpRow
+from services.stripe_reconciliation import reconcile_stripe
 
 router = APIRouter(tags=["admin"])
 router.include_router(admin_analytics_router)
+
+_ACTIVE_LICENSE_STATUSES = ("active", "paid")
+
+
+@router.post("/billing/reconcile")
+async def reconcile_billing_now(
+    _admin: Annotated[User, Depends(require_role("admin"))],
+) -> dict[str, int]:
+    return await asyncio.to_thread(reconcile_stripe)
 
 
 @router.get("/celery-status")
@@ -124,7 +139,11 @@ async def list_users(
     result = await db.execute(
         list_stmt.order_by(order_clause).offset(offset).limit(size),
     )
-    items = [admin_user_row_from_model(u) for u in result.scalars().all()]
+    users = result.scalars().all()
+    items = []
+    for user in users:
+        plan_slug = await entitlements_service._user_plan_slug(db, user)
+        items.append(admin_user_row_from_model(user, plan=plan_label_from_slug(plan_slug)))
     return AdminUserListPage(items=items, total=total, page=page, size=size)
 
 
@@ -301,11 +320,23 @@ async def get_platform_metrics(
         )
         or 0,
     )
+    active_subscription_statuses = ("active", "trialing", "past_due")
+    monthly_cents = func.coalesce(func.sum(
+        case(
+            (UserSubscription.billing_interval == "year", UserSubscription.unit_amount_cents / func.nullif(UserSubscription.interval_count * 12, 0)),
+            else_=UserSubscription.unit_amount_cents / func.nullif(UserSubscription.interval_count, 0),
+        )
+    ), 0)
     paying_users = int(
-        await db.scalar(select(func.count(User.id)).where(User.subscription_tier == "student"))
+        await db.scalar(
+            select(func.count(func.distinct(UserSubscription.user_id))).where(UserSubscription.status.in_(active_subscription_statuses)),
+        )
         or 0,
     )
-    mrr = paying_users * 8
+    mrr_raw = await db.scalar(
+        select(monthly_cents).where(UserSubscription.status.in_(active_subscription_statuses)),
+    )
+    mrr = round(float(mrr_raw or 0) / 100, 2)
 
     top_result = await db.execute(
         select(Book.title, func.count(FlashcardSet.id).label("set_count"))

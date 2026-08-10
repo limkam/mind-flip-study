@@ -14,7 +14,7 @@ from database_sync import sync_session
 from job_cache import cache_job
 from models.book import Book
 from models.enums import BookStatus
-from pdf_text import extract_pdf_text
+from pdf_text import extract_document_text
 from s3_service import get_object_bytes
 from tasks.celery_app import celery
 from toc_extraction import extract_toc_from_pdf_bytes
@@ -55,10 +55,10 @@ def extract_book_toc_task(self, book_id: str) -> dict[str, str]:
             author = book.author
             description = (book.extras or {}).get("description")
 
-        pdf_bytes = get_object_bytes(s3_key)
-        full_text = extract_pdf_text(pdf_bytes)
+        doc_bytes = get_object_bytes(s3_key)
+        full_text = extract_document_text(doc_bytes, filename=s3_key)
         if not full_text.strip():
-            raise ValueError("No extractable text from PDF")
+            raise ValueError("No extractable text from document")
         text_hash = pdf_text_hash(full_text)
 
         cache_job(tid, {"status": "started", "phase": "analyzing_structure", "book_id": book_id})
@@ -67,18 +67,22 @@ def extract_book_toc_task(self, book_id: str) -> dict[str, str]:
             _set_toc_phase(book, "analyzing_structure")
 
         chapters, toc_method, toc_ai_error = extract_toc_from_pdf_bytes(
-            pdf_bytes,
+            doc_bytes,
             title=title,
             author=author,
             description=description,
             full_text=full_text,
+            filename=s3_key,
+            user_id=book.user_id,
+            book_id=bid,
+            celery_task_id=tid,
         )
         toc_titles = [str(c.get("title", "")).strip() for c in chapters if c.get("title")]
         if toc_method == "presentation_slides":
             from content_map import ChapterSegment
             from presentation_pdf import build_slide_content_map
 
-            raw_segments = build_slide_content_map(pdf_bytes, chapters)
+            raw_segments = build_slide_content_map(doc_bytes, chapters)
             segments = [
                 ChapterSegment(
                     title=s["title"],

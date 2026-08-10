@@ -53,6 +53,7 @@ import Pricing from "./pages/Pricing";
 import BillingUsage from "./pages/BillingUsage";
 import Onboarding from "./pages/Onboarding";
 import Feedback from "./pages/Feedback";
+import UserGuide from "./pages/UserGuide";
 import UpgradeLimitDialog from "@/components/billing/UpgradeLimitDialog";
 import { CelebrationProvider } from "@/lib/celebrations/CelebrationContext";
 import CelebrationTestHarness from "@/components/celebrations/CelebrationTestHarness";
@@ -171,6 +172,7 @@ function AppRoutes() {
             <Route path="/study-groups" element={<StudyGroups />} />
             <Route path="/study-groups/:id" element={<StudyGroupDetail />} />
             <Route path="/daily-review" element={<DailyReview />} />
+            <Route path="/guide" element={<UserGuide />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/billing" element={<BillingUsage />} />
           </Route>

@@ -29,8 +29,9 @@ export default function TabsLayout() {
       queryFn: fetchFlashcardSetsList,
     });
     void queryClient.prefetchInfiniteQuery({
-      queryKey: ["books", "paginated"],
+      queryKey: ["books", "infinite"],
       initialPageParam: 1,
+      getNextPageParam: (last: Paginated<BookOut>) => (last?.has_more ? last.page + 1 : undefined),
       queryFn: async ({ pageParam }) => {
         const { data } = await api.get<Paginated<BookOut> | BookOut[]>("/books/", {
           params: { page: pageParam, size: 20 },

@@ -18,10 +18,10 @@ export function FAQ({ items }: FAQProps) {
         <Accordion.Item
           key={item.q}
           value={`item-${i}`}
-          className="overflow-hidden rounded-xl border border-gray-200 bg-white"
+          className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:border-indigo-200"
         >
           <Accordion.Header>
-            <Accordion.Trigger className="flex w-full items-center justify-between px-5 py-4 text-left font-medium text-gray-900 hover:bg-gray-50 [&[data-state=open]>svg]:rotate-180">
+            <Accordion.Trigger className="flex w-full items-center justify-between px-6 py-5 text-left font-bold text-gray-900 hover:bg-indigo-50/30 [&[data-state=open]>svg]:rotate-180">
               {item.q}
               <svg
                 className="h-5 w-5 shrink-0 text-gray-500 transition-transform"

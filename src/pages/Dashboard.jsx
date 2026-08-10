@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import StatCard from "@/components/dashboard/StatCard";
 import QuickActions from "@/components/dashboard/QuickActions";
 import ScoreRing from "@/components/dashboard/ScoreRing";
+import { fetchEntitlementsSnapshot } from "@/lib/billing";
+import ContextualNudge from "@/components/engagement/ContextualNudge";
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -19,6 +21,11 @@ function getGreeting() {
 
 export default function Dashboard() {
   const { user } = useOutletContext();
+  const { data: entitlements } = useQuery({
+    queryKey: ["billing-entitlements"],
+    queryFn: fetchEntitlementsSnapshot,
+  });
+  const challengesEnabled = entitlements?.features?.challenges === true;
 
   const { data: books = [], isPending: booksPending } = useQuery({
     queryKey: ["books"],
@@ -58,6 +65,7 @@ export default function Dashboard() {
       const { data } = await client.get("/quiz-challenges/");
       return data;
     },
+    enabled: challengesEnabled,
   });
 
   const recentSets = flashcardSets.slice(0, 2);
@@ -95,9 +103,9 @@ export default function Dashboard() {
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="mb-6"
+        className="mb-5 sm:mb-6"
       >
-        <h1 className="font-heading text-3xl lg:text-4xl font-bold text-foreground">
+        <h1 className="font-heading text-3xl lg:text-4xl font-bold tracking-tight text-foreground">
           <Link to="/profile" className="hover:text-primary transition-colors">
             {greeting}, {firstName}
           </Link> 👋
@@ -109,8 +117,10 @@ export default function Dashboard() {
         </p>
       </motion.div>
 
+      <ContextualNudge placement="dashboard" />
+
       {/* Pending challenge banner */}
-      {pendingChallenges > 0 && (
+      {challengesEnabled && pendingChallenges > 0 && (
         <motion.div
           initial={{ opacity: 0, scale: 0.97 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -129,10 +139,14 @@ export default function Dashboard() {
       )}
 
       {/* Quick Actions */}
-      <QuickActions recentSet={flashcardSets[0]} pendingChallenges={pendingChallenges} />
+      <QuickActions
+        recentSet={flashcardSets[0]}
+        pendingChallenges={pendingChallenges}
+        challengesEnabled={challengesEnabled}
+      />
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
         <StatCard title="Books" value={booksPending ? "—" : books.length} icon={BookOpen} color="bg-primary/10 text-primary" subtitle="In library" />
         <StatCard title="Flashcard Sets" value={setsPending ? "—" : flashcardSets.length} icon={GraduationCap} color="bg-accent/10 text-accent" subtitle="Created" />
         <StatCard title="Quizzes Taken" value={quizTotal} icon={Trophy} color="bg-green-500/10 text-green-500" subtitle="Total played" />
@@ -142,7 +156,7 @@ export default function Dashboard() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
-          className="bg-card rounded-2xl p-5 border border-border shadow-sm hover:shadow-md transition-shadow flex items-center gap-4"
+          className="bg-card rounded-2xl p-4 sm:p-5 border border-border shadow-sm hover:shadow-md transition-shadow flex items-center gap-3 sm:gap-4"
         >
           <ScoreRing percentage={avgScore} size={60} stroke={5} />
           <div>
@@ -155,7 +169,7 @@ export default function Dashboard() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className={`bg-card rounded-2xl p-5 border shadow-sm hover:shadow-md transition-shadow col-span-1 sm:col-span-2 lg:col-span-4
+          className={`bg-card rounded-2xl p-4 sm:p-5 border shadow-sm hover:shadow-md transition-shadow col-span-2 lg:col-span-4
             ${streak > 0 ? "border-orange-400/40 bg-gradient-to-br from-orange-500/5 to-red-500/5" : "border-border"}`}
         >
           <div className="flex items-center justify-between mb-4">

@@ -11,6 +11,8 @@ import SpacedRepetitionBar from "@/components/study/SpacedRepetitionBar";
 import SessionSummary from "@/components/study/SessionSummary";
 import { RatingOnboarding } from "@/components/study/RatingHelp";
 import { studyThemeFromUser } from "@/lib/studyTheme";
+import { useCelebration } from "@/lib/celebrations/CelebrationContext";
+import { parseTrustedCelebrationEvents } from "@/lib/celebrations/trustedEvents";
 
 const RATING_TO_QUALITY = { hard: 2, medium: 3, easy: 5 };
 
@@ -51,6 +53,7 @@ export default function DailyReview() {
   const [sessionStats, setSessionStats] = useState({ hard: 0, medium: 0, easy: 0, total: 0 });
   const sessionStart = useRef(Date.now());
   const queryClient = useQueryClient();
+  const { requestMany } = useCelebration();
 
   const { data: books = [] } = useQuery({
     queryKey: ["books-daily-review"],
@@ -132,7 +135,7 @@ export default function DailyReview() {
 
   useEffect(() => {
     if (!availableChapters.length) {
-      setSelectedChapters({});
+      setSelectedChapters((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
     setSelectedChapters((prev) => {
@@ -141,7 +144,7 @@ export default function DailyReview() {
       availableChapters.forEach((ch) => { init[ch] = true; });
       return init;
     });
-  }, [availableChapters]);
+  }, [availableChapters.join("|")]);
 
   useEffect(() => {
     setCurrentIdx(0);
@@ -176,10 +179,13 @@ export default function DailyReview() {
       [rating]: (s[rating] || 0) + 1,
     }));
     try {
-      await client.post("/study/progress", {
+      const { data } = await client.post("/study/progress", {
         card_id: item.card.id,
         quality,
       });
+      const trustedEvents = parseTrustedCelebrationEvents(data);
+      if (trustedEvents.length) requestMany(trustedEvents);
+      void queryClient.invalidateQueries({ queryKey: ["scorecards"] });
       await queryClient.invalidateQueries({ queryKey: ["daily-review-queue"] });
       if (currentIdx >= count - 1) {
         setSessionDone(true);

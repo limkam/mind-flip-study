@@ -5,18 +5,34 @@ import client from "@/api/client";
 import GenerateProgressBar from "@/components/dashboard/GenerateProgressBar";
 import SelectedChaptersList from "@/components/study/SelectedChaptersList";
 import { generationPhaseLabel } from "@/lib/generationPhases";
-import { buildFlashcardSetTitle, chapterSelectionSubtitle, cardsGeneratedLabel } from "@/lib/studySetDisplay";
-import { useBookGenerationJob, useGenerationJobs } from "@/lib/GenerationJobContext";
+import {
+  buildFlashcardSetTitle,
+  chapterSelectionSubtitle,
+  cardsGeneratedLabel,
+  displayChapterHeading,
+} from "@/lib/studySetDisplay";
+import {
+  useBookGenerationJob,
+  useGenerationJobs,
+} from "@/lib/GenerationJobContext";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import {
-  BookOpen, User, Sparkles, Loader2, ChevronDown, ChevronRight,
-  ArrowLeft, FileText, Tag, Trash2, Check
+  BookOpen,
+  User,
+  Sparkles,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  ArrowLeft,
+  FileText,
+  Tag,
+  Trash2,
+  Check,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -31,9 +47,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import TagInput from "@/components/common/TagInput";
 import TocEditor from "@/components/library/TocEditor";
-import { SUMMARY_DETAIL_OPTIONS } from "@/lib/summaryScope";
-import { tocPhaseLabel, getTocJobIdFromBook, getTocErrorFromBook, isTocExtractionInProgress } from "@/lib/bookUpload";
-import { FLASHCARD_COUNT_OPTIONS, DEFAULT_FLASHCARD_COUNT } from "@/lib/flashcardOptions";
+// Summary detail options removed to limit generation cost; default is `standard`.
+import {
+  tocPhaseLabel,
+  getTocJobIdFromBook,
+  getTocErrorFromBook,
+  isTocExtractionInProgress,
+} from "@/lib/bookUpload";
+import { fetchEntitlementsSnapshot, isUpgradeRequiredError } from "@/lib/billing";
 import { useJobPoll } from "@/hooks/useJobPoll";
 
 export default function BookDetail() {
@@ -43,12 +64,11 @@ export default function BookDetail() {
   const { toast } = useToast();
 
   const [selectedChapter, setSelectedChapter] = useState("");
-  const [cardCount, setCardCount] = useState(String(DEFAULT_FLASHCARD_COUNT));
+  const [cardCount, setCardCount] = useState("5");
   const [expandedChapters, setExpandedChapters] = useState({});
   const [generating, setGenerating] = useState(false);
   const [editingTags, setEditingTags] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [forceRegenerate, setForceRegenerate] = useState(false);
   const [summaryDetailLevel, setSummaryDetailLevel] = useState("standard");
   const [editingToc, setEditingToc] = useState(false);
   const [tocJobId, setTocJobId] = useState(null);
@@ -70,6 +90,17 @@ export default function BookDetail() {
       return isTocExtractionInProgress(b) || tocJobId ? 2000 : false;
     },
   });
+
+  const { data: entitlements, isLoading: entitlementsLoading } = useQuery({
+    queryKey: ["billing-entitlements"],
+    queryFn: fetchEntitlementsSnapshot,
+  });
+
+  const planCardCount = String(entitlements?.raw_plan_features?.max_cards_per_set || 5);
+
+  useEffect(() => {
+    setCardCount(planCardCount);
+  }, [planCardCount]);
 
   useEffect(() => {
     setTocJobId(null);
@@ -111,7 +142,8 @@ export default function BookDetail() {
               description: `${chapters.length} chapter${chapters.length === 1 ? "" : "s"} listed below.`,
             });
           } else {
-            const message = "No chapters could be extracted from this PDF. Try again or add chapters manually.";
+            const message =
+              "No chapters could be extracted from this PDF. Try again or add chapters manually.";
             setTocError(message);
             toast({
               title: "TOC extraction finished",
@@ -125,7 +157,8 @@ export default function BookDetail() {
           await queryClient.invalidateQueries({ queryKey: ["book", id] });
         }
       } else {
-        const message = data?.result?.error || data?.error || "Please try again.";
+        const message =
+          data?.result?.error || data?.error || "Please try again.";
         setTocJobId(null);
         setTocPhase(null);
         setTocError(message);
@@ -158,14 +191,12 @@ export default function BookDetail() {
     }
   };
 
-
   const toggleExpand = (idx) => {
-    setExpandedChapters(prev => ({ ...prev, [idx]: !prev[idx] }));
+    setExpandedChapters((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
 
   const generateFlashcards = async () => {
-    const toc = book.table_of_contents || [];
-    if (toc.length > 0 && !selectedChapter) {
+    if (!selectedChapter) {
       toast({ title: "Please select a chapter", variant: "destructive" });
       return;
     }
@@ -180,7 +211,6 @@ export default function BookDetail() {
         title: title,
         num_cards: cardCount,
         selected_chapters: selectedChapters,
-        force_regenerate: forceRegenerate,
         summary_detail_level: summaryDetailLevel,
       });
 
@@ -198,14 +228,17 @@ export default function BookDetail() {
       setGenerating(false);
       toast({
         title: "Generation started",
-        description: "Creating summary, flashcards, and scenarios in the background. You can keep browsing MindFlip.",
+        description:
+          "Creating summary, flashcards, and scenarios in the background. You can keep browsing MindFlip.",
         dedupeKey: "generation-started",
       });
     } catch (e) {
       setGenerating(false);
+      if (isUpgradeRequiredError(e)) return;
       const msg = e.response?.data?.detail;
-      const description = typeof msg === "object" ? msg.message : msg || e.message;
-      
+      const description =
+        typeof msg === "object" ? msg.message : msg || e.message;
+
       toast({
         title: "Generation failed",
         description,
@@ -213,7 +246,7 @@ export default function BookDetail() {
       });
     }
   };
-  
+
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
@@ -225,8 +258,9 @@ export default function BookDetail() {
     } catch (e) {
       setIsDeleting(false);
       const msg = e.response?.data?.detail;
-      const description = typeof msg === "object" ? msg.message : msg || e.message;
-      
+      const description =
+        typeof msg === "object" ? msg.message : msg || e.message;
+
       toast({
         title: "Delete failed",
         description,
@@ -257,13 +291,24 @@ export default function BookDetail() {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-6">
-        <Button variant="ghost" className="gap-2 text-muted-foreground" onClick={() => navigate("/library")}>
+        <Button
+          variant="ghost"
+          className="gap-2 text-muted-foreground"
+          onClick={() => navigate("/library")}
+        >
           <ArrowLeft className="w-4 h-4" /> Back to Library
         </Button>
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button variant="ghost" className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-2">
-              {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            <Button
+              variant="ghost"
+              className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-2"
+            >
+              {isDeleting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
               Delete Book
             </Button>
           </AlertDialogTrigger>
@@ -271,12 +316,16 @@ export default function BookDetail() {
             <AlertDialogHeader>
               <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will permanently delete "{book.title}" and all generated flashcards associated with it. This action cannot be undone.
+                This will permanently delete "{book.title}" and all generated
+                flashcards associated with it. This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              <AlertDialogAction
+                onClick={handleDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
                 Delete Book
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -293,7 +342,11 @@ export default function BookDetail() {
         <div className="flex flex-col lg:flex-row gap-6">
           <div className="w-full lg:w-48 aspect-[3/4] bg-gradient-to-br from-primary/10 to-accent/10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
             {book.cover_url ? (
-              <img src={book.cover_url} alt={book.title} className="w-full h-full object-cover" />
+              <img
+                src={book.cover_url}
+                alt={book.title}
+                className="w-full h-full object-cover"
+              />
             ) : (
               <BookOpen className="w-16 h-16 text-primary/30" />
             )}
@@ -302,17 +355,21 @@ export default function BookDetail() {
             <div className="flex items-center gap-2 mb-2">
               {book.subject && (
                 <Badge variant="secondary" className="capitalize">
-                  {book.subject.replace(/_/g, ' ')}
+                  {book.subject.replace(/_/g, " ")}
                 </Badge>
               )}
             </div>
-            <h1 className="font-heading text-2xl lg:text-3xl font-bold mb-2">{book.title}</h1>
+            <h1 className="font-heading text-2xl lg:text-3xl font-bold mb-2">
+              {book.title}
+            </h1>
             <div className="flex items-center gap-2 text-muted-foreground mb-4">
               <User className="w-4 h-4" />
               <span>{book.author}</span>
             </div>
             {book.description && (
-              <p className="text-muted-foreground leading-relaxed">{book.description}</p>
+              <p className="text-muted-foreground leading-relaxed">
+                {book.description}
+              </p>
             )}
             <div className="flex items-center gap-4 mt-4 text-sm text-muted-foreground">
               <span className="flex items-center gap-1.5">
@@ -333,15 +390,29 @@ export default function BookDetail() {
                     }}
                     placeholder="Add tags (press Enter)..."
                   />
-                  <button className="text-xs text-muted-foreground mt-1 hover:text-foreground" onClick={() => setEditingTags(false)}>Done</button>
+                  <button
+                    className="text-xs text-muted-foreground mt-1 hover:text-foreground"
+                    onClick={() => setEditingTags(false)}
+                  >
+                    Done
+                  </button>
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {(book.tags || []).map(tag => (
-                    <span key={tag} className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-md">#{tag}</span>
+                  {(book.tags || []).map((tag) => (
+                    <span
+                      key={tag}
+                      className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-md"
+                    >
+                      #{tag}
+                    </span>
                   ))}
-                  <button onClick={() => setEditingTags(true)} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors">
-                    <Tag className="w-3 h-3" /> {book.tags?.length ? "edit tags" : "add tags"}
+                  <button
+                    onClick={() => setEditingTags(true)}
+                    className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+                  >
+                    <Tag className="w-3 h-3" />{" "}
+                    {book.tags?.length ? "edit tags" : "add tags"}
                   </button>
                 </div>
               )}
@@ -359,7 +430,9 @@ export default function BookDetail() {
       >
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="font-heading text-xl font-semibold">Table of Contents</h2>
+            <h2 className="font-heading text-xl font-semibold">
+              Table of Contents
+            </h2>
             <p className="text-sm text-muted-foreground mt-1">
               {toc.length > 0
                 ? editingToc
@@ -367,33 +440,17 @@ export default function BookDetail() {
                   : "Select one chapter to generate flashcards from"
                 : "Extract the table of contents to select a chapter"}
             </p>
-            {book.toc_extraction_method && ["bookmarks", "toc_text"].includes(book.toc_extraction_method) && (
-              <p className="text-xs text-emerald-600 mt-1">Using PDF native table of contents</p>
-            )}
           </div>
           {toc.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => setEditingToc((v) => !v)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditingToc((v) => !v)}
+            >
               {editingToc ? "Done Editing" : "Edit TOC"}
             </Button>
           )}
         </div>
-
-        {book.toc_ai_error && toc.length > 0 && (
-          <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 mb-4">
-            AI chapter extraction failed on the worker: {book.toc_ai_error}
-            {" "}Ensure <code className="text-xs">ANTHROPIC_API_KEY</code> is set on both API and worker in production, then extract TOC again.
-          </p>
-        )}
-
-        {book.toc_extraction_method
-          && !["ai", "bookmarks", "toc_text", "numbered_list", "chapter_markers", "presentation_slides"].includes(book.toc_extraction_method)
-          && !book.toc_ai_error
-          && toc.length > 0 && (
-          <p className="text-sm text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-3 mb-4">
-            Chapter list may be incomplete — extracted using {book.toc_extraction_method} heuristics without AI.
-            Ensure <code className="text-xs">ANTHROPIC_API_KEY</code> is set on both API and worker in production, then extract TOC again.
-          </p>
-        )}
 
         {toc.length === 0 ? (
           <div className="text-center py-10">
@@ -402,16 +459,23 @@ export default function BookDetail() {
               <>
                 <Loader2 className="w-6 h-6 mx-auto animate-spin text-primary mb-3" />
                 <p className="text-muted-foreground font-medium">
-                  {tocPhaseLabel(tocPhase || book.processing_phase || "extracting_contents")}
+                  {tocPhaseLabel(
+                    tocPhase || book.processing_phase || "extracting_contents",
+                  )}
                 </p>
                 <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
-                  Extracting the table of contents from your PDF. This may take a minute.
+                  Extracting the table of contents from your document. This may take
+                  a minute.
                 </p>
               </>
             ) : tocError ? (
               <>
-                <p className="text-destructive font-medium mb-1">TOC extraction failed</p>
-                <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">{tocError}</p>
+                <p className="text-destructive font-medium mb-1">
+                  TOC extraction failed
+                </p>
+                <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
+                  {tocError}
+                </p>
                 <Button onClick={extractToc} className="gap-2">
                   <FileText className="w-4 h-4" />
                   Retry TOC Extraction
@@ -419,9 +483,12 @@ export default function BookDetail() {
               </>
             ) : (
               <>
-                <p className="text-muted-foreground mb-1">No table of contents yet</p>
+                <p className="text-muted-foreground mb-1">
+                  No table of contents yet
+                </p>
                 <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
-                  Start extraction to browse chapters and generate targeted flashcards.
+                  Start extraction to browse chapters and generate targeted
+                  flashcards.
                 </p>
                 <Button onClick={extractToc} className="gap-2">
                   <FileText className="w-4 h-4" />
@@ -434,11 +501,18 @@ export default function BookDetail() {
           <TocEditor
             bookId={book.id}
             chapters={toc}
-            onSaved={() => queryClient.invalidateQueries({ queryKey: ["book", id] })}
+            onSaved={() =>
+              queryClient.invalidateQueries({ queryKey: ["book", id] })
+            }
           />
         ) : (
-          <RadioGroup value={selectedChapter} onValueChange={setSelectedChapter} className="space-y-2">
+          <RadioGroup
+            value={selectedChapter}
+            onValueChange={setSelectedChapter}
+            className="space-y-2"
+          >
             {toc.map((chapter, idx) => {
+              const chapterNumber = idx + 1;
               const isSelected = selectedChapter === chapter.title;
               const isExpanded = expandedChapters[idx];
               const cardCount = chapterCardCounts[chapter.title] ?? 0;
@@ -456,31 +530,51 @@ export default function BookDetail() {
                   } ${isSelected ? "ring-2 ring-primary/20" : ""}`}
                 >
                   <div className="flex items-center gap-3 p-4">
-                    <RadioGroupItem value={chapter.title} id={`chapter-${idx}`} className="flex-shrink-0" />
-                    <Label htmlFor={`chapter-${idx}`} className="flex-1 cursor-pointer font-normal">
+                    <RadioGroupItem
+                      value={chapter.title}
+                      id={`chapter-${idx}`}
+                      className="flex-shrink-0"
+                    />
+                    <Label
+                      htmlFor={`chapter-${idx}`}
+                      className="flex-1 cursor-pointer font-normal"
+                    >
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                          Ch. {chapter.chapter_number || idx + 1}
+                        <span className="font-medium text-sm">
+                          {displayChapterHeading(chapter.title, chapterNumber)}
                         </span>
-                        <span className="font-medium text-sm">{chapter.title}</span>
                         {hasCards ? (
                           <span className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400 font-medium">
-                            <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.5} />
+                            <Check
+                              className="w-3.5 h-3.5 shrink-0"
+                              strokeWidth={2.5}
+                            />
                             {cardsLabel}
                           </span>
                         ) : null}
                       </div>
                     </Label>
                     {chapter.subtopics?.length > 0 && (
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleExpand(idx)}>
-                        {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => toggleExpand(idx)}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4" />
+                        )}
                       </Button>
                     )}
                   </div>
                   {isExpanded && chapter.subtopics?.length > 0 && (
                     <div className="px-4 pb-4 pl-12 space-y-1">
                       {chapter.subtopics.map((sub, si) => (
-                        <p key={si} className="text-sm text-muted-foreground">• {sub}</p>
+                        <p key={si} className="text-sm text-muted-foreground">
+                          • {sub}
+                        </p>
                       ))}
                     </div>
                   )}
@@ -498,13 +592,18 @@ export default function BookDetail() {
         transition={{ delay: 0.2 }}
         className="bg-card rounded-2xl border border-border p-6 lg:p-8"
       >
-        <h2 className="font-heading text-xl font-semibold mb-2">Generate Flashcards</h2>
+        <h2 className="font-heading text-xl font-semibold mb-2">
+          Generate Flashcards
+        </h2>
         {selectedChapter ? (
           <>
             <p className="text-sm font-medium text-primary mb-2">
               {chapterSelectionSubtitle(1)}
             </p>
-            <SelectedChaptersList chapters={[selectedChapter]} className="mb-6" />
+            <SelectedChaptersList
+              chapters={[selectedChapter]}
+              className="mb-6"
+            />
           </>
         ) : (
           <p className="text-sm text-muted-foreground mb-6">
@@ -513,56 +612,28 @@ export default function BookDetail() {
         )}
 
         <div className="mb-6">
-          <Label className="text-sm font-medium mb-3 block">Summary Detail Level</Label>
-          <RadioGroup value={summaryDetailLevel} onValueChange={setSummaryDetailLevel} className="space-y-2">
-            {SUMMARY_DETAIL_OPTIONS.map((opt) => (
-              <Label
-                key={opt.value}
-                htmlFor={`detail-${opt.value}`}
-                className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all
-                  ${summaryDetailLevel === opt.value ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"}`}
-              >
-                <RadioGroupItem value={opt.value} id={`detail-${opt.value}`} className="mt-0.5" />
-                <div>
-                  <span className="font-medium text-sm">{opt.label}</span>
-                  <p className="text-xs text-muted-foreground">{opt.description}</p>
-                </div>
-              </Label>
-            ))}
-          </RadioGroup>
-          <p className="text-xs text-muted-foreground mt-2">
-            Applied when you generate flashcards. Regenerate the set to update existing summaries.
+          <Label className="text-sm font-medium mb-3 block">
+            Number of Flashcards
+          </Label>
+          {entitlementsLoading ? (
+            <div className="h-11 w-40 animate-pulse rounded-lg bg-muted" />
+          ) : (
+            <div className="inline-flex items-center gap-2 rounded-lg border-2 border-primary bg-primary/5 px-4 py-2.5">
+              <span className="font-heading text-lg font-semibold text-primary">{cardCount}</span>
+              <span className="text-sm text-muted-foreground">cards per set</span>
+            </div>
+          )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            This is the flashcard-set size included with your current plan.
           </p>
         </div>
-
-        <div className="mb-6">
-          <Label className="text-sm font-medium mb-3 block">Number of Flashcards</Label>
-          <RadioGroup value={cardCount} onValueChange={setCardCount} className="flex flex-wrap gap-2">
-            {FLASHCARD_COUNT_OPTIONS.map(n => (
-              <Label
-                key={n}
-                htmlFor={`count-${n}`}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 cursor-pointer transition-all
-                  ${cardCount === String(n) ? "border-primary bg-primary/5" : "border-border hover:border-primary/30"}`}
-              >
-                <RadioGroupItem value={String(n)} id={`count-${n}`} />
-                <span className="font-heading font-semibold text-base">{n}</span>
-                <span className="text-xs text-muted-foreground">cards</span>
-              </Label>
-            ))}
-          </RadioGroup>
-        </div>
-
-        <label className="flex items-center gap-2 mb-4 text-sm text-muted-foreground cursor-pointer">
-          <Checkbox checked={forceRegenerate} onCheckedChange={setForceRegenerate} />
-          Regenerate even if flashcards already exist for these chapters
-        </label>
 
         {activeJobId ? (
           <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2">
             <p className="text-sm font-medium">Generating flashcards…</p>
             <p className="text-xs text-muted-foreground">
-              This may take a few moments. You may continue using MindFlip while generation completes.
+              This may take a few moments. You may continue using MindFlip while
+              generation completes.
             </p>
             <GenerateProgressBar
               phase={activeBookJob?.phase}
@@ -577,7 +648,11 @@ export default function BookDetail() {
 
         <Button
           onClick={generateFlashcards}
-          disabled={isGenerating || ((book.table_of_contents || []).length > 0 && !selectedChapter)}
+          disabled={
+            isGenerating ||
+            entitlementsLoading ||
+            !selectedChapter
+          }
           size="lg"
           className="w-full gap-2 h-14 text-base font-semibold"
         >

@@ -65,7 +65,16 @@ def _async_database_url(url: str) -> str:
 
 def create_engine(database_url: str):
     url, connect_args = split_database_url_for_asyncpg(database_url)
-    return create_async_engine(url, echo=False, connect_args=connect_args)
+    # Hosted Postgres providers can close idle TCP connections while they are
+    # still held by SQLAlchemy's pool.  Verify a connection before handing it
+    # to a request so the pool transparently replaces a stale one instead of
+    # returning a 500 for an otherwise valid API call.
+    return create_async_engine(
+        url,
+        echo=False,
+        connect_args=connect_args,
+        pool_pre_ping=True,
+    )
 
 
 engine = None

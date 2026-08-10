@@ -46,6 +46,7 @@ mobile/web-build/
 *.egg-info/
 .coverage
 htmlcov/
+test-results/
 
 # --- Expo / React Native ---
 mobile/.expo/
@@ -79,3 +80,4 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+.~lock.*#

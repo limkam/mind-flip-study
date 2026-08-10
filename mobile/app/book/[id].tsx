@@ -20,7 +20,8 @@ import { api } from "../../api/client";
 import { useJobPoll } from "../../hooks/useJobPoll";
 import { generationPhaseLabel } from "../../lib/generationPhases";
 import { getTocErrorFromBook, getTocJobIdFromBook, isTocExtractionInProgress } from "../../lib/bookToc";
-import { chapterSelectionSubtitle, cardsGeneratedLabel } from "../../lib/studySetDisplay";
+import { chapterSelectionSubtitle, cardsGeneratedLabel, displayChapterHeading } from "../../lib/studySetDisplay";
+import { getApiErrorMessage } from "../../lib/apiErrors";
 import { useGenerationJobStore } from "../../store/generationJobStore";
 import { useAuthStore } from "../../store/authStore";
 import { useTheme } from "../../hooks/useTheme";
@@ -38,7 +39,8 @@ function tocPhaseLabel(phase?: string | null) {
   return (phase && TOC_PHASE_LABELS[phase]) || "Processing…";
 }
 
-const COUNTS = [5, 10, 20, 30, 40, 50] as const;
+const PLAN_CARD_COUNTS = [5, 20, 30, 50] as const;
+type PlanCardCount = (typeof PLAN_CARD_COUNTS)[number];
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export default function BookByIdScreen() {
@@ -52,7 +54,7 @@ export default function BookByIdScreen() {
   const startJob = useGenerationJobStore((s) => s.startJob);
   const activeBookJob = useGenerationJobStore((s) => (id ? s.getBookJob(id) : undefined));
 
-  const [cardCount, setCardCount] = useState<(typeof COUNTS)[number]>(20);
+  const [cardCount, setCardCount] = useState<PlanCardCount>(5);
   const [selectedChapter, setSelectedChapter] = useState("");
   const [expandedChapters, setExpandedChapters] = useState<Record<number, boolean>>({});
   const [genError, setGenError] = useState<string | null>(null);
@@ -92,6 +94,21 @@ export default function BookByIdScreen() {
       return isTocExtractionInProgress(b) || tocJobId ? 2000 : false;
     },
   });
+
+  const { data: entitlements, isLoading: entitlementsLoading } = useQuery({
+    queryKey: ["billing-entitlements"],
+    queryFn: async () => {
+      const { data } = await api.get<{
+        raw_plan_features?: { max_cards_per_set?: number | null };
+      }>("/billing/entitlements/me");
+      return data;
+    },
+  });
+
+  useEffect(() => {
+    const allowed = Number(entitlements?.raw_plan_features?.max_cards_per_set || 5);
+    setCardCount(PLAN_CARD_COUNTS.includes(allowed as PlanCardCount) ? allowed as PlanCardCount : 5);
+  }, [entitlements?.raw_plan_features?.max_cards_per_set]);
 
   useEffect(() => {
     setTocJobId(null);
@@ -182,7 +199,7 @@ export default function BookByIdScreen() {
 
   const startGenerate = async () => {
     if (generateInFlightRef.current || !book || !id || !userId || !validBookId) return;
-    if (chapters.length > 0 && !selectedChapter) {
+    if (!selectedChapter) {
       setGenError("Select one chapter.");
       return;
     }
@@ -261,7 +278,7 @@ export default function BookByIdScreen() {
   };
 
   const isGenerating = !!activeBookJob || starting;
-  const canGenerate = !isGenerating && !(chapters.length > 0 && !selectedChapter);
+  const canGenerate = !isGenerating && !entitlementsLoading && !!selectedChapter;
 
   const deleteBook = async (expectedBookId: string, expectedUserId: string) => {
     if (deletionInFlightRef.current || deletionNavigatedRef.current) return;
@@ -328,17 +345,15 @@ export default function BookByIdScreen() {
         || currentBookIdRef.current !== expectedBookId
         || currentUserIdRef.current !== expectedUserId
       ) return;
-      const detail = axios.isAxiosError(error) ? error.response?.data as { detail?: unknown } | undefined : undefined;
-      const backendMessage = typeof detail?.detail === "string" ? detail.detail : null;
       const message = status === 403
         ? "You do not have permission to delete this book."
         : status === 404
           ? "This book is already unavailable or you no longer have access to it."
           : status === 409
-            ? backendMessage || "The book could not be deleted because of a conflict. Try again."
+            ? "The book could not be deleted because it is currently in use. Try again."
             : status === 422
               ? "The book link is invalid. Return to your library and try again."
-              : backendMessage || (error instanceof Error ? error.message : "Check your connection and try again.");
+              : getApiErrorMessage(error, "Check your connection and try again.");
       Alert.alert("Could not delete book", message);
     } finally {
       if (mountedRef.current && !deletionNavigatedRef.current) {
@@ -419,39 +434,8 @@ export default function BookByIdScreen() {
                     ? "Edit chapters — rename, merge, split, reorder, add, or delete"
                     : "Select one chapter to generate flashcards from"}
                 </Text>
-                {book.toc_extraction_method && ["bookmarks", "toc_text"].includes(book.toc_extraction_method) ? (
-                  <Text style={[styles.nativeToc, { color: colors.success }]}>Using PDF native table of contents</Text>
-                ) : null}
               </View>
-              {chapters.length > 0 ? (
-                <Pressable
-                  style={[styles.linkBtn, { borderColor: colors.border }]}
-                  onPress={() => {
-                    void hapticImpact("light");
-                    setEditingToc((v) => !v);
-                  }}
-                >
-                  <Text style={[styles.linkBtnText, { color: colors.primary }]}>
-                    {editingToc ? "Done" : "Edit TOC"}
-                  </Text>
-                </Pressable>
-              ) : null}
             </View>
-
-            {book.toc_ai_error && chapters.length > 0 ? (
-              <Text style={[styles.tocWarning, { color: colors.warning, borderColor: colors.warning }]}>
-                AI chapter extraction failed: {book.toc_ai_error} Set ANTHROPIC_API_KEY on API and worker, then re-extract TOC.
-              </Text>
-            ) : null}
-
-            {book.toc_extraction_method
-              && !["ai", "bookmarks", "toc_text", "numbered_list", "chapter_markers", "presentation_slides"].includes(book.toc_extraction_method)
-              && !book.toc_ai_error
-              && chapters.length > 0 ? (
-              <Text style={[styles.tocWarning, { color: colors.warning, borderColor: colors.warning }]}>
-                Chapter list may be incomplete — extracted using {book.toc_extraction_method} without AI. Re-extract after configuring the API key.
-              </Text>
-            ) : null}
 
             {chapters.length === 0 ? (
               isTocExtractionInProgress(book) || tocJobId || tocPhase ? (
@@ -461,7 +445,7 @@ export default function BookByIdScreen() {
                     {tocPhaseLabel(tocPhase || book.processing_phase)}
                   </Text>
                   <Text style={[styles.emptyToc, { color: colors.muted, marginTop: 8 }]}>
-                    Extracting the table of contents from your PDF.
+                    Extracting the table of contents from your document.
                   </Text>
                 </View>
               ) : tocError ? (
@@ -512,6 +496,7 @@ export default function BookByIdScreen() {
             ) : (
               chapters.map((chapter, idx) => {
                 const t = chapter.title ?? `Chapter ${idx + 1}`;
+                const chapterNumber = idx + 1;
                 const on = selectedChapter === t;
                 const expanded = expandedChapters[idx];
                 const hasSubs = (chapter.subtopics?.length ?? 0) > 0;
@@ -536,10 +521,7 @@ export default function BookByIdScreen() {
                         {on ? <View style={[styles.radioInner, { backgroundColor: colors.primary }]} /> : null}
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.chNum, { color: colors.muted, backgroundColor: colors.border + "55" }]}>
-                          Ch. {chapter.chapter_number ?? idx + 1}
-                        </Text>
-                        <Text style={[styles.chTitle, { color: colors.text }]}>{t}</Text>
+                        <Text style={[styles.chTitle, { color: colors.text }]}>{displayChapterHeading(t, chapterNumber)}</Text>
                         {hasCards ? (
                           <View style={styles.generatedRow}>
                             <View style={[styles.checkBadge, { backgroundColor: colors.success }]}>
@@ -591,62 +573,19 @@ export default function BookByIdScreen() {
               </Text>
             )}
 
-            <Text style={[styles.label, { color: colors.text, marginTop: 12 }]}>Summary detail level</Text>
-            <View style={styles.detailRow}>
-              {SUMMARY_DETAIL_OPTIONS.map((opt) => (
-                <Pressable
-                  key={opt.value}
-                  onPress={() => {
-                    void hapticImpact("light");
-                    setSummaryDetailLevel(opt.value);
-                  }}
-                  style={[
-                    styles.detailChip,
-                    {
-                      borderColor: summaryDetailLevel === opt.value ? colors.primary : colors.border,
-                      backgroundColor: summaryDetailLevel === opt.value ? `${colors.primary}14` : colors.background,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      color: summaryDetailLevel === opt.value ? colors.primary : colors.text,
-                      fontWeight: "700",
-                      fontSize: 13,
-                    }}
-                  >
-                    {opt.label}
-                  </Text>
-                  <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2, textAlign: "center" }}>
-                    {opt.description.split(",")[0]}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
-              Applied when you generate flashcards. Regenerate to update existing summaries.
-            </Text>
-
             <Text style={[styles.label, { color: colors.text, marginTop: 12 }]}>Number of flashcards</Text>
-            <View style={styles.countRow}>
-              {COUNTS.map((n) => (
-                <Pressable
-                  key={n}
-                  onPress={() => {
-                    void hapticImpact("light");
-                    setCardCount(n);
-                  }}
-                  style={[
-                    styles.countChip,
-                    { borderColor: colors.border, backgroundColor: colors.background },
-                    cardCount === n && { borderColor: colors.primary, backgroundColor: `${colors.primary}14` },
-                  ]}
-                >
-                  <Text style={[styles.countNum, { color: cardCount === n ? colors.primary : colors.text }]}>{n}</Text>
-                  <Text style={[styles.countLabel, { color: colors.muted }]}>cards</Text>
-                </Pressable>
-              ))}
-            </View>
+            {entitlementsLoading ? <ActivityIndicator color={colors.primary} /> : <View style={styles.countRow}>
+              <View
+                style={[
+                  styles.countChip,
+                  { borderColor: colors.primary, backgroundColor: `${colors.primary}14` },
+                ]}
+              >
+                <Text style={[styles.countNum, { color: colors.primary }]}>{cardCount}</Text>
+                <Text style={[styles.countLabel, { color: colors.muted }]}>cards per set</Text>
+              </View>
+            </View>}
+            <Text style={[styles.sectionSub, { color: colors.muted }]}>This is the set size included with your current plan.</Text>
 
             {genError ? <Text style={[styles.error, { color: colors.danger }]}>{genError}</Text> : null}
 

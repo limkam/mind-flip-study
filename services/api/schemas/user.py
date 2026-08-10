@@ -21,6 +21,8 @@ class UserPublic(BaseModel):
     email: AppEmail
     role: UserRole
     full_name: str
+    avatar_url: str | None = None
+    auth_provider: str = "email"
     subscription_tier: str
     is_banned: bool = False
     preferences: dict = Field(default_factory=dict)
@@ -46,6 +48,7 @@ class UserSelfPatch(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     full_name: str | None = Field(None, min_length=1, max_length=255)
+    avatar_url: str | None = Field(None, max_length=1024)
     preferences: dict | None = None
     date_of_birth: date | None = None
     occupation: str | None = Field(None, min_length=1, max_length=100)

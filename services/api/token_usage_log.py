@@ -8,14 +8,9 @@ from uuid import UUID
 from anthropic_client import CLAUDE_SONNET_MODEL
 from database_sync import sync_session
 from models.token_usage import TokenUsage
+from services.ai_pricing import calculate_cost_usd
 
 log = logging.getLogger(__name__)
-
-INPUT_COST_PER_1K = 0.003
-OUTPUT_COST_PER_1K = 0.015
-CACHE_READ_COST_PER_1K = 0.0003
-CACHE_WRITE_COST_PER_1K = 0.00375
-
 
 def estimate_cost_usd(
     *,
@@ -24,20 +19,14 @@ def estimate_cost_usd(
     cached_tokens: int = 0,
     cache_read_tokens: int = 0,
     cache_creation_tokens: int = 0,
+    model: str = CLAUDE_SONNET_MODEL,
 ) -> float:
-    if cache_read_tokens or cache_creation_tokens:
-        billable_input = max(0, input_tokens - cache_read_tokens - cache_creation_tokens)
-        return (
-            (billable_input / 1000 * INPUT_COST_PER_1K)
-            + (cache_read_tokens / 1000 * CACHE_READ_COST_PER_1K)
-            + (cache_creation_tokens / 1000 * CACHE_WRITE_COST_PER_1K)
-            + (output_tokens / 1000 * OUTPUT_COST_PER_1K)
-        )
-    billable_input = max(0, input_tokens - cached_tokens)
-    return (
-        (billable_input / 1000 * INPUT_COST_PER_1K)
-        + (cached_tokens / 1000 * CACHE_READ_COST_PER_1K)
-        + (output_tokens / 1000 * OUTPUT_COST_PER_1K)
+    return calculate_cost_usd(
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens or cached_tokens,
+        cache_creation_tokens=cache_creation_tokens,
     )
 
 
@@ -86,6 +75,7 @@ def log_token_usage(
         cached_tokens=cached_tokens,
         cache_read_tokens=cache_read_tokens,
         cache_creation_tokens=cache_creation_tokens,
+        model=model,
     )
     log.info(
         "anthropic_token_usage",
@@ -120,7 +110,29 @@ def log_token_usage(
                 book_id=bid,
                 celery_task_id=celery_task_id,
                 estimated_cost_usd=cost,
+                provider="anthropic",
+                status="succeeded",
+                provider_request_id=(str((call_metadata or {}).get("provider_request_id")) if (call_metadata or {}).get("provider_request_id") else None),
+                cache_read_tokens=int(cache_read_tokens),
+                cache_creation_tokens=int(cache_creation_tokens),
                 call_metadata=call_metadata,
             ),
         )
     return cost
+
+
+def log_failed_ai_request(*, task: str, user_id: UUID | str, model: str,
+                          duration_ms: int | None, error: Exception,
+                          celery_task_id: str | None = None, book_id: UUID | str | None = None,
+                          feature_type: str | None = None) -> None:
+    uid = user_id if isinstance(user_id, UUID) else UUID(str(user_id))
+    bid = None if book_id is None else (book_id if isinstance(book_id, UUID) else UUID(str(book_id)))
+    with sync_session() as db:
+        db.add(TokenUsage(
+            user_id=uid, task=task, model=model, provider="anthropic", status="failed",
+            input_tokens=0, output_tokens=0, cached_tokens=0, cache_read_tokens=0,
+            cache_creation_tokens=0, estimated_cost_usd=0, duration_ms=duration_ms,
+            error_code=type(error).__name__, error_message=str(error)[:1000],
+            celery_task_id=celery_task_id, book_id=bid,
+            feature_type=feature_type or _feature_type_from_task(task),
+        ))

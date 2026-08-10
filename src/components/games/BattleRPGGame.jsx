@@ -1,7 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, XCircle, Sword, Shield, Skull, Trophy } from "lucide-react";
+import {
+  CheckCircle2,
+  XCircle,
+  Sword,
+  Shield,
+  Skull,
+  Trophy,
+} from "lucide-react";
 import GameResultScreen from "@/components/games/GameResultScreen";
 import { useFinishOnce } from "@/lib/gameLifecycle";
 
@@ -33,17 +40,27 @@ function HPBar({ hp, max, color }) {
 export default function BattleRPGGame({ cards, onRoundComplete }) {
   const finishGame = useFinishOnce(onRoundComplete);
   const questions = useRef(
-    cards.slice(0, 12).map(card => {
-      const wrong = cards.filter(c => c.back !== card.back).sort(() => Math.random() - 0.5).slice(0, 3).map(c => c.back);
+    cards.map((card) => {
+      const wrong = cards
+        .filter((c) => c.back !== card.back)
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 3)
+        .map((c) => c.back);
       while (wrong.length < 3) wrong.push("None of the above");
-      return { q: card.front, correct: card.back, options: [...wrong, card.back].sort(() => Math.random() - 0.5) };
-    })
+      return {
+        q: card.front,
+        correct: card.back,
+        options: [...wrong, card.back].sort(() => Math.random() - 0.5),
+      };
+    }),
   ).current;
 
   const [qIdx, setQIdx] = useState(0);
   const [playerHP, setPlayerHP] = useState(PLAYER_MAX_HP);
   const [enemyHP, setEnemyHP] = useState(ENEMY_MAX_HP);
-  const [enemy] = useState(() => ENEMIES[Math.floor(Math.random() * ENEMIES.length)]);
+  const [enemy] = useState(
+    () => ENEMIES[Math.floor(Math.random() * ENEMIES.length)],
+  );
   const [selected, setSelected] = useState(null);
   const [showResult, setShowResult] = useState(false);
   const [battleLog, setBattleLog] = useState("");
@@ -62,26 +79,34 @@ export default function BattleRPGGame({ cards, onRoundComplete }) {
     if (showResult || gameOver) return;
     setSelected(opt);
     setShowResult(true);
-    setAnsweredCount(c => c + 1);
+    setAnsweredCount((c) => c + 1);
     const correct = opt === questions[qIdx]?.correct;
 
     if (correct) {
       const dmg = PLAYER_ATTACK + Math.floor(Math.random() * 8);
       setBattleLog(`⚔️ You deal ${dmg} damage!`);
       triggerShake("enemy");
-      setScore(s => s + 1);
-      setEnemyHP(hp => {
+      setScore((s) => s + 1);
+      setEnemyHP((hp) => {
         const next = Math.max(0, hp - dmg);
-        if (next === 0) setTimeout(() => { setWinner("player"); setGameOver(true); }, 900);
+        if (next === 0)
+          setTimeout(() => {
+            setWinner("player");
+            setGameOver(true);
+          }, 900);
         return next;
       });
     } else {
       const dmg = ENEMY_ATTACK + Math.floor(Math.random() * 6);
       setBattleLog(`💥 ${enemy.name} hits you for ${dmg} damage!`);
       triggerShake("player");
-      setPlayerHP(hp => {
+      setPlayerHP((hp) => {
         const next = Math.max(0, hp - dmg);
-        if (next === 0) setTimeout(() => { setWinner("enemy"); setGameOver(true); }, 900);
+        if (next === 0)
+          setTimeout(() => {
+            setWinner("enemy");
+            setGameOver(true);
+          }, 900);
         return next;
       });
     }
@@ -94,7 +119,7 @@ export default function BattleRPGGame({ cards, onRoundComplete }) {
       setGameOver(true);
       return;
     }
-    setQIdx(i => i + 1);
+    setQIdx((i) => i + 1);
     setSelected(null);
     setShowResult(false);
     setBattleLog("");
@@ -109,11 +134,15 @@ export default function BattleRPGGame({ cards, onRoundComplete }) {
     return (
       <GameResultScreen
         icon={
-          <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center text-4xl ${winner === "player" ? "bg-yellow-500/10" : "bg-red-500/10"}`}>
+          <div
+            className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center text-4xl ${winner === "player" ? "bg-yellow-500/10" : "bg-red-500/10"}`}
+          >
             {winner === "player" ? "🏆" : "💀"}
           </div>
         }
-        title={winner === "player" ? "Victory! 🎉" : `Defeated by ${enemy.name}!`}
+        title={
+          winner === "player" ? "Victory! 🎉" : `Defeated by ${enemy.name}!`
+        }
         subtitle={`${score} correct · ${answeredCount} of ${questions.length} answered · ${playerHP} HP remaining`}
         onContinue={finishGame}
         result={resultPayload}
@@ -132,28 +161,38 @@ export default function BattleRPGGame({ cards, onRoundComplete }) {
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-semibold text-green-400">YOU</span>
-              <span className="text-xs text-green-400 font-bold">{playerHP}/{PLAYER_MAX_HP}</span>
+              <span className="text-xs text-green-400 font-bold">
+                {playerHP}/{PLAYER_MAX_HP}
+              </span>
             </div>
             <HPBar hp={playerHP} max={PLAYER_MAX_HP} color="bg-green-500" />
             <motion.div
               animate={shake === "player" ? { x: [-8, 8, -6, 6, 0] } : {}}
               transition={{ duration: 0.3 }}
               className="text-center mt-3 text-5xl"
-            >🧙‍♂️</motion.div>
+            >
+              🧙‍♂️
+            </motion.div>
           </div>
 
           {/* Enemy */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold text-red-400">{enemy.name.toUpperCase()}</span>
-              <span className="text-xs text-red-400 font-bold">{enemyHP}/{ENEMY_MAX_HP}</span>
+              <span className="text-xs font-semibold text-red-400">
+                {enemy.name.toUpperCase()}
+              </span>
+              <span className="text-xs text-red-400 font-bold">
+                {enemyHP}/{ENEMY_MAX_HP}
+              </span>
             </div>
             <HPBar hp={enemyHP} max={ENEMY_MAX_HP} color="bg-red-500" />
             <motion.div
               animate={shake === "enemy" ? { x: [8, -8, 6, -6, 0] } : {}}
               transition={{ duration: 0.3 }}
               className="text-center mt-3 text-5xl"
-            >{enemy.emoji}</motion.div>
+            >
+              {enemy.emoji}
+            </motion.div>
           </div>
         </div>
 
@@ -162,25 +201,38 @@ export default function BattleRPGGame({ cards, onRoundComplete }) {
           {battleLog && (
             <motion.div
               key={battleLog}
-              initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
               className="mt-3 text-center text-sm font-semibold text-white/80 bg-white/5 rounded-lg py-2"
-            >{battleLog}</motion.div>
+            >
+              {battleLog}
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
 
       {/* Question */}
       <AnimatePresence mode="wait">
-        <motion.div key={qIdx}
-          initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }}
+        <motion.div
+          key={qIdx}
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -16 }}
           className="bg-card rounded-2xl border border-border p-5 mb-4 shadow-sm"
         >
           <div className="flex items-center gap-2 mb-2">
             <Sword className="w-4 h-4 text-primary" />
-            <span className="text-xs font-semibold text-muted-foreground">Answer to attack!</span>
-            <span className="ml-auto text-xs text-muted-foreground">{answeredCount} / {questions.length} answered</span>
+            <span className="text-xs font-semibold text-muted-foreground">
+              Answer to attack!
+            </span>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {answeredCount} / {questions.length} answered
+            </span>
           </div>
-          <p className="font-heading font-semibold text-base leading-snug">{q?.q}</p>
+          <p className="font-heading font-semibold text-base leading-snug">
+            {q?.q}
+          </p>
         </motion.div>
       </AnimatePresence>
 
@@ -191,22 +243,32 @@ export default function BattleRPGGame({ cards, onRoundComplete }) {
           const isCorrect = opt === q.correct;
           let cls = "border-border hover:border-primary/50 hover:bg-primary/5";
           if (showResult && isCorrect) cls = "border-green-500 bg-green-500/10";
-          if (showResult && isSelected && !isCorrect) cls = "border-red-500 bg-red-500/10";
+          if (showResult && isSelected && !isCorrect)
+            cls = "border-red-500 bg-red-500/10";
 
           return (
-            <motion.button key={i}
-              whileHover={!showResult ? { scale: 1.02 } : {}} whileTap={!showResult ? { scale: 0.97 } : {}}
-              onClick={() => handleAnswer(opt)} disabled={showResult}
+            <motion.button
+              key={i}
+              whileHover={!showResult ? { scale: 1.02 } : {}}
+              whileTap={!showResult ? { scale: 0.97 } : {}}
+              onClick={() => handleAnswer(opt)}
+              disabled={showResult}
               className={`w-full text-left p-3 rounded-xl border-2 transition-all text-sm font-medium flex items-center gap-2 ${cls}`}
             >
-              <div className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0
+              <div
+                className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0
                 ${showResult && isCorrect ? "bg-green-500 text-white" : ""}
                 ${showResult && isSelected && !isCorrect ? "bg-red-500 text-white" : ""}
                 ${!showResult || (!isCorrect && !isSelected) ? "bg-muted text-muted-foreground" : ""}
-              `}>
-                {showResult && isCorrect ? <CheckCircle2 className="w-3.5 h-3.5" /> :
-                 showResult && isSelected && !isCorrect ? <XCircle className="w-3.5 h-3.5" /> :
-                 String.fromCharCode(65 + i)}
+              `}
+              >
+                {showResult && isCorrect ? (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                ) : showResult && isSelected && !isCorrect ? (
+                  <XCircle className="w-3.5 h-3.5" />
+                ) : (
+                  String.fromCharCode(65 + i)
+                )}
               </div>
               <span className="line-clamp-2">{opt}</span>
             </motion.button>
@@ -215,9 +277,14 @@ export default function BattleRPGGame({ cards, onRoundComplete }) {
       </div>
 
       {showResult && !gameOver && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 flex justify-end">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="mt-4 flex justify-end"
+        >
           <Button onClick={next} className="gap-2">
-            {qIdx + 1 >= questions.length ? "End Battle" : "Next Attack"} <Sword className="w-4 h-4" />
+            {qIdx + 1 >= questions.length ? "End Battle" : "Next Attack"}{" "}
+            <Sword className="w-4 h-4" />
           </Button>
         </motion.div>
       )}

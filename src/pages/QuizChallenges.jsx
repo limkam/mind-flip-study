@@ -2,13 +2,33 @@ import React, { useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "@/api/client";
-import { motion } from 'framer-motion';
-import { Swords, Send, Clock, Trophy, CheckCircle2, XCircle, Plus } from 'lucide-react';
+import { motion } from "framer-motion";
+import {
+  Swords,
+  Send,
+  Clock,
+  Trophy,
+  CheckCircle2,
+  XCircle,
+  Plus,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import QuizGame from "@/components/study/QuizGame";
@@ -37,21 +57,32 @@ export default function QuizChallenges() {
   const { data: sets = [] } = useQuery({
     queryKey: ["flashcard-sets"],
     queryFn: async () => {
-      const { data } = await client.get("/flashcard-sets/", { params: { include_cards: false } });
+      const { data } = await client.get("/flashcard-sets/", {
+        params: { include_cards: false },
+      });
       return data;
     },
   });
 
-  const myChallenges = challenges.filter(c => c.challenger_email === user?.email || c.opponent_email === user?.email);
-  const pending = myChallenges.filter(c => c.status === "pending" && c.opponent_email === user?.email);
-  const sent = myChallenges.filter(c => c.status === "pending" && c.challenger_email === user?.email);
-  const completed = myChallenges.filter(c => c.status === "completed");
+  const myChallenges = challenges.filter(
+    (c) =>
+      c.challenger_email === user?.email || c.opponent_email === user?.email,
+  );
+  const pending = myChallenges.filter(
+    (c) => c.status === "pending" && c.opponent_email === user?.email,
+  );
+  const sent = myChallenges.filter(
+    (c) => c.status === "pending" && c.challenger_email === user?.email,
+  );
+  const completed = myChallenges.filter((c) => c.status === "completed");
 
   const handleStartSendQuiz = async () => {
     if (!selectedSetId || !opponentEmail) return;
     setSending(true);
     try {
-      const { data: setData } = await client.get(`/flashcard-sets/${selectedSetId}`);
+      const { data: setData } = await client.get(
+        `/flashcard-sets/${selectedSetId}`,
+      );
       if (!setData?.cards?.length) {
         toast({ title: "No cards in this set", variant: "destructive" });
         return;
@@ -64,6 +95,7 @@ export default function QuizChallenges() {
         cards: setData.cards,
       });
     } catch (err) {
+      if (err?.response?.status === 402) return;
       toast({
         title: "Could not load flashcards",
         description: err.response?.data?.detail || err.message,
@@ -78,7 +110,7 @@ export default function QuizChallenges() {
     if (!sendQuiz) return;
     setSending(true);
     try {
-      await client.post('/quiz-challenges/', {
+      await client.post("/quiz-challenges/", {
         flashcard_set_id: sendQuiz.set.id,
         opponent_email: sendQuiz.opponentEmail,
         set_title: sendQuiz.set?.title,
@@ -87,27 +119,48 @@ export default function QuizChallenges() {
         challenger_percentage: result.percentage,
         challenger_time_seconds: result.time_taken_seconds,
       });
-      queryClient.invalidateQueries({ queryKey: ['quiz-challenges'] });
-      toast({ title: 'Challenge sent', description: `Your score: ${result.percentage}%` });
-      setOpponentEmail('');
-      setSelectedSetId('');
+      queryClient.invalidateQueries({ queryKey: ["quiz-challenges"] });
+      toast({
+        title: "⚔️ Challenge sent!",
+        description: `Your score (${result.percentage}%) has been sent to ${sendQuiz.opponentEmail}.`,
+      });
+      setOpponentEmail("");
+      setSelectedSetId("");
       setSendQuiz(null);
+      setPendingResult(null);
     } catch (err) {
       toast({
-        title: 'Could not send challenge',
+        title: "Could not send challenge",
         description: err.response?.data?.detail || err.message,
-        variant: 'destructive',
+        variant: "destructive",
       });
     } finally {
       setSending(false);
     }
   };
 
+  const [acceptingId, setAcceptingId] = useState(null);
+
   const handleAcceptChallenge = async (challenge) => {
-    const { data: setData } = await client.get(`/flashcard-sets/${challenge.flashcard_set_id}`);
-    if (setData?.cards) {
-      setActiveChallengeCards(setData.cards);
-      setActiveChallenge(challenge);
+    if (acceptingId) return;
+    setAcceptingId(challenge.id);
+    try {
+      const { data: setData } = await client.get(
+        `/flashcard-sets/${challenge.flashcard_set_id}`,
+      );
+      if (setData?.cards) {
+        setActiveChallengeCards(setData.cards);
+        setActiveChallenge(challenge);
+      }
+    } catch (err) {
+      if (err?.response?.status === 402 || err?.isPlanLimitError) return;
+      toast({
+        title: "Could not load challenge cards",
+        description: err.response?.data?.detail || err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setAcceptingId(null);
     }
   };
 
@@ -119,12 +172,18 @@ export default function QuizChallenges() {
       status: "completed",
     });
     queryClient.invalidateQueries({ queryKey: ["quiz-challenges"] });
-    const beatThem = result.percentage > (activeChallenge.challenger_percentage || 0)
-      || (result.percentage === activeChallenge.challenger_percentage
-        && result.time_taken_seconds < (activeChallenge.challenger_time_seconds || 9999));
+    const beatThem =
+      result.percentage > (activeChallenge.challenger_percentage || 0) ||
+      (result.percentage === activeChallenge.challenger_percentage &&
+        result.time_taken_seconds <
+          (activeChallenge.challenger_time_seconds || 9999));
     setActiveChallenge(null);
     setActiveChallengeCards([]);
-    toast({ title: beatThem ? "🏆 You won the challenge!" : "Challenge completed — better luck next time!" });
+    toast({
+      title: beatThem
+        ? "🏆 You won the challenge!"
+        : "Challenge completed — better luck next time!",
+    });
   };
 
   const getResultForChallenge = (c) => {
@@ -138,12 +197,22 @@ export default function QuizChallenges() {
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="font-heading text-xl font-bold">⚔️ Take the quiz first</h2>
+            <h2 className="font-heading text-xl font-bold">
+              ⚔️ Take the quiz first
+            </h2>
             <p className="text-sm text-muted-foreground">
-              Score on {sendQuiz.set?.title} — then challenge {sendQuiz.opponentEmail}
+              Score on {sendQuiz.set?.title} — then challenge{" "}
+              {sendQuiz.opponentEmail}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => setSendQuiz(null)} className="text-muted-foreground">✕ Cancel</Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSendQuiz(null)}
+            className="text-muted-foreground"
+          >
+            ✕ Cancel
+          </Button>
         </div>
         <QuizGame
           cards={sendQuiz.cards}
@@ -159,12 +228,22 @@ export default function QuizChallenges() {
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="font-heading text-xl font-bold">⚔️ Challenge: {activeChallenge.set_title}</h2>
+            <h2 className="font-heading text-xl font-bold">
+              ⚔️ Challenge: {activeChallenge.set_title}
+            </h2>
             <p className="text-sm text-muted-foreground">
-              Challenger scored {activeChallenge.challenger_percentage}% in {activeChallenge.challenger_time_seconds}s — beat them!
+              Challenger scored {activeChallenge.challenger_percentage}% in{" "}
+              {activeChallenge.challenger_time_seconds}s — beat them!
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => setActiveChallenge(null)} className="text-muted-foreground">✕ Cancel</Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setActiveChallenge(null)}
+            className="text-muted-foreground"
+          >
+            ✕ Cancel
+          </Button>
         </div>
         <QuizGame
           cards={activeChallengeCards}
@@ -182,7 +261,9 @@ export default function QuizChallenges() {
           <h1 className="font-heading text-3xl font-bold flex items-center gap-3">
             <Swords className="w-7 h-7 text-primary" /> Quiz Challenges
           </h1>
-          <p className="text-muted-foreground mt-1">Challenge other users to quiz battles on your flashcard sets</p>
+          <p className="text-muted-foreground mt-1">
+            Challenge other users to quiz battles on your flashcard sets
+          </p>
         </div>
         <Button onClick={() => setSendOpen(true)} className="gap-2">
           <Plus className="w-4 h-4" /> Send Challenge
@@ -193,23 +274,52 @@ export default function QuizChallenges() {
       {pending.length > 0 && (
         <div className="mb-6">
           <h2 className="font-heading font-semibold mb-3 flex items-center gap-2">
-            <Clock className="w-4 h-4 text-amber-500" /> Awaiting Your Response ({pending.length})
+            <Clock className="w-4 h-4 text-amber-500" /> Awaiting Your Response
+            ({pending.length})
           </h2>
           <div className="space-y-3">
             {pending.map((c, i) => (
-              <motion.div key={c.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+              <motion.div
+                key={c.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
                 className="bg-card rounded-xl border-2 border-amber-400/30 p-4 flex flex-col sm:flex-row sm:items-center gap-4"
               >
                 <div className="flex-1">
                   <p className="font-medium">{c.set_title}</p>
-                  <p className="text-sm text-muted-foreground">From: <span className="font-medium text-foreground">{c.challenger_name || c.challenger_email}</span></p>
-                  {c.book_title && <p className="text-xs text-muted-foreground mt-0.5">{c.book_title}</p>}
+                  <p className="text-sm text-muted-foreground">
+                    From:{" "}
+                    <span className="font-medium text-foreground">
+                      {c.challenger_name || c.challenger_email}
+                    </span>
+                  </p>
+                  {c.book_title && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {c.book_title}
+                    </p>
+                  )}
                   {c.challenger_percentage != null && (
-                    <p className="text-xs text-amber-600 font-medium mt-1">They scored {c.challenger_percentage}% — can you beat it?</p>
+                    <p className="text-xs text-amber-600 font-medium mt-1">
+                      They scored {c.challenger_percentage}% — can you beat it?
+                    </p>
                   )}
                 </div>
-                <Button onClick={() => handleAcceptChallenge(c)} className="gap-2 bg-amber-500 hover:bg-amber-600 text-white">
-                  <Swords className="w-4 h-4" /> Accept Challenge
+                <Button
+                  disabled={acceptingId === c.id}
+                  onClick={() => handleAcceptChallenge(c)}
+                  className="gap-2 bg-amber-500 hover:bg-amber-600 text-white"
+                >
+                  {acceptingId === c.id ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      Accepting challenge...
+                    </>
+                  ) : (
+                    <>
+                      <Swords className="w-4 h-4" /> Accept Challenge
+                    </>
+                  )}
                 </Button>
               </motion.div>
             ))}
@@ -221,21 +331,35 @@ export default function QuizChallenges() {
       {sent.length > 0 && (
         <div className="mb-6">
           <h2 className="font-heading font-semibold mb-3 flex items-center gap-2">
-            <Send className="w-4 h-4 text-primary" /> Sent & Waiting ({sent.length})
+            <Send className="w-4 h-4 text-primary" /> Sent & Waiting (
+            {sent.length})
           </h2>
           <div className="space-y-2">
             {sent.map((c, i) => (
-              <motion.div key={c.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
+              <motion.div
+                key={c.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: i * 0.03 }}
                 className="bg-card rounded-xl border border-border p-4 flex items-center gap-4"
               >
                 <div className="flex-1">
                   <p className="font-medium">{c.set_title}</p>
-                  <p className="text-sm text-muted-foreground">To: <span className="font-medium text-foreground">{c.opponent_email}</span></p>
+                  <p className="text-sm text-muted-foreground">
+                    To:{" "}
+                    <span className="font-medium text-foreground">
+                      {c.opponent_email}
+                    </span>
+                  </p>
                   {c.challenger_percentage != null ? (
-                    <p className="text-xs text-primary font-medium mt-1">Your score: {c.challenger_percentage}%</p>
+                    <p className="text-xs text-primary font-medium mt-1">
+                      Your score: {c.challenger_percentage}%
+                    </p>
                   ) : null}
                 </div>
-                <Badge variant="outline" className="text-muted-foreground">Pending</Badge>
+                <Badge variant="outline" className="text-muted-foreground">
+                  Pending
+                </Badge>
               </motion.div>
             ))}
           </div>
@@ -246,30 +370,56 @@ export default function QuizChallenges() {
       {completed.length > 0 && (
         <div className="mb-6">
           <h2 className="font-heading font-semibold mb-3 flex items-center gap-2">
-            <Trophy className="w-4 h-4 text-yellow-500" /> Completed ({completed.length})
+            <Trophy className="w-4 h-4 text-yellow-500" /> Completed (
+            {completed.length})
           </h2>
           <div className="space-y-2">
             {completed.map((c, i) => {
               const result = getResultForChallenge(c);
-              const myPct = c.challenger_email === user?.email ? c.challenger_percentage : c.opponent_percentage;
-              const theirPct = c.challenger_email === user?.email ? c.opponent_percentage : c.challenger_percentage;
-              const theirName = c.challenger_email === user?.email ? c.opponent_email : (c.challenger_name || c.challenger_email);
+              const myPct =
+                c.challenger_email === user?.email
+                  ? c.challenger_percentage
+                  : c.opponent_percentage;
+              const theirPct =
+                c.challenger_email === user?.email
+                  ? c.opponent_percentage
+                  : c.challenger_percentage;
+              const theirName =
+                c.challenger_email === user?.email
+                  ? c.opponent_email
+                  : c.challenger_name || c.challenger_email;
               return (
-                <motion.div key={c.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
+                <motion.div
+                  key={c.id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: i * 0.03 }}
                   className={`bg-card rounded-xl border p-4 flex items-center gap-4
                     ${result === "win" ? "border-emerald-400/30" : "border-rose-400/30"}`}
                 >
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0
-                    ${result === "win" ? "bg-emerald-500/10" : "bg-rose-500/10"}`}>
-                    {result === "win" ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <XCircle className="w-5 h-5 text-rose-500" />}
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0
+                    ${result === "win" ? "bg-emerald-500/10" : "bg-rose-500/10"}`}
+                  >
+                    {result === "win" ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                    ) : (
+                      <XCircle className="w-5 h-5 text-rose-500" />
+                    )}
                   </div>
                   <div className="flex-1">
                     <p className="font-medium">{c.set_title}</p>
-                    <p className="text-sm text-muted-foreground">vs {theirName}</p>
+                    <p className="text-sm text-muted-foreground">
+                      vs {theirName}
+                    </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold">{myPct}% vs {theirPct}%</p>
-                    <p className={`text-xs font-semibold ${result === "win" ? "text-emerald-500" : "text-rose-500"}`}>
+                    <p className="text-sm font-bold">
+                      {myPct}% vs {theirPct}%
+                    </p>
+                    <p
+                      className={`text-xs font-semibold ${result === "win" ? "text-emerald-500" : "text-rose-500"}`}
+                    >
                       {result === "win" ? "You won!" : "You lost"}
                     </p>
                   </div>
@@ -283,9 +433,15 @@ export default function QuizChallenges() {
       {myChallenges.length === 0 && (
         <div className="text-center py-20">
           <Swords className="w-16 h-16 mx-auto text-muted-foreground/20 mb-4" />
-          <h3 className="font-heading text-xl font-semibold text-muted-foreground mb-2">No challenges yet</h3>
-          <p className="text-muted-foreground mb-6">Challenge a friend to a quiz battle on your flashcard sets!</p>
-          <Button onClick={() => setSendOpen(true)} className="gap-2"><Plus className="w-4 h-4" /> Send First Challenge</Button>
+          <h3 className="font-heading text-xl font-semibold text-muted-foreground mb-2">
+            No challenges yet
+          </h3>
+          <p className="text-muted-foreground mb-6">
+            Challenge a friend to a quiz battle on your flashcard sets!
+          </p>
+          <Button onClick={() => setSendOpen(true)} className="gap-2">
+            <Plus className="w-4 h-4" /> Send First Challenge
+          </Button>
         </div>
       )}
 
@@ -296,15 +452,22 @@ export default function QuizChallenges() {
             <DialogTitle className="font-heading flex items-center gap-2">
               <Swords className="w-5 h-5 text-primary" /> Send a Challenge
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Select a flashcard set and opponent email to send a quiz challenge.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2 overflow-y-auto pr-1">
             <div className="space-y-2">
               <Label>Flashcard Set</Label>
               <Select value={selectedSetId} onValueChange={setSelectedSetId}>
-                <SelectTrigger><SelectValue placeholder="Choose a set..." /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a set..." />
+                </SelectTrigger>
                 <SelectContent>
-                  {sets.map(s => (
-                    <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
+                  {sets.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.title}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -314,16 +477,27 @@ export default function QuizChallenges() {
               <Input
                 placeholder="friend@email.com"
                 value={opponentEmail}
-                onChange={e => setOpponentEmail(e.target.value)}
+                onChange={(e) => setOpponentEmail(e.target.value)}
               />
             </div>
             {selectedSetId && (
               <div className="bg-muted/40 rounded-lg p-3 text-sm text-muted-foreground">
-                💡 You'll take the quiz first, then your opponent will see your score and try to beat it.
+                💡 You'll take the quiz first, then your opponent will see your
+                score and try to beat it.
               </div>
             )}
-            <Button onClick={handleStartSendQuiz} disabled={sending || !selectedSetId || !opponentEmail} className="w-full gap-2">
-              {sending ? "Loading quiz…" : <><Swords className="w-4 h-4" /> Take quiz & send challenge</>}
+            <Button
+              onClick={handleStartSendQuiz}
+              disabled={sending || !selectedSetId || !opponentEmail}
+              className="w-full gap-2"
+            >
+              {sending ? (
+                "Loading quiz…"
+              ) : (
+                <>
+                  <Swords className="w-4 h-4" /> Take quiz & send challenge
+                </>
+              )}
             </Button>
           </div>
         </DialogContent>

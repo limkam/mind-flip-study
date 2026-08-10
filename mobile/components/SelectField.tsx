@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 
 import { useTheme } from "../hooks/useTheme";
 
@@ -30,6 +31,7 @@ export function SelectField({
   searchable = false,
 }: Props) {
   const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -52,8 +54,8 @@ export function SelectField({
         <Ionicons name="chevron-down" size={18} color={colors.muted} />
       </Pressable>
 
-      <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
-        <View style={styles.backdrop}>
+      <Modal visible={open} animationType={reduceMotion ? "none" : "slide"} transparent onRequestClose={() => setOpen(false)}>
+        <View style={[styles.backdrop, { backgroundColor: colors.overlay }]}>
           <View style={[styles.sheet, { backgroundColor: colors.surface }]}>
             <View style={styles.sheetHeader}>
               <Text style={[styles.sheetTitle, { color: colors.text }]}>{label}</Text>
@@ -108,7 +110,6 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
   },
   sheet: {

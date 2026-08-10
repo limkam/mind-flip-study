@@ -102,7 +102,7 @@ export default function Demographics() {
         <MetricCard label="Total Users" value={d.total_users} />
         <MetricCard label="Countries" value={d.countries_distinct} />
         <MetricCard label="Continents" value={d.continents_distinct} />
-        <MetricCard label="Active Licenses" value={d.active_licenses} />
+        <MetricCard label="Active Subscriptions" value={d.active_subscriptions} />
       </div>
 
       <h3 className="section-title">User Growth (Last 12 Months)</h3>

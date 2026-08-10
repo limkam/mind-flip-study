@@ -19,6 +19,20 @@ class CardProgressOut(BaseModel):
     times_incorrect: int
 
 
+class CelebrationEventOut(BaseModel):
+    event_id: str
+    event_type: str
+    occurred_at: datetime
+    entity_id: str | None = None
+    title: str | None = None
+    message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudyProgressOut(CardProgressOut):
+    celebration_events: list[CelebrationEventOut] = Field(default_factory=list)
+
+
 class CardProgressUpsert(BaseModel):
     next_review_date: date
     ease_factor: float | None = None
@@ -93,9 +107,10 @@ class QuizResultOut(BaseModel):
     player_name: str | None = None
     set_title: str | None = None
     book_title: str | None = None
+    celebration_events: list[CelebrationEventOut] = Field(default_factory=list)
 
     @staticmethod
-    def from_orm_row(row: Any, extras: dict[str, Any] | None = None) -> "QuizResultOut":
+    def from_orm_row(row: Any, extras: dict[str, Any] | None = None, celebration_events: list[CelebrationEventOut] | None = None) -> "QuizResultOut":
         ex = dict(extras if extras is not None else (row.extras or {}))
         # Do not expose PII in API responses (legacy rows may still store these in JSONB).
         ex.pop("player_email", None)
@@ -125,6 +140,7 @@ class QuizResultOut(BaseModel):
             player_name=None,
             set_title=ex.get("set_title"),
             book_title=ex.get("book_title"),
+            celebration_events=celebration_events or [],
         )
 
 

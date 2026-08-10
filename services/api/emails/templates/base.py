@@ -28,7 +28,7 @@ def first_name(full_name: str) -> str:
 
 def wrap_email(*, body_html: str, footer_extra: str = "") -> str:
     s = BASE_STYLES
-    footer = f"© 2025 MindFlip · Unsubscribe{footer_extra}"
+    footer = f"© MindFlip · Secure account email{footer_extra}"
     return f"""<!DOCTYPE html>
 <html>
 <body style="margin:0;padding:0;background:#f1f5f9;">

@@ -1,8 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, Lightbulb, RefreshCw, Sparkles } from "lucide-react";
+import { ChevronDown, Lightbulb, Sparkles } from "lucide-react";
 import client from "@/api/client";
-import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 
 const TYPE_LABELS = {
@@ -12,15 +11,20 @@ const TYPE_LABELS = {
 };
 
 const SECTION_STYLES = {
-  challenge: "bg-amber-500/10 border-amber-500/25 dark:bg-amber-500/15 dark:border-amber-500/30",
-  question: "bg-sky-500/10 border-sky-500/25 dark:bg-sky-500/15 dark:border-sky-500/30",
-  answer: "bg-emerald-500/10 border-emerald-500/25 dark:bg-emerald-500/15 dark:border-emerald-500/30",
+  challenge:
+    "bg-amber-500/10 border-amber-500/25 dark:bg-amber-500/15 dark:border-amber-500/30",
+  question:
+    "bg-sky-500/10 border-sky-500/25 dark:bg-sky-500/15 dark:border-sky-500/30",
+  answer:
+    "bg-emerald-500/10 border-emerald-500/25 dark:bg-emerald-500/15 dark:border-emerald-500/30",
 };
 
 function ScenarioSection({ label, children, tone }) {
   return (
     <div className={`rounded-xl border p-4 ${SECTION_STYLES[tone]}`}>
-      <p className="text-xs font-semibold uppercase tracking-wider text-foreground/70 mb-2">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-wider text-foreground/70 mb-2">
+        {label}
+      </p>
       <div className="text-sm leading-relaxed text-foreground">{children}</div>
     </div>
   );
@@ -62,10 +66,16 @@ function ScenarioCard({ scenario, index, defaultOpen = false }) {
           {index + 1}
         </span>
         <div className="flex-1 min-w-0">
-          <span className="text-xs font-semibold uppercase tracking-wide text-primary">{typeLabel}</span>
-          <h3 className="font-heading font-semibold text-base mt-1">{scenario.title}</h3>
+          <span className="text-xs font-semibold uppercase tracking-wide text-primary">
+            {typeLabel}
+          </span>
+          <h3 className="font-heading font-semibold text-base mt-1">
+            {scenario.title}
+          </h3>
           {scenario.context ? (
-            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{scenario.context}</p>
+            <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+              {scenario.context}
+            </p>
           ) : null}
         </div>
         <ChevronDown
@@ -91,10 +101,14 @@ function ScenarioCard({ scenario, index, defaultOpen = false }) {
                   {question}
                 </ScenarioSection>
               ) : null}
-              {(scenario.model_answer || scenario.explanation || scenario.guidance) ? (
+              {scenario.model_answer ||
+              scenario.explanation ||
+              scenario.guidance ? (
                 <ScenarioSection label="Model Answers" tone="answer">
-                  {scenario.model_answer ? <p className="mb-2">{scenario.model_answer}</p> : null}
-                  {(scenario.explanation || scenario.guidance) ? (
+                  {scenario.model_answer ? (
+                    <p className="mb-2">{scenario.model_answer}</p>
+                  ) : null}
+                  {scenario.explanation || scenario.guidance ? (
                     <p className="whitespace-pre-wrap text-foreground/90">
                       {scenario.explanation || scenario.guidance}
                     </p>
@@ -116,6 +130,7 @@ export default function ScenarioView({
 }) {
   const [loading, setLoading] = useState(false);
   const [displayScenarios, setDisplayScenarios] = useState(scenarios);
+  const completionAttemptedForSet = React.useRef(null);
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -127,22 +142,42 @@ export default function ScenarioView({
     [displayScenarios],
   );
 
-  const regenerateScenarios = async () => {
+  const completeScenarios = React.useCallback(async () => {
     if (!setId) return;
     setLoading(true);
     try {
-      const { data } = await client.post(`/flashcard-sets/${setId}/scenarios/regenerate`);
+      const { data } = await client.post(
+        `/flashcard-sets/${setId}/scenarios/complete`,
+      );
       const next = data.scenarios || [];
       setDisplayScenarios(next);
       onScenariosChange?.(next);
     } catch (err) {
       const detail = err.response?.data?.detail;
-      const message = typeof detail === "object" ? detail.message : detail || err.message || "Regeneration failed";
-      toast({ title: "Regeneration failed", description: message, variant: "destructive" });
+      const message =
+        typeof detail === "object"
+          ? detail.message
+          : detail || err.message || "Regeneration failed";
+      toast({
+        title: "Regeneration failed",
+        description: message,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
-  };
+  }, [onScenariosChange, setId, toast]);
+
+  React.useEffect(() => {
+    if (
+      setId &&
+      displayScenarios.length < 5 &&
+      completionAttemptedForSet.current !== setId
+    ) {
+      completionAttemptedForSet.current = setId;
+      void completeScenarios();
+    }
+  }, [completeScenarios, displayScenarios.length, setId]);
 
   if (!displayScenarios.length && !loading) {
     return (
@@ -150,9 +185,12 @@ export default function ScenarioView({
         <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
           <Lightbulb className="w-8 h-8 text-primary" />
         </div>
-        <h3 className="font-heading text-xl font-semibold mb-2">Application Scenarios</h3>
+        <h3 className="font-heading text-xl font-semibold mb-2">
+          Application Scenarios
+        </h3>
         <p className="text-muted-foreground text-sm max-w-sm mx-auto">
-          No scenarios were generated for this set. Generate a new study set to include realistic application scenarios.
+          No scenarios were generated for this set. Generate a new study set to
+          include realistic application scenarios.
         </p>
       </div>
     );
@@ -166,7 +204,7 @@ export default function ScenarioView({
           <div className="absolute inset-0 rounded-full border-4 border-t-primary animate-spin" />
           <Sparkles className="absolute inset-0 m-auto w-5 h-5 text-primary" />
         </div>
-        <p className="font-medium text-foreground">Regenerating scenarios...</p>
+        <p className="font-medium text-foreground">Completing your scenarios...</p>
         <p className="text-sm text-muted-foreground mt-1">
           Please wait while we create a new set of scenarios.
         </p>
@@ -178,34 +216,35 @@ export default function ScenarioView({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          {displayScenarios.length} scenarios across {chapterGroups.length} chapter
-          {chapterGroups.length !== 1 ? "s" : ""} — apply, decide, and analyze concepts from the document.
+          {displayScenarios.length} scenario
+          {displayScenarios.length !== 1 ? "s" : ""} across {chapterGroups.length}{" "}
+          chapter
+          {chapterGroups.length !== 1 ? "s" : ""} — apply, decide, and analyze
+          concepts from the document.
         </p>
-        {setId ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={regenerateScenarios}
-            className="gap-1.5 text-muted-foreground"
-          >
-            <RefreshCw className="w-3.5 h-3.5" /> Regenerate Scenarios
-          </Button>
-        ) : null}
       </div>
 
       {chapterGroups.map((group) => (
         <section key={group.chapter} className="space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h3 className="font-heading text-lg font-semibold">{group.chapter}</h3>
+              <h3 className="font-heading text-lg font-semibold">
+                {group.chapter}
+              </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {group.items.length} scenario{group.items.length !== 1 ? "s" : ""}
+                {group.items.length} scenario
+                {group.items.length !== 1 ? "s" : ""}
               </p>
             </div>
           </div>
           <div className="space-y-3">
             {group.items.map((scenario, i) => (
-              <ScenarioCard key={`${group.chapter}-${i}-${scenario.title}`} scenario={scenario} index={i} defaultOpen={i === 0} />
+              <ScenarioCard
+                key={`${group.chapter}-${i}-${scenario.title}`}
+                scenario={scenario}
+                index={i}
+                defaultOpen={i === 0}
+              />
             ))}
           </div>
         </section>

@@ -20,6 +20,7 @@ from ai_generation import (
     mark_book_ai_processing,
     parse_model_json,
     validate_flashcards,
+    validate_all_scenario_groups,
     validate_scenarios,
     validate_study_content_bundle,
     _normalize_front,
@@ -45,6 +46,7 @@ from generation_prompts import (
     overview_summary_user_prompt,
     scenario_repair_user_prompt,
     scenarios_user_prompt,
+    study_output_token_target,
     study_content_user_prompt,
     study_content_system,
 )
@@ -53,11 +55,12 @@ from qa_types import QAFailure, classify_repair_sections
 from models.book import Book
 from models.flashcard import Flashcard, FlashcardSet
 from models.quiz import StudyEvent
+from models.token_usage import TokenUsage
 from prompt_cache import cached_system_block, cached_user_message, extract_usage_tokens
 from s3_service import get_object_bytes
 from seeded_random import make_generation_seed, pick_variation_style
 from tasks.celery_app import celery
-from token_usage_log import log_token_usage
+from token_usage_log import log_failed_ai_request, log_token_usage
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +71,7 @@ MICRO_REPAIR_MAX_OUTPUT_TOKENS = 1200
 MIN_CARD_FILL_RATIO = 0.85
 CHAPTER_EXCERPT_JOIN_MAX = 12_000
 MAX_CARDS_PER_STUDY_CALL = 50
+REQUIRED_SCENARIOS_PER_SET = 5
 
 
 def _update_job_progress(task_id: str, phase: str, **extra: Any) -> None:
@@ -124,13 +128,10 @@ def _extract_response_text(message: Any) -> str:
 
 
 def _max_tokens_for_study_content(num_cards: int, summary_detail_level: str = "standard") -> int:
-    """Summary + scenarios + cards in one call — budget scales with card count and detail level."""
-    base = min(STUDY_OUTPUT_TOKEN_HARD_CAP, 650 + num_cards * 85)
-    if summary_detail_level == "brief":
-        return min(STUDY_OUTPUT_TOKEN_HARD_CAP, int(base * 0.8))
-    if summary_detail_level == "in_depth":
-        return min(STUDY_OUTPUT_TOKEN_HARD_CAP, int(base * 1.35) + 500)
-    return base
+    """Budget the complete bundle, including the fixed summary and five scenarios."""
+    fixed_sections_and_cards = 1400 + max(1, num_cards) * 55
+    detail_target = study_output_token_target(summary_detail_level)
+    return min(STUDY_OUTPUT_TOKEN_HARD_CAP, max(fixed_sections_and_cards, detail_target))
 
 
 def _max_tokens_for_cards(num_cards: int) -> int:
@@ -139,12 +140,37 @@ def _max_tokens_for_cards(num_cards: int) -> int:
 
 
 def _max_tokens_for_scenario_repair() -> int:
-    return min(900, STUDY_OUTPUT_TOKEN_HARD_CAP)
+    return STUDY_OUTPUT_TOKEN_HARD_CAP
 
 
 def _max_tokens_for_micro_repair(missing: int) -> int:
     """Patch missing cards — scale token budget with how many are needed."""
     return min(MICRO_REPAIR_MAX_OUTPUT_TOKENS, max(300, 80 + missing * 45))
+
+
+def _assert_complete_generation_bundle(
+    *,
+    summary: str,
+    cards: list[dict[str, Any]],
+    scenarios: list[dict[str, Any]],
+    requested_cards: int,
+) -> None:
+    """Prevent any incomplete study set from reaching the persistence transaction."""
+    if not str(summary or "").strip():
+        raise ValueError("Generation bundle is missing its summary")
+    if len(cards) != requested_cards:
+        raise ValueError(f"Generation bundle expected {requested_cards} cards, got {len(cards)}")
+    if len(scenarios) != REQUIRED_SCENARIOS_PER_SET:
+        raise ValueError(
+            f"Generation bundle expected {REQUIRED_SCENARIOS_PER_SET} scenarios, got {len(scenarios)}"
+        )
+
+
+def _assert_generation_pipeline_version(pipeline_version: str | None) -> None:
+    if pipeline_version != GENERATION_PIPELINE_VERSION:
+        raise RuntimeError(
+            "Generation worker version does not match the API. Redeploy the API and Celery worker together."
+        )
 
 
 def _call_with_retry(fn, *, label: str) -> Any:
@@ -180,6 +206,7 @@ def _anthropic_json_call(
     repair_mode: str | None = None,
     validator_failure: str | None = None,
     model: str | None = None,
+    flashcards_generated: int | None = None,
 ) -> dict[str, Any]:
     def _run() -> dict[str, Any]:
         client = get_anthropic_client()
@@ -192,13 +219,20 @@ def _anthropic_json_call(
             user_blocks = [{"type": "text", "text": user_content}]
 
         started = time.perf_counter()
-        message = client.messages.create(
-            model=model or CLAUDE_GENERATION_MODEL,
-            max_tokens=max_tokens,
-            cache_control={"type": "ephemeral"},
-            system=system_blocks,
-            messages=[{"role": "user", "content": user_blocks}],
-        )
+        try:
+            message = client.messages.create(
+                model=model or CLAUDE_GENERATION_MODEL,
+                max_tokens=max_tokens,
+                cache_control={"type": "ephemeral"},
+                system=system_blocks,
+                messages=[{"role": "user", "content": user_blocks}],
+            )
+        except Exception as exc:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            log_failed_ai_request(task=task, user_id=user_id, model=model or CLAUDE_GENERATION_MODEL,
+                                  duration_ms=duration_ms, error=exc, celery_task_id=celery_task_id,
+                                  book_id=book_id, feature_type=feature_type)
+            raise
         duration_ms = int((time.perf_counter() - started) * 1000)
         usage = message.usage
         input_tokens, output_tokens, cache_read, cache_creation = extract_usage_tokens(usage)
@@ -213,7 +247,10 @@ def _anthropic_json_call(
             "validator_failure": validator_failure,
             "max_tokens_requested": max_tokens,
             "pipeline_version": GENERATION_PIPELINE_VERSION,
+            "provider_request_id": getattr(message, "id", None),
         }
+        if flashcards_generated is not None:
+            call_metadata["flashcards_generated"] = flashcards_generated
         cost = 0.0
         try:
             cost = log_token_usage(
@@ -328,6 +365,8 @@ def _generate_chapter_flashcards_only(
     cards = validate_flashcards(cards_raw, expected=num_cards, chapter_title=chapter_title)
     for card in cards:
         card["chapter"] = chapter_title
+    # Record the actual count of generated flashcards
+    _update_generation_metrics_flashcard_count(celery_task_id, chapter_title, len(cards))
     return cards
 
 
@@ -379,6 +418,8 @@ def _generate_chapter_study_content_once(
         allow_empty=True,
         skip_invalid=True,
     )
+    # Record the actual count of generated flashcards
+    _update_generation_metrics_flashcard_count(celery_task_id, chapter_title, len(cards))
     if len(cards) < num_cards:
         log.warning(
             "partial_study_content_cards",
@@ -549,7 +590,7 @@ def _generate_scenarios(
     book_id: UUID | None = None,
     qa_feedback: str = "",
 ) -> list[dict[str, str]]:
-    """Legacy standalone scenario call — not used in standard flashcard generation."""
+    """Generate the five scenarios that ship with the initial study set."""
     seed_note = f"Use variation profile #{generation_seed % 997}. {qa_feedback}".strip()
     instruction = scenarios_user_prompt(
         book_title=book_title,
@@ -569,7 +610,7 @@ def _generate_scenarios(
         feature_type="flashcards",
     )
     scenarios_raw = data.get("scenarios") or []
-    validated = validate_scenarios(scenarios_raw, expected=5)
+    validated = validate_scenarios(scenarios_raw, expected=REQUIRED_SCENARIOS_PER_SET)
     for sc in validated:
         sc["chapter"] = chapter_title
     return validated
@@ -684,6 +725,58 @@ def _log_flashcard_repair_event(
     log.info("flashcard_repair", extra={**event, "celery_task_id": celery_task_id})
 
 
+def _update_token_usage_call_metadata(celery_task_id: str, chapter_title: str | None, flashcards_generated: int) -> None:
+    if flashcards_generated <= 0:
+        return
+    with sync_session() as db:
+        rows = (
+            db.execute(
+                select(TokenUsage)
+                .where(TokenUsage.celery_task_id == celery_task_id)
+                .order_by(TokenUsage.created_at.desc())
+                .limit(8)
+            )
+            .scalars()
+            .all()
+        )
+        for usage in rows:
+            metadata = usage.call_metadata or {}
+            if metadata.get("flashcards_generated") is not None:
+                continue
+            if metadata.get("chapter") == chapter_title:
+                usage.call_metadata = {**metadata, "flashcards_generated": flashcards_generated}
+                db.add(usage)
+                db.commit()
+                return
+        if rows:
+            usage = rows[0]
+            metadata = usage.call_metadata or {}
+            if metadata.get("flashcards_generated") is None:
+                usage.call_metadata = {**metadata, "flashcards_generated": flashcards_generated}
+                db.add(usage)
+                db.commit()
+
+
+def _update_generation_metrics_flashcard_count(celery_task_id: str, chapter_title: str | None, flashcards_generated: int) -> None:
+    """Update the most recent generation_metrics entry for a chapter with flashcard count."""
+    if flashcards_generated <= 0:
+        return
+    existing = get_cached_job(celery_task_id) or {}
+    metrics = existing.get("generation_metrics") or []
+    if not metrics:
+        _update_token_usage_call_metadata(celery_task_id, chapter_title, flashcards_generated)
+        return
+    # Find the most recent metric for this chapter that doesn't already have the count
+    for i in range(len(metrics) - 1, -1, -1):
+        m = metrics[i]
+        if m.get("chapter") == chapter_title and "flashcards_generated" not in m:
+            m["flashcards_generated"] = flashcards_generated
+            cache_job(celery_task_id, {**existing, "generation_metrics": metrics})
+            _update_token_usage_call_metadata(celery_task_id, chapter_title, flashcards_generated)
+            return
+    _update_token_usage_call_metadata(celery_task_id, chapter_title, flashcards_generated)
+
+
 def _micro_repair_chapter_cards(
     *,
     book_title: str,
@@ -744,6 +837,8 @@ def _micro_repair_chapter_cards(
         out.append(card)
         if len(out) >= missing_count:
             break
+    # Record the actual count of generated flashcards
+    _update_generation_metrics_flashcard_count(celery_task_id, chapter_title, len(out))
     return out
 
 
@@ -969,6 +1064,8 @@ def _repair_chapter_flashcards(
     cards = validate_flashcards(cards_raw, expected=num_cards, chapter_title=chapter_title)
     for card in cards:
         card["chapter"] = chapter_title
+    # Record the actual count of generated flashcards
+    _update_generation_metrics_flashcard_count(celery_task_id, chapter_title, len(cards))
     return cards
 
 
@@ -1008,7 +1105,11 @@ def _repair_chapter_scenarios(
         repair_mode="scenarios",
         validator_failure=primary_validator,
     )
-    return _parse_scenarios_from_data(data, chapter_title)
+    scenarios_raw = data.get("scenarios") or []
+    repaired = validate_scenarios(scenarios_raw, expected=5)
+    for scenario in repaired:
+        scenario["chapter"] = chapter_title
+    return repaired
 
 
 def _run_chapter_generation(
@@ -1041,7 +1142,7 @@ def _run_chapter_generation(
         qa_attempt=qa_attempt if qa_attempt > 1 else None,
     )
 
-    with ThreadPoolExecutor(max_workers=min(6, total_chapters + 1)) as pool:
+    with ThreadPoolExecutor(max_workers=min(8, max(2, total_chapters * 2))) as pool:
         study_futures = {
             pool.submit(
                 _generate_chapter_study_content,
@@ -1060,11 +1161,24 @@ def _run_chapter_generation(
             for i, (seg, quota) in enumerate(allocations)
             if quota > 0
         }
+        scenario_futures = {
+            pool.submit(
+                _generate_scenarios,
+                book_title=book_title,
+                chapter_title=seg.title,
+                chapter_text=seg.text,
+                user_id=user_id,
+                celery_task_id=celery_task_id,
+                generation_seed=generation_seed + i,
+                book_id=book_id,
+                qa_feedback=qa_feedback,
+            ): seg.title
+            for i, (seg, _) in enumerate(allocations)
+        }
 
         for fut in as_completed(study_futures):
-            cards, ch_summary, scenarios = fut.result()
+            cards, ch_summary, _bundled_scenarios = fut.result()
             all_cards.extend(cards)
-            all_scenarios.extend(scenarios)
             chapter_summaries.append(ch_summary)
             chapters_done += 1
             pct = min(92, start_pct + int((chapters_done / max(total_chapters, 1)) * progress_span))
@@ -1076,6 +1190,15 @@ def _run_chapter_generation(
                 percent_complete=pct,
                 current_chapter=study_futures[fut],
             )
+
+        _update_job_progress(
+            celery_task_id,
+            "generating_scenarios",
+            chapters_total=total_chapters,
+            percent_complete=min(92, start_pct + progress_span),
+        )
+        for fut in as_completed(scenario_futures):
+            all_scenarios.extend(fut.result())
 
     return all_cards, all_scenarios, chapter_summaries
 
@@ -1227,6 +1350,36 @@ def _generate_study_content(
         num_cards=num_cards,
         attempt=1,
     )
+    scenario_failures = [f for f in qa_failures if f.get("section") == "scenarios"]
+    if scenario_failures:
+        all_scenarios = _repair_scenarios_for_allocations(
+            allocations=allocations,
+            book_title=book_title,
+            user_id=user_id,
+            celery_task_id=celery_task_id,
+            book_id=book_id,
+            qa_failures=scenario_failures,
+            qa_attempt=2,
+            existing_scenarios=all_scenarios,
+        )
+        scenario_errors, scenario_failures = validate_all_scenario_groups(
+            all_scenarios,
+            chapter_titles,
+        )
+        if scenario_errors:
+            _persist_qa_failures(celery_task_id, scenario_failures, 2)
+            raise ValueError(
+                "Scenario generation did not produce exactly 5 scenarios per chapter: "
+                + "; ".join(scenario_errors)
+            )
+        qa_errors, qa_failures = validate_study_content_bundle(
+            cards=all_cards,
+            scenarios=all_scenarios,
+            chapter_titles=chapter_titles,
+            quotas=quotas,
+            num_cards=num_cards,
+            attempt=2,
+        )
     if qa_errors:
         _persist_qa_failures(celery_task_id, qa_failures, 1)
         log.warning(
@@ -1269,7 +1422,7 @@ def _generate_study_content(
             "cards": len(trimmed),
             "chapters": len(chapter_titles),
             "scenarios": len(all_scenarios),
-            "api_calls_per_chapter": 1,
+            "api_calls_per_chapter": 2,
         },
     )
     return overview, trimmed, all_scenarios, chapter_summaries, segments
@@ -1311,7 +1464,7 @@ def _handle_task_retry(task, *, job_kind: str, task_id: str, exc: Exception) -> 
 @celery.task(
     bind=True,
     name="tasks.ai_tasks.generate_flashcards_task",
-    max_retries=0,
+    max_retries=2,
     default_retry_delay=5,
 )
 def generate_flashcards_task(
@@ -1322,11 +1475,13 @@ def generate_flashcards_task(
     num_cards: int,
     selected_chapters: list[str] | None = None,
     summary_detail_level: str = "standard",
+    pipeline_version: str | None = None,
 ) -> dict[str, str]:
     tid = self.request.id
     uid = UUID(user_id)
     bid = UUID(book_id)
     n_cards = int(num_cards)
+    _assert_generation_pipeline_version(pipeline_version)
     generation_seed = make_generation_seed(user_id=user_id, book_id=book_id, job_id=tid)
 
     log.info(
@@ -1406,6 +1561,13 @@ def generate_flashcards_task(
             book_extras=book_extras,
             book_id=bid,
             summary_detail_level=summary_detail_level,
+        )
+
+        _assert_complete_generation_bundle(
+            summary=summary,
+            cards=cards_data,
+            scenarios=scenarios,
+            requested_cards=n_cards,
         )
 
         _update_job_progress(tid, "saving_content", book_id=book_id, percent_complete=95)

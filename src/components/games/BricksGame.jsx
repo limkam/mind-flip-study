@@ -21,14 +21,26 @@ function makeBricks(count) {
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const idx = r * COLS + c;
-      bricks.push({ id: idx, row: r, col: c, alive: idx < count, color: BRICK_COLORS[(r + c) % BRICK_COLORS.length] });
+      bricks.push({
+        id: idx,
+        row: r,
+        col: c,
+        alive: idx < count,
+        color: BRICK_COLORS[(r + c) % BRICK_COLORS.length],
+      });
     }
   }
   return bricks;
 }
 
 // Breakout-style canvas game
-function BreakoutCanvas({ bricksAlive, onBreakBrick, onGameEnd, launched, paddleX }) {
+function BreakoutCanvas({
+  bricksAlive,
+  onBreakBrick,
+  onGameEnd,
+  launched,
+  paddleX,
+}) {
   const canvasRef = useRef(null);
   const stateRef = useRef({
     ball: { x: 200, y: 280, vx: 3.5, vy: -4 },
@@ -38,17 +50,24 @@ function BreakoutCanvas({ bricksAlive, onBreakBrick, onGameEnd, launched, paddle
   });
 
   // sync paddleX
-  useEffect(() => { stateRef.current.paddleX = paddleX; }, [paddleX]);
+  useEffect(() => {
+    stateRef.current.paddleX = paddleX;
+  }, [paddleX]);
   // sync bricks
-  useEffect(() => { stateRef.current.bricksAlive = [...bricksAlive]; }, [bricksAlive]);
+  useEffect(() => {
+    stateRef.current.bricksAlive = [...bricksAlive];
+  }, [bricksAlive]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    const W = canvas.width, H = canvas.height;
-    const BRICK_W = W / COLS, BRICK_H = 22;
-    const PADDLE_W = 80, PADDLE_H = 10;
+    const W = canvas.width,
+      H = canvas.height;
+    const BRICK_W = W / COLS,
+      BRICK_H = 22;
+    const PADDLE_W = 80,
+      PADDLE_H = 10;
     const BALL_R = 8;
     let raf;
     let running = launched;
@@ -67,11 +86,16 @@ function BreakoutCanvas({ bricksAlive, onBreakBrick, onGameEnd, launched, paddle
         const col = idx % COLS;
         const x = col * BRICK_W + 2;
         const y = row * BRICK_H + 30 + 2;
-        const bw = BRICK_W - 4, bh = BRICK_H - 4;
+        const bw = BRICK_W - 4,
+          bh = BRICK_H - 4;
         const grad = ctx.createLinearGradient(x, y, x, y + bh);
         const colors = [
-          ["#ef4444","#e11d48"],["#f97316","#d97706"],["#eab308","#ca8a04"],
-          ["#22c55e","#059669"],["#3b82f6","#06b6d4"],["#a855f7","#7c3aed"],
+          ["#ef4444", "#e11d48"],
+          ["#f97316", "#d97706"],
+          ["#eab308", "#ca8a04"],
+          ["#22c55e", "#059669"],
+          ["#3b82f6", "#06b6d4"],
+          ["#a855f7", "#7c3aed"],
         ];
         const ci = (row + col) % colors.length;
         grad.addColorStop(0, colors[ci][0]);
@@ -110,29 +134,45 @@ function BreakoutCanvas({ bricksAlive, onBreakBrick, onGameEnd, launched, paddle
 
       // Physics
       let { x, y, vx, vy } = stateRef.current.ball;
-      x += vx; y += vy;
+      x += vx;
+      y += vy;
 
       // Wall bounce
       if (x - BALL_R <= 0 || x + BALL_R >= W) vx = -vx;
       if (y - BALL_R <= 0) vy = -vy;
 
       // Paddle bounce
-      if (y + BALL_R >= H - 20 && y + BALL_R <= H - 10 && x >= px && x <= px + PADDLE_W) {
+      if (
+        y + BALL_R >= H - 20 &&
+        y + BALL_R <= H - 10 &&
+        x >= px &&
+        x <= px + PADDLE_W
+      ) {
         vy = -Math.abs(vy);
         const hit = (x - px) / PADDLE_W; // 0..1
         vx = (hit - 0.5) * 8;
       }
 
       // Floor = game over
-      if (y + BALL_R > H) { running = false; onGameEnd?.("lost"); return; }
+      if (y + BALL_R > H) {
+        running = false;
+        onGameEnd?.("lost");
+        return;
+      }
 
       // Brick collision
       stateRef.current.bricksAlive.forEach((alive, idx) => {
         if (!alive) return;
         const row = Math.floor(idx / COLS);
         const col = idx % COLS;
-        const bx2 = col * BRICK_W, by2 = row * BRICK_H + 30;
-        if (x + BALL_R > bx2 && x - BALL_R < bx2 + BRICK_W && y + BALL_R > by2 && y - BALL_R < by2 + BRICK_H) {
+        const bx2 = col * BRICK_W,
+          by2 = row * BRICK_H + 30;
+        if (
+          x + BALL_R > bx2 &&
+          x - BALL_R < bx2 + BRICK_W &&
+          y + BALL_R > by2 &&
+          y - BALL_R < by2 + BRICK_H
+        ) {
           stateRef.current.bricksAlive[idx] = false;
           vy = -vy;
           onBreakBrick(idx);
@@ -142,7 +182,10 @@ function BreakoutCanvas({ bricksAlive, onBreakBrick, onGameEnd, launched, paddle
       stateRef.current.ball = { x, y, vx, vy };
     };
 
-    const loop = () => { draw(); raf = requestAnimationFrame(loop); };
+    const loop = () => {
+      draw();
+      raf = requestAnimationFrame(loop);
+    };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [launched]);
@@ -161,12 +204,26 @@ function BreakoutCanvas({ bricksAlive, onBreakBrick, onGameEnd, launched, paddle
 export default function BricksGame({ cards, onRoundComplete }) {
   const finishGame = useFinishOnce(onRoundComplete);
   const totalBricks = Math.min(cards.length * 4, ROWS * COLS);
-  const [bricksAlive, setBricksAlive] = useState(() => Array(ROWS * COLS).fill(false).map((_, i) => i < totalBricks));
-  const [questions] = useState(() => cards.slice(0, Math.min(cards.length, 10)).map(card => {
-    const wrong = cards.filter(c => c.back !== card.back).sort(() => Math.random() - 0.5).slice(0, 3).map(c => c.back);
-    while (wrong.length < 3) wrong.push("None of the above");
-    return { question: card.front, correct: card.back, options: [...wrong, card.back].sort(() => Math.random() - 0.5) };
-  }));
+  const [bricksAlive, setBricksAlive] = useState(() =>
+    Array(ROWS * COLS)
+      .fill(false)
+      .map((_, i) => i < totalBricks),
+  );
+  const [questions] = useState(() =>
+    cards.map((card) => {
+      const wrong = cards
+        .filter((c) => c.back !== card.back)
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 3)
+        .map((c) => c.back);
+      while (wrong.length < 3) wrong.push("None of the above");
+      return {
+        question: card.front,
+        correct: card.back,
+        options: [...wrong, card.back].sort(() => Math.random() - 0.5),
+      };
+    }),
+  );
   const [qIdx, setQIdx] = useState(0);
   const [selected, setSelected] = useState(null);
   const [showResult, setShowResult] = useState(false);
@@ -194,7 +251,10 @@ export default function BricksGame({ cards, onRoundComplete }) {
     const onTouch = (e) => onMove(e.touches[0].clientX);
     el.addEventListener("mousemove", onMouse);
     el.addEventListener("touchmove", onTouch);
-    return () => { el.removeEventListener("mousemove", onMouse); el.removeEventListener("touchmove", onTouch); };
+    return () => {
+      el.removeEventListener("mousemove", onMouse);
+      el.removeEventListener("touchmove", onTouch);
+    };
   }, []);
 
   // Check win — only end game UI, never call parent until Continue
@@ -207,8 +267,12 @@ export default function BricksGame({ cards, onRoundComplete }) {
   }, [remainingBricks, gameOver]);
 
   const handleBreakBrick = useCallback((idx) => {
-    setBricksAlive(prev => { const n = [...prev]; n[idx] = false; return n; });
-    setBricksSmashed(p => p + 1);
+    setBricksAlive((prev) => {
+      const n = [...prev];
+      n[idx] = false;
+      return n;
+    });
+    setBricksSmashed((p) => p + 1);
   }, []);
 
   const handleGameEnd = useCallback((result) => {
@@ -223,18 +287,18 @@ export default function BricksGame({ cards, onRoundComplete }) {
     setShowResult(true);
     const correct = option === questions[qIdx]?.correct;
     if (correct) {
-      setScore(p => p + 1);
+      setScore((p) => p + 1);
       setLaunched(true);
       // auto-advance question after ball launched
       setTimeout(() => {
         setLaunched(false);
-        setQIdx(p => (p + 1) % questions.length);
+        setQIdx((p) => (p + 1) % questions.length);
         setSelected(null);
         setShowResult(false);
       }, 3000);
     } else {
       setTimeout(() => {
-        setQIdx(p => (p + 1) % questions.length);
+        setQIdx((p) => (p + 1) % questions.length);
         setSelected(null);
         setShowResult(false);
       }, 1500);
@@ -242,15 +306,25 @@ export default function BricksGame({ cards, onRoundComplete }) {
   };
 
   if (gameOver) {
-    const resultPayload = { playerScore: score, computerScore: 0, totalRounds: Math.max(questions.length, 1) };
+    const resultPayload = {
+      playerScore: score,
+      computerScore: 0,
+      totalRounds: Math.max(questions.length, 1),
+    };
     return (
       <GameResultScreen
         icon={
-          <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${gameResult === "won" ? "bg-green-500/10" : "bg-red-500/10"}`}>
-            <Trophy className={`w-10 h-10 ${gameResult === "won" ? "text-yellow-400" : "text-red-400"}`} />
+          <div
+            className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${gameResult === "won" ? "bg-green-500/10" : "bg-red-500/10"}`}
+          >
+            <Trophy
+              className={`w-10 h-10 ${gameResult === "won" ? "text-yellow-400" : "text-red-400"}`}
+            />
           </div>
         }
-        title={gameResult === "won" ? "You cleared the board! 🎉" : "Ball lost 😬"}
+        title={
+          gameResult === "won" ? "You cleared the board! 🎉" : "Ball lost 😬"
+        }
         subtitle={`${bricksSmashed} bricks smashed · ${score} correct answers`}
         onContinue={finishGame}
         result={resultPayload}
@@ -266,13 +340,27 @@ export default function BricksGame({ cards, onRoundComplete }) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Zap className="w-4 h-4 text-yellow-400" />
-          <span className="font-heading font-bold text-sm">{score} correct</span>
+          <span className="font-heading font-bold text-sm">
+            {score} correct
+          </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">{remainingBricks} bricks left</span>
+          <span className="text-sm text-muted-foreground">
+            {remainingBricks} bricks left
+          </span>
           <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-            <motion.div className="h-full bg-gradient-to-r from-primary to-accent rounded-full"
-              animate={{ width: `${(1 - remainingBricks / totalBricks) * 100}%` }} />
+            <motion.div
+              className="h-full bg-gradient-to-r from-primary to-accent rounded-full"
+              animate={{
+                width: `${(1 - remainingBricks / totalBricks) * 100}%`,
+              }}
+            />
+          </div>
+          <div className="ml-4 text-sm text-muted-foreground">
+            Questions:{" "}
+            <span className="font-semibold text-foreground">
+              {questions.length}
+            </span>
           </div>
         </div>
       </div>
@@ -287,16 +375,23 @@ export default function BricksGame({ cards, onRoundComplete }) {
           paddleX={paddleX}
         />
         {!launched && !showResult && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="absolute inset-0 flex items-center justify-center pointer-events-none"
+          >
             <span className="bg-black/60 text-white text-xs font-semibold px-3 py-1.5 rounded-full backdrop-blur-sm">
               Answer correctly to launch ball 🚀
             </span>
           </motion.div>
         )}
         {launched && (
-          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="absolute top-2 left-1/2 -translate-x-1/2 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full">
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="absolute top-2 left-1/2 -translate-x-1/2 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full"
+          >
             ✅ Correct! Ball launched!
           </motion.div>
         )}
@@ -304,11 +399,19 @@ export default function BricksGame({ cards, onRoundComplete }) {
 
       {/* Question */}
       <AnimatePresence mode="wait">
-        <motion.div key={qIdx}
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-          className="bg-card rounded-2xl border border-border p-5 mb-4 shadow-sm">
-          <p className="text-xs text-muted-foreground mb-1">Answer to launch the ball:</p>
-          <p className="font-heading font-semibold text-base leading-snug">{q?.question}</p>
+        <motion.div
+          key={qIdx}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          className="bg-card rounded-2xl border border-border p-5 mb-4 shadow-sm"
+        >
+          <p className="text-xs text-muted-foreground mb-1">
+            Answer to launch the ball:
+          </p>
+          <p className="font-heading font-semibold text-base leading-snug">
+            {q?.question}
+          </p>
         </motion.div>
       </AnimatePresence>
 
@@ -319,23 +422,31 @@ export default function BricksGame({ cards, onRoundComplete }) {
           const isCorrect = opt === q.correct;
           let cls = "border-border hover:border-primary/40 hover:bg-primary/5";
           if (showResult && isCorrect) cls = "border-green-500 bg-green-500/10";
-          if (showResult && isSelected && !isCorrect) cls = "border-red-500 bg-red-500/10";
+          if (showResult && isSelected && !isCorrect)
+            cls = "border-red-500 bg-red-500/10";
           return (
-            <motion.button key={i}
+            <motion.button
+              key={i}
               whileHover={!showResult ? { scale: 1.02 } : {}}
               whileTap={!showResult ? { scale: 0.97 } : {}}
               onClick={() => handleAnswer(opt)}
               disabled={showResult}
               className={`w-full text-left p-3 rounded-xl border-2 transition-all text-sm font-medium flex items-center gap-2 ${cls}`}
             >
-              <div className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0
+              <div
+                className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0
                 ${showResult && isCorrect ? "bg-green-500 text-white" : ""}
                 ${showResult && isSelected && !isCorrect ? "bg-red-500 text-white" : ""}
                 ${!showResult || (!isCorrect && !isSelected) ? "bg-muted text-muted-foreground" : ""}
-              `}>
-                {showResult && isCorrect ? <CheckCircle2 className="w-3.5 h-3.5" /> :
-                 showResult && isSelected && !isCorrect ? <XCircle className="w-3.5 h-3.5" /> :
-                 String.fromCharCode(65 + i)}
+              `}
+              >
+                {showResult && isCorrect ? (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                ) : showResult && isSelected && !isCorrect ? (
+                  <XCircle className="w-3.5 h-3.5" />
+                ) : (
+                  String.fromCharCode(65 + i)
+                )}
               </div>
               <span className="line-clamp-2">{opt}</span>
             </motion.button>

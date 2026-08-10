@@ -99,7 +99,7 @@ class DemographicsOut(BaseModel):
     total_users: int
     countries_distinct: int
     continents_distinct: int
-    active_licenses: int
+    active_subscriptions: int
     user_growth_monthly: list[UserGrowthMonth]
     users_by_country: list[LabeledCount]
     users_by_continent: list[LabeledCount]
@@ -127,7 +127,13 @@ class FinancialAnalyticsOut(BaseModel):
     mrr_usd: float
     arr_usd: float
     paying_users: int
+    active_subscriptions: int
     avg_revenue_per_user_usd: float
+    revenue_growth_pct: float
+    churn_rate_pct: float
+    lifetime_value_usd: float
+    new_customers: int
+    subscription_conflicts: int
     revenue_monthly: list[RevenueMonthPoint]
     revenue_by_plan: list[LabeledAmount]
     revenue_by_continent: list[LabeledAmount]
@@ -174,9 +180,16 @@ class AiUsageLogEntry(BaseModel):
     task: str
     feature_type: str | None = None
     model: str
+    provider: str
+    status: str
+    provider_request_id: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
     input_tokens: int
     output_tokens: int
     cached_tokens: int
+    cache_read_tokens: int
+    cache_creation_tokens: int
     duration_ms: int | None = None
     estimated_cost_usd: float
     book_id: str | None = None
@@ -222,9 +235,13 @@ class AiUsageAnalyticsOut(BaseModel):
     updated_at: datetime
     total_cost_usd: float
     total_calls: int
+    successful_calls: int
+    failed_calls: int
     total_input_tokens: int
     total_output_tokens: int
     total_cached_tokens: int
+    total_cache_read_tokens: int
+    total_cache_creation_tokens: int
     avg_duration_ms: float
     cache_hit_rate_pct: float
     by_feature: list[AiUsageByFeature]

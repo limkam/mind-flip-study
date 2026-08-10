@@ -56,6 +56,9 @@ export default defineConfig({
     }),
   ],
   server: {
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+    },
     watch: {
       usePolling: watchUsePolling,
       interval: 300,
@@ -77,6 +80,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@shared": path.resolve(__dirname, "./shared"),
     },
   },
 });

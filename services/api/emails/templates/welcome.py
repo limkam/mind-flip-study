@@ -24,7 +24,7 @@ def welcome_email(full_name: str, email: str) -> str:
         <a href="{library_url}" style="{s['button']}">Upload Your First PDF</a>
       </p>
       <p style="{s['muted']}">
-        You're on the Free plan. Upgrade to Student ($8/mo) for unlimited uploads.
+        You're on the Free plan. Paid plans start at $3.99/month when you're ready for more study volume.
       </p>
     """
     return wrap_email(body_html=body)

@@ -87,7 +87,6 @@ const styles = StyleSheet.create({
   message: {
     fontSize: TOKENS.typography.body.fontSize,
     lineHeight: TOKENS.typography.body.lineHeight,
-    color: "#64748b",
     textAlign: "center",
     marginBottom: TOKENS.spacing.xl,
   },

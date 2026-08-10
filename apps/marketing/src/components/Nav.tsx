@@ -2,22 +2,26 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { DownloadBadges } from '@/components/DownloadBadges';
 import { APP_REGISTER_URL } from '@/lib/constants';
 
 const navLinks = [
-  { href: '/#features', label: 'Features' },
+  { href: '/how-it-works', label: 'How it works' },
+  { href: '/features', label: 'Features' },
   { href: '/pricing', label: 'Pricing' },
+  { href: '/help', label: 'Help center' },
 ];
 
 export function Nav() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-gray-200/80 bg-white/85 backdrop-blur-[12px]">
-      <nav className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
-        <Link href="/" className="text-xl font-bold tracking-tight text-indigo-600">
-          MindFlip
+    <header className="sticky top-0 z-50 border-b border-gray-200/70 bg-white/80 backdrop-blur-xl">
+      <nav className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-3.5 sm:px-8">
+        <Link href="/" className="group flex items-center gap-2.5 text-xl font-black tracking-[-0.04em] text-gray-950">
+          <span className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-600 text-sm font-black text-white shadow-md shadow-indigo-200 transition duration-300 group-hover:scale-110 rotate-[30deg] my-1 ml-1">
+            <span className="-rotate-[30deg]">M</span>
+          </span>
+          <span>Mind<span className="text-indigo-600">flip</span></span>
         </Link>
 
         <div className="hidden items-center gap-8 lg:flex">
@@ -30,10 +34,10 @@ export function Nav() {
               {link.label}
             </Link>
           ))}
-          <DownloadBadges size="small" />
+          <a href={APP_REGISTER_URL.replace('/register', '/login')} className="text-sm font-semibold text-gray-600 transition hover:text-gray-950">Sign in</a>
           <a
             href={APP_REGISTER_URL}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
+            className="rounded-full bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-indigo-200 transition hover:-translate-y-0.5 hover:bg-indigo-700"
           >
             Get Started Free
           </a>
@@ -68,7 +72,12 @@ export function Nav() {
           />
           <aside className="fixed right-0 top-0 z-50 flex h-full w-72 max-w-[85vw] flex-col gap-6 border-l border-gray-200 bg-white p-6 shadow-xl lg:hidden">
             <div className="flex items-center justify-between">
-              <span className="text-lg font-bold text-indigo-600">Menu</span>
+              <Link href="/" className="group flex items-center gap-2.5 text-lg font-black tracking-[-0.04em] text-gray-950" onClick={() => setOpen(false)}>
+                <span className="grid h-8 w-8 place-items-center rounded-xl bg-indigo-600 text-xs font-black text-white shadow-md shadow-indigo-200 rotate-[30deg] my-1 ml-1">
+                  <span className="-rotate-[30deg]">M</span>
+                </span>
+                <span>Mind<span className="text-indigo-600">flip</span></span>
+              </Link>
               <button
                 type="button"
                 className="rounded-lg p-2 text-gray-600"
@@ -90,7 +99,7 @@ export function Nav() {
                 {link.label}
               </Link>
             ))}
-            <DownloadBadges />
+            <a href={APP_REGISTER_URL.replace('/register', '/login')} className="text-base font-medium text-gray-700">Sign in</a>
             <a
               href={APP_REGISTER_URL}
               className="mt-auto rounded-xl bg-indigo-600 px-4 py-3 text-center font-semibold text-white"

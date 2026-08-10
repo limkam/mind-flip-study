@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Drop Shadow Filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#4f46e5" flood-opacity="0.35" />
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#4f46e5" flood-opacity="0.25" />
+    </filter>
+  </defs>
+
+  <!-- Tilted 30-degree Box with Marketing Indigo 600 color -->
+  <g transform="rotate(30 256 256)" filter="url(#glow)">
+    <rect x="146" y="146" width="220" height="220" rx="48" fill="#4f46e5" />
+  </g>
+
+  <!-- Upright Bold 'M' Letter -->
+  <text 
+    x="256" 
+    y="256" 
+    font-family="Space Grotesk, Inter, system-ui, -apple-system, sans-serif" 
+    font-weight="900" 
+    font-size="152" 
+    fill="#FFFFFF" 
+    text-anchor="middle" 
+    dominant-baseline="central"
+    letter-spacing="-2"
+  >M</text>
+</svg>

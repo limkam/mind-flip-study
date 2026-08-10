@@ -29,18 +29,37 @@ export function MindFlipLogo({ height = 44, style, centered = false }: LogoProps
 
 type MarkProps = {
   size?: number;
-  style?: StyleProp<ImageStyle>;
+  style?: StyleProp<ViewStyle>;
 };
 
-/** Brain icon only — for compact spaces. */
 export function MindFlipLogoMark({ size = 44, style }: MarkProps) {
   return (
-    <Image
-      source={iconSource}
+    <View
       accessibilityLabel="MindFlip"
-      style={[{ width: size, height: size, borderRadius: size * 0.22 }, style]}
-      resizeMode="contain"
-    />
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size * 0.28,
+          backgroundColor: "#4f46e5",
+          justifyContent: "center",
+          alignItems: "center",
+          transform: [{ rotate: "30deg" }],
+        },
+        style,
+      ]}
+    >
+      <Text
+        style={{
+          color: "#ffffff",
+          fontWeight: "900",
+          fontSize: size * 0.48,
+          transform: [{ rotate: "-30deg" }],
+        }}
+      >
+        M
+      </Text>
+    </View>
   );
 }
 

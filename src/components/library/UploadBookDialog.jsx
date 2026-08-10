@@ -10,12 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, Loader2, Sparkles, AlertCircle } from "lucide-react";
+import { Upload, Loader2, Sparkles, AlertCircle, ArrowRight, BookOpen, Check } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useToast } from "@/components/ui/use-toast";
 import TagInput from "@/components/common/TagInput";
-import UpgradeSection from "@/components/billing/UpgradeSection";
 import { getApiErrorMessage } from "@/lib/apiError";
-import { getUpgradeRequiredMessage, isUpgradeRequiredError } from "@/lib/billing";
+import { isUpgradeRequiredError } from "@/lib/billing";
 
 const SUBJECTS = [
   "mathematics", "science", "history", "literature", "technology",
@@ -23,11 +23,12 @@ const SUBJECTS = [
 ];
 
 const UPLOAD_PHASE_LABELS = {
-  uploading: "Uploading PDF…",
-  saving: "Saving book…",
+  uploading: "Uploading…",
+  saving: "Saving…",
 };
 
 export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) {
+  const navigate = useNavigate();
   const [form, setForm] = useState({ title: "", author: "", description: "", subject: "other", tags: [] });
   const [file, setFile] = useState(null);
   const [phase, setPhase] = useState(null);
@@ -40,10 +41,43 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
     setFile(null);
     setPhase(null);
     setTitleHint(null);
+    setUpgradeRequired(false);
   };
+
+  const viewPlans = () => {
+    resetForm();
+    onOpenChange(false);
+    navigate("/pricing");
+  };
+
+  const closeDialog = () => {
+    resetForm();
+    onOpenChange(false);
+  };
+
+  const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+  const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".pptx"];
 
   const handleFileSelect = useCallback((selectedFile) => {
     if (!selectedFile) return;
+    const name = selectedFile.name || "";
+    const ext = name.slice(name.lastIndexOf(".")).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      toast({
+        title: "Unsupported document format",
+        description: "Please upload a PDF (.pdf), Word (.docx), or PowerPoint (.pptx) file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (selectedFile.size > MAX_SIZE_BYTES) {
+      toast({
+        title: "File too large",
+        description: "The selected file exceeds the 10 MB upload limit. Please upload a smaller document.",
+        variant: "destructive",
+      });
+      return;
+    }
     setFile(selectedFile);
     const title = titleFromFilename(selectedFile.name || "");
     setForm(prev => ({ ...prev, title, author: "" }));
@@ -52,7 +86,7 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
     } else {
       setTitleHint("Enter the title and author manually.");
     }
-  }, []);
+  }, [toast]);
 
   const canUpload =
     file &&
@@ -76,12 +110,11 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
       if (e.response?.status === 409) {
         toast({
           title: "Book already in library",
-          description: getApiErrorMessage(e, "This PDF is already in your library."),
+          description: getApiErrorMessage(e, "This document is already in your library."),
           variant: "destructive",
         });
       } else if (isUpgradeRequiredError(e)) {
-        setUpgradeRequired(true);
-        toast({ title: "Upgrade required", description: getUpgradeRequiredMessage(e), variant: "destructive" });
+        return;
       } else {
         toast({ title: "Upload failed", description: getApiErrorMessage(e, e.message), variant: "destructive" });
       }
@@ -92,7 +125,15 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
 
   const handleUpload = async () => {
     if (!file) {
-      toast({ title: "Please choose a PDF file", variant: "destructive" });
+      toast({ title: "Please choose a document file", variant: "destructive" });
+      return;
+    }
+    if (file.size > MAX_SIZE_BYTES) {
+      toast({
+        title: "File too large",
+        description: "The selected file exceeds the 10 MB upload limit. Please upload a smaller document.",
+        variant: "destructive",
+      });
       return;
     }
     if (!form.title.trim() || !form.author.trim()) {
@@ -121,7 +162,7 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
         const match = dupCheck.matches?.[0];
         const reason =
           match?.match_reason === "file"
-            ? "This exact PDF is already in your library."
+            ? "This exact document is already in your library."
             : "A book with this title already exists.";
         toast({
           title: "Duplicate book",
@@ -175,12 +216,7 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
       await createBook(createPayload);
     } catch (e) {
       if (isUpgradeRequiredError(e)) {
-        setUpgradeRequired(true);
-        toast({
-          title: "Upgrade required",
-          description: getUpgradeRequiredMessage(e),
-          variant: "destructive",
-        });
+        return;
       } else {
         toast({
           title: "Upload failed",
@@ -196,26 +232,60 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetForm(); onOpenChange(v); }}>
       <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="font-heading text-xl">Upload a New Book</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 mt-2 overflow-y-auto pr-1">
-          {upgradeRequired ? (
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-              <p className="mb-3 text-sm font-medium">You&apos;ve reached the free plan upload limit.</p>
-              <UpgradeSection subscriptionTier="free" compact />
+        {upgradeRequired ? (
+          <div className="px-1 py-3 sm:px-3 sm:py-5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <BookOpen className="h-6 w-6" />
             </div>
-          ) : null}
+            <DialogHeader className="mt-5 text-left">
+              <DialogTitle className="font-heading text-2xl">Your library is ready to grow</DialogTitle>
+            </DialogHeader>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              You have used the book import included with the Free plan. Upgrade to add this PDF and keep building your study library.
+            </p>
+
+            <div className="my-6 border-y border-border py-4">
+              {[
+                "More book imports every month",
+                "Larger flashcard sets",
+                "Unlimited daily review on paid plans",
+              ].map((benefit) => (
+                <div key={benefit} className="flex items-center gap-3 py-1.5 text-sm">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
+                    <Check className="h-3.5 w-3.5" />
+                  </span>
+                  <span>{benefit}</span>
+                </div>
+              ))}
+            </div>
+
+            <Button className="h-11 w-full" onClick={viewPlans}>
+              Compare plans
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+            <Button className="mt-2 h-10 w-full" variant="ghost" onClick={closeDialog}>
+              Not now
+            </Button>
+            <p className="mt-3 text-center text-xs text-muted-foreground">
+              Paid plans start at $3.99/month. Cancel anytime.
+            </p>
+          </div>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle className="font-heading text-xl">Upload a New Book</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-2 overflow-y-auto pr-1">
 
           <div className="space-y-2">
-            <Label className="text-base font-semibold">Upload PDF</Label>
+            <Label className="text-base font-semibold">Upload Document (PDF, Word, or PowerPoint — max 10MB)</Label>
             <div
               className="border-2 border-dashed border-primary/30 rounded-xl p-6 text-center hover:border-primary/60 transition-colors cursor-pointer bg-primary/5"
               onClick={() => !phase && document.getElementById("book-upload").click()}
             >
               <Upload className="w-8 h-8 mx-auto text-primary mb-2" />
               <p className="text-sm font-medium">
-                {file ? file.name : "Click to select your PDF"}
+                {file ? file.name : "Click to select your document (.pdf, .docx, .pptx)"}
               </p>
               {file && (
                 <p className="text-xs text-muted-foreground mt-1 font-medium">
@@ -230,7 +300,7 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
                 id="book-upload"
                 type="file"
                 className="hidden"
-                accept=".pdf,application/pdf"
+                accept=".pdf,.docx,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation"
                 onChange={e => handleFileSelect(e.target.files?.[0])}
                 disabled={!!phase}
               />
@@ -319,7 +389,9 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
               </>
             )}
           </Button>
-        </div>
+            </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

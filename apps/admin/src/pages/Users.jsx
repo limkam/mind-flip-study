@@ -1,33 +1,33 @@
-import { useCallback, useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import client from '../api/client';
-import DataTable from '../components/DataTable';
+import { useCallback, useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import client from "../api/client";
+import DataTable from "../components/DataTable";
 
 const AGE_GROUP_OPTIONS = [
-  '',
-  '0-9',
-  '10-17',
-  '18-24',
-  '25-34',
-  '35-44',
-  '45-54',
-  '55-64',
-  '65+',
+  "",
+  "0-9",
+  "10-17",
+  "18-24",
+  "25-34",
+  "35-44",
+  "45-54",
+  "55-64",
+  "65+",
 ];
 
 const SORT_OPTIONS = [
-  { value: '-created_at', label: 'Newest first' },
-  { value: 'created_at', label: 'Oldest first' },
-  { value: 'age', label: 'Age (youngest first)' },
-  { value: '-age', label: 'Age (oldest first)' },
+  { value: "-created_at", label: "Newest first" },
+  { value: "created_at", label: "Oldest first" },
+  { value: "age", label: "Age (youngest first)" },
+  { value: "-age", label: "Age (oldest first)" },
 ];
 
 function formatDate(iso) {
-  if (!iso) return '—';
+  if (!iso) return "—";
   return new Date(iso).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   });
 }
 
@@ -53,10 +53,10 @@ function ConfirmDialog({ open, title, message, onConfirm, onCancel }) {
 
 export default function Users() {
   const queryClient = useQueryClient();
-  const [q, setQ] = useState('');
-  const [debouncedQ, setDebouncedQ] = useState('');
-  const [ageGroup, setAgeGroup] = useState('');
-  const [sort, setSort] = useState('-created_at');
+  const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [ageGroup, setAgeGroup] = useState("");
+  const [sort, setSort] = useState("-created_at");
   const [page, setPage] = useState(1);
   const [confirm, setConfirm] = useState(null);
 
@@ -69,9 +69,9 @@ export default function Users() {
   }, [q]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-users', debouncedQ, ageGroup, sort, page],
+    queryKey: ["admin-users", debouncedQ, ageGroup, sort, page],
     queryFn: async () => {
-      const { data: res } = await client.get('/admin/users', {
+      const { data: res } = await client.get("/admin/users", {
         params: {
           q: debouncedQ,
           age_group: ageGroup || undefined,
@@ -87,7 +87,7 @@ export default function Users() {
   const patchUser = useMutation({
     mutationFn: ({ id, body }) => client.patch(`/admin/users/${id}`, body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       setConfirm(null);
     },
   });
@@ -96,22 +96,22 @@ export default function Users() {
     (row, action) => {
       const actions = {
         makeAdmin: {
-          title: 'Make admin',
+          title: "Make admin",
           message: `Grant admin role to ${row.full_name}?`,
-          body: { role: 'admin' },
+          body: { role: "admin" },
         },
         makeStudent: {
-          title: 'Make student',
+          title: "Make student",
           message: `Set ${row.full_name} to student role?`,
-          body: { role: 'student' },
+          body: { role: "student" },
         },
         ban: {
-          title: 'Ban account',
+          title: "Ban account",
           message: `Ban ${row.full_name}? They will not be able to sign in.`,
           body: { is_banned: true },
         },
         unban: {
-          title: 'Unban account',
+          title: "Unban account",
           message: `Restore access for ${row.full_name}?`,
           body: { is_banned: false },
         },
@@ -126,53 +126,54 @@ export default function Users() {
   );
 
   const columns = [
-    { key: 'full_name', label: 'Full Name' },
-    { key: 'email', label: 'Email' },
-    { key: 'role', label: 'Role' },
+    { key: "full_name", label: "Full Name" },
+    { key: "email", label: "Email" },
+    { key: "plan", label: "Plan" },
+    { key: "role", label: "Role" },
     {
-      key: 'date_of_birth',
-      label: 'Date of Birth',
+      key: "date_of_birth",
+      label: "Date of Birth",
       render: (row) => formatDate(row.date_of_birth),
     },
     {
-      key: 'age',
-      label: 'Current Age',
-      render: (row) => (row.age != null ? row.age : '—'),
+      key: "age",
+      label: "Current Age",
+      render: (row) => (row.age != null ? row.age : "—"),
     },
     {
-      key: 'age_group',
-      label: 'Age Group',
-      render: (row) => row.age_group || '—',
+      key: "age_group",
+      label: "Age Group",
+      render: (row) => row.age_group || "—",
     },
     {
-      key: 'country',
-      label: 'Country',
-      render: (row) => row.country || '—',
+      key: "country",
+      label: "Country",
+      render: (row) => row.country || "—",
     },
     {
-      key: 'custom_country',
-      label: 'Custom Country',
-      render: (row) => row.custom_country || '—',
+      key: "custom_country",
+      label: "Custom Country",
+      render: (row) => row.custom_country || "—",
     },
     {
-      key: 'continent',
-      label: 'Continent',
-      render: (row) => row.continent || '—',
+      key: "continent",
+      label: "Continent",
+      render: (row) => row.continent || "—",
     },
     {
-      key: 'occupation',
-      label: 'Occupation',
-      render: (row) => row.occupation || '—',
+      key: "occupation",
+      label: "Occupation",
+      render: (row) => row.occupation || "—",
     },
     {
-      key: 'created_at',
-      label: 'Joined Date',
+      key: "created_at",
+      label: "Joined Date",
       render: (row) => formatDate(row.created_at),
     },
     {
-      key: 'is_banned',
-      label: 'Status',
-      render: (row) => (row.is_banned ? 'Banned' : 'Active'),
+      key: "is_banned",
+      label: "Status",
+      render: (row) => (row.is_banned ? "Banned" : "Active"),
     },
   ];
 
@@ -197,7 +198,9 @@ export default function Users() {
         >
           <option value="">All age groups</option>
           {AGE_GROUP_OPTIONS.filter(Boolean).map((g) => (
-            <option key={g} value={g}>{g}</option>
+            <option key={g} value={g}>
+              {g}
+            </option>
           ))}
         </select>
         <select
@@ -209,7 +212,9 @@ export default function Users() {
           }}
         >
           {SORT_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
           ))}
         </select>
       </div>
@@ -229,13 +234,17 @@ export default function Users() {
               defaultValue=""
               onChange={(e) => {
                 const v = e.target.value;
-                e.target.value = '';
+                e.target.value = "";
                 if (v) runAction(row, v);
               }}
             >
               <option value="">Actions…</option>
-              {row.role !== 'admin' && <option value="makeAdmin">Make Admin</option>}
-              {row.role !== 'student' && <option value="makeStudent">Make Student</option>}
+              {row.role !== "admin" && (
+                <option value="makeAdmin">Make Admin</option>
+              )}
+              {row.role !== "student" && (
+                <option value="makeStudent">Make Student</option>
+              )}
               {!row.is_banned && <option value="ban">Ban Account</option>}
               {row.is_banned && <option value="unban">Unban Account</option>}
             </select>

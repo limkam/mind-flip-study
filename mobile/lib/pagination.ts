@@ -5,7 +5,7 @@ export function flattenPages<T>(
   pages: Array<Paginated<T> | undefined> | undefined,
   isValid: (row: T) => boolean = (row) => Boolean((row as { id?: string }).id),
 ): T[] {
-  if (!pages?.length) return [];
+  if (!pages || !Array.isArray(pages) || !pages.length) return [];
   return pages.flatMap((page) => page?.items ?? []).filter(isValid);
 }
 
@@ -14,6 +14,7 @@ export function normalizeList<T>(
   data: Paginated<T> | T[] | null | undefined,
   isValid: (row: T) => boolean = (row) => Boolean((row as { id?: string }).id),
 ): T[] {
+  if (!data) return [];
   if (Array.isArray(data)) return data.filter(isValid);
   return (data?.items ?? []).filter(isValid);
 }
@@ -25,6 +26,16 @@ export function normalizePage<T>(
   size: number,
   isValid: (row: T) => boolean = (row) => Boolean((row as { id?: string }).id),
 ): Paginated<T> {
+  if (!data) {
+    return {
+      items: [],
+      page,
+      size,
+      total: 0,
+      has_more: false,
+      total_pages: 0,
+    };
+  }
   if (Array.isArray(data)) {
     const items = data.filter(isValid);
     const total = items.length;

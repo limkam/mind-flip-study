@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,11 +16,6 @@ from models.user import User
 from services.achievement_sync import sync_user_achievements
 
 router = APIRouter(tags=["achievements"])
-
-
-class AchievementCreate(BaseModel):
-    achievement_type: str = Field(..., min_length=1, max_length=128)
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AchievementOut(BaseModel):
@@ -57,20 +52,3 @@ async def list_achievements(
     )
     rows = r.scalars().all()
     return [AchievementOut.model_validate(a) for a in rows]
-
-
-@router.post("/", response_model=AchievementOut, status_code=status.HTTP_201_CREATED)
-async def create_achievement(
-    body: AchievementCreate,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> AchievementOut:
-    row = Achievement(
-        user_id=current_user.id,
-        achievement_type=body.achievement_type,
-        metadata_=body.metadata,
-    )
-    db.add(row)
-    await db.commit()
-    await db.refresh(row)
-    return AchievementOut.model_validate(row)

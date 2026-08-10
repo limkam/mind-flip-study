@@ -42,3 +42,18 @@ export function cardsGeneratedLabel(count) {
   if (!Number.isFinite(n) || n <= 0) return null;
   return `${n} card${n === 1 ? '' : 's'} generated`;
 }
+
+export function displayChapterHeading(title, chapterNumber) {
+  const text = String(title || "").trim();
+  const number = Number(chapterNumber);
+  if (!text || !Number.isInteger(number) || number < 1) return text;
+
+  // Extracted TOCs often retain their own (occasionally incorrect) number.
+  // The array order is authoritative, so remove any existing chapter prefix
+  // before adding the one consistent display prefix.
+  const chapterTitle = text
+    .replace(/^(?:(?:ch(?:apter)?\.?\s*)?\d+\s*[.):-–—]\s*)+/i, "")
+    .trim();
+
+  return `Ch. ${number} – ${chapterTitle || text}`;
+}

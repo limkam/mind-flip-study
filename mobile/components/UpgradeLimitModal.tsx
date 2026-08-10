@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 
 import { useTheme } from "../hooks/useTheme";
 import { subscriptionsEnabled } from "../lib/billing";
@@ -19,6 +20,7 @@ function friendlyMessage(reason?: string) {
 
 export function UpgradeLimitModal() {
   const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
   const router = useRouter();
   const [message, setMessage] = useState("");
   const isSubscriptionsEnabled = subscriptionsEnabled();
@@ -28,10 +30,10 @@ export function UpgradeLimitModal() {
   const close = () => setMessage("");
 
   return (
-    <Modal visible={Boolean(message)} transparent animationType="fade" onRequestClose={close}>
-      <View style={styles.backdrop}>
+    <Modal visible={Boolean(message)} transparent animationType={reduceMotion ? "none" : "fade"} onRequestClose={close}>
+      <View style={[styles.backdrop, { backgroundColor: colors.overlay }]}>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={[styles.icon, { backgroundColor: colors.primary }]}><Text style={styles.iconText}>✦</Text></View>
+          <View style={[styles.icon, { backgroundColor: colors.primary }]}><Text style={[styles.iconText, { color: colors.onPrimary }]}>✦</Text></View>
           <Text style={[styles.title, { color: colors.text }]}>You've reached your plan limit</Text>
           <Text style={[styles.message, { color: colors.muted }]}>{message}</Text>
           <View style={styles.actions}>
@@ -45,7 +47,7 @@ export function UpgradeLimitModal() {
                 router.push(isSubscriptionsEnabled ? "/pricing" : "/billing");
               }}
             >
-              <Text style={styles.primaryText}>
+              <Text style={[styles.primaryText, { color: colors.onPrimary }]}>
                 {isSubscriptionsEnabled ? "Upgrade Plan" : "View Billing"}
               </Text>
             </Pressable>
@@ -57,15 +59,15 @@ export function UpgradeLimitModal() {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: "rgba(0,0,0,0.62)" },
+  backdrop: { flex: 1, justifyContent: "center", padding: 24 },
   card: { borderWidth: 1, borderRadius: 24, padding: 24, gap: 14 },
   icon: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  iconText: { color: "#fff", fontSize: 26, fontWeight: "800" },
+  iconText: { fontSize: 26, fontWeight: "800" },
   title: { fontSize: 23, lineHeight: 29, fontWeight: "800" },
   message: { fontSize: 15, lineHeight: 23 },
   actions: { marginTop: 8, gap: 10 },
   primary: { minHeight: 48, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  primaryText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  primaryText: { fontSize: 15, fontWeight: "800" },
   secondary: { minHeight: 48, borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   secondaryText: { fontSize: 15, fontWeight: "700" },
 });

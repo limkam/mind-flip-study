@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import { trackClientEvent } from '@/lib/analytics';
 
@@ -13,13 +13,24 @@ export function logGameEvent(event, metadata = {}) {
 /** Wrap a completion handler so it only runs once (Continue button). */
 export function useFinishOnce(onComplete) {
   const doneRef = useRef(false);
-  return useCallback(
-    (result) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+
+  const trigger = useCallback(
+    async (result) => {
       if (doneRef.current) return;
       doneRef.current = true;
+      setIsSubmitting(true);
       logGameEvent('finish', { result });
-      onComplete?.(result);
+      try {
+        await onCompleteRef.current?.(result);
+      } finally {
+        setIsSubmitting(false);
+      }
     },
-    [onComplete],
+    [],
   );
+
+  return { trigger, isSubmitting };
 }

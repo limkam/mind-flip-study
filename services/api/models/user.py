@@ -54,6 +54,12 @@ class User(Base):
         nullable=True,
     )
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    auth_provider: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="email",
+        server_default=text("'email'"),
+    )
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     # Tier today: "free" | "student". Future: subscription_status, subscription_renewal_date,
     # subscription_cancel_at (see billing webhook + Stripe Customer Portal).

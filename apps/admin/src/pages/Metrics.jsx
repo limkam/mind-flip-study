@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   Bar,
   BarChart,
@@ -8,15 +8,15 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-} from 'recharts';
-import client from '../api/client';
-import MetricCard from '../components/MetricCard';
+} from "recharts";
+import client from "../api/client";
+import MetricCard from "../components/MetricCard";
 
 export default function Metrics() {
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-metrics'],
+    queryKey: ["admin-metrics"],
     queryFn: async () => {
-      const { data: res } = await client.get('/admin/metrics');
+      const { data: res } = await client.get("/admin/metrics");
       return res;
     },
     refetchInterval: 60000,
@@ -34,25 +34,43 @@ export default function Metrics() {
   return (
     <div>
       <h2 className="page-title">Metrics</h2>
-      <p className="text-muted" style={{ marginBottom: '1rem' }}>
-        For per-call token usage, pipeline version, and generation job details, open{' '}
-        <Link to="/admin/ai-usage">AI Usage &amp; Cost</Link>.
+      <p className="text-muted" style={{ marginBottom: "1rem" }}>
+        For per-call token usage, pipeline version, and generation job details,
+        open <Link to="/admin/ai-usage">AI Usage &amp; Cost</Link>.
       </p>
       <div className="metrics-grid">
         <MetricCard label="DAU" value={data.dau} />
         <MetricCard label="Signups (30d)" value={data.signups_30d} />
         <MetricCard label="Total Books" value={data.total_books} />
-        <MetricCard label="AI Generations (30d)" value={data.ai_generations_30d} />
-        <MetricCard label="AI Cost (30d USD)" value={`$${Number(data.ai_cost_30d_usd ?? 0).toFixed(4)}`} />
+        <MetricCard
+          label="AI Generations (30d)"
+          value={data.ai_generations_30d}
+        />
+        <MetricCard
+          label="AI Cost (30d USD)"
+          value={`$${Number(data.ai_cost_30d_usd ?? 0).toFixed(4)}`}
+        />
         <MetricCard label="Paying Users" value={data.paying_users} />
-        <MetricCard label="MRR (USD)" value={`$${data.mrr_usd}`} />
+        <MetricCard
+          label="MRR (USD)"
+          value={`$${Number(data.mrr_usd ?? 0).toFixed(2)}`}
+        />
       </div>
       <h3 className="section-title">Top 10 books by flashcard sets</h3>
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height={320}>
-          <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 48 }}>
+          <BarChart
+            data={chartData}
+            margin={{ top: 8, right: 16, left: 0, bottom: 48 }}
+          >
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" angle={-35} textAnchor="end" height={80} interval={0} />
+            <XAxis
+              dataKey="name"
+              angle={-35}
+              textAnchor="end"
+              height={80}
+              interval={0}
+            />
             <YAxis allowDecimals={false} />
             <Tooltip />
             <Bar dataKey="sets" fill="#6366f1" radius={[4, 4, 0, 0]} />

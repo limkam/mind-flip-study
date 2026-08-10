@@ -10,8 +10,8 @@ const monorepoRoot = path.resolve(projectRoot, "..");
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(projectRoot);
 
-// Keep Metro from crawling the parent monorepo (fixes EMFILE on Linux without watchman).
-config.watchFolders = [projectRoot];
+// Keep Metro watching project root & neutral shared directory.
+config.watchFolders = [projectRoot, path.resolve(monorepoRoot, "shared")];
 config.resolver.blockList = exclusionList([
   new RegExp(
     `${monorepoRoot.replace(/[/\\]/g, "[/\\\\]")}[/\\\\](node_modules|dist|services|apps)([/\\\\].*)?`,

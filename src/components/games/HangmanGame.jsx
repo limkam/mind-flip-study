@@ -11,24 +11,114 @@ const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
 function HangmanSVG({ wrong }) {
   return (
-    <svg viewBox="0 0 200 220" className="w-40 h-40 mx-auto" strokeLinecap="round">
+    <svg
+      viewBox="0 0 200 220"
+      className="w-40 h-40 mx-auto"
+      strokeLinecap="round"
+    >
       {/* Gallows */}
-      <line x1="20" y1="210" x2="180" y2="210" stroke="currentColor" strokeWidth="4" className="text-foreground" />
-      <line x1="60" y1="210" x2="60" y2="20" stroke="currentColor" strokeWidth="4" className="text-foreground" />
-      <line x1="60" y1="20" x2="130" y2="20" stroke="currentColor" strokeWidth="4" className="text-foreground" />
-      <line x1="130" y1="20" x2="130" y2="45" stroke="currentColor" strokeWidth="4" className="text-foreground" />
+      <line
+        x1="20"
+        y1="210"
+        x2="180"
+        y2="210"
+        stroke="currentColor"
+        strokeWidth="4"
+        className="text-foreground"
+      />
+      <line
+        x1="60"
+        y1="210"
+        x2="60"
+        y2="20"
+        stroke="currentColor"
+        strokeWidth="4"
+        className="text-foreground"
+      />
+      <line
+        x1="60"
+        y1="20"
+        x2="130"
+        y2="20"
+        stroke="currentColor"
+        strokeWidth="4"
+        className="text-foreground"
+      />
+      <line
+        x1="130"
+        y1="20"
+        x2="130"
+        y2="45"
+        stroke="currentColor"
+        strokeWidth="4"
+        className="text-foreground"
+      />
       {/* Head */}
-      {wrong >= 1 && <circle cx="130" cy="60" r="15" fill="none" stroke="#ef4444" strokeWidth="3" />}
+      {wrong >= 1 && (
+        <circle
+          cx="130"
+          cy="60"
+          r="15"
+          fill="none"
+          stroke="#ef4444"
+          strokeWidth="3"
+        />
+      )}
       {/* Body */}
-      {wrong >= 2 && <line x1="130" y1="75" x2="130" y2="135" stroke="#ef4444" strokeWidth="3" />}
+      {wrong >= 2 && (
+        <line
+          x1="130"
+          y1="75"
+          x2="130"
+          y2="135"
+          stroke="#ef4444"
+          strokeWidth="3"
+        />
+      )}
       {/* Left arm */}
-      {wrong >= 3 && <line x1="130" y1="90" x2="105" y2="115" stroke="#ef4444" strokeWidth="3" />}
+      {wrong >= 3 && (
+        <line
+          x1="130"
+          y1="90"
+          x2="105"
+          y2="115"
+          stroke="#ef4444"
+          strokeWidth="3"
+        />
+      )}
       {/* Right arm */}
-      {wrong >= 4 && <line x1="130" y1="90" x2="155" y2="115" stroke="#ef4444" strokeWidth="3" />}
+      {wrong >= 4 && (
+        <line
+          x1="130"
+          y1="90"
+          x2="155"
+          y2="115"
+          stroke="#ef4444"
+          strokeWidth="3"
+        />
+      )}
       {/* Left leg */}
-      {wrong >= 5 && <line x1="130" y1="135" x2="105" y2="170" stroke="#ef4444" strokeWidth="3" />}
+      {wrong >= 5 && (
+        <line
+          x1="130"
+          y1="135"
+          x2="105"
+          y2="170"
+          stroke="#ef4444"
+          strokeWidth="3"
+        />
+      )}
       {/* Right leg */}
-      {wrong >= 6 && <line x1="130" y1="135" x2="155" y2="170" stroke="#ef4444" strokeWidth="3" />}
+      {wrong >= 6 && (
+        <line
+          x1="130"
+          y1="135"
+          x2="155"
+          y2="170"
+          stroke="#ef4444"
+          strokeWidth="3"
+        />
+      )}
     </svg>
   );
 }
@@ -42,7 +132,7 @@ export default function HangmanGame({ cards, onRoundComplete }) {
   const [computerScore, setComputerScore] = useState(0);
   const [roundResult, setRoundResult] = useState(null);
   const [gameOver, setGameOver] = useState(false);
-  const totalRounds = Math.min(cards.length, 8);
+  const totalRounds = cards.length || 1;
 
   const getAnswer = () => {
     const raw = cards[currentIdx]?.back || "";
@@ -52,18 +142,18 @@ export default function HangmanGame({ cards, onRoundComplete }) {
   };
 
   const answer = getAnswer();
-  const displayChars = answer.split("").filter(c => /[A-Z0-9]/.test(c));
+  const displayChars = answer.split("").filter((c) => /[A-Z0-9]/.test(c));
   const uniqueChars = [...new Set(displayChars)];
-  const allRevealed = uniqueChars.every(c => guessed.has(c));
+  const allRevealed = uniqueChars.every((c) => guessed.has(c));
   const isDead = wrongCount >= MAX_WRONG;
 
   useEffect(() => {
     if (allRevealed && !roundResult) {
       setRoundResult("win");
-      setPlayerScore(prev => prev + 1);
+      setPlayerScore((prev) => prev + 1);
     } else if (isDead && !roundResult) {
       setRoundResult("lose");
-      setComputerScore(prev => prev + 1);
+      setComputerScore((prev) => prev + 1);
     }
   }, [allRevealed, isDead, roundResult]);
 
@@ -72,7 +162,7 @@ export default function HangmanGame({ cards, onRoundComplete }) {
     const newGuessed = new Set([...guessed, letter]);
     setGuessed(newGuessed);
     if (!answer.includes(letter)) {
-      setWrongCount(prev => prev + 1);
+      setWrongCount((prev) => prev + 1);
     }
   };
 
@@ -99,11 +189,21 @@ export default function HangmanGame({ cards, onRoundComplete }) {
     return (
       <GameResultScreen
         icon={
-          <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${playerScore >= computerScore ? "bg-green-500/10" : "bg-red-500/10"}`}>
-            <Trophy className={`w-10 h-10 ${playerScore >= computerScore ? "text-green-500" : "text-red-500"}`} />
+          <div
+            className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${playerScore >= computerScore ? "bg-green-500/10" : "bg-red-500/10"}`}
+          >
+            <Trophy
+              className={`w-10 h-10 ${playerScore >= computerScore ? "text-green-500" : "text-red-500"}`}
+            />
           </div>
         }
-        title={playerScore > computerScore ? "You Win! 🎉" : playerScore === computerScore ? "It's a Tie! 🤝" : "Computer Wins 🤖"}
+        title={
+          playerScore > computerScore
+            ? "You Win! 🎉"
+            : playerScore === computerScore
+              ? "It's a Tie! 🤝"
+              : "Computer Wins 🤖"
+        }
         subtitle={`${playerScore} rounds won · ${totalRounds} rounds played`}
         onContinue={finishGame}
         result={resultPayload}
@@ -117,12 +217,18 @@ export default function HangmanGame({ cards, onRoundComplete }) {
       <div className="flex items-center justify-between bg-card rounded-2xl border border-border p-4 mb-6">
         <div className="text-center flex-1">
           <p className="text-xs text-muted-foreground mb-1">You</p>
-          <p className="font-heading text-3xl font-bold text-primary">{playerScore}</p>
+          <p className="font-heading text-3xl font-bold text-primary">
+            {playerScore}
+          </p>
         </div>
-        <div className="text-muted-foreground font-heading font-bold text-lg px-6">VS</div>
+        <div className="text-muted-foreground font-heading font-bold text-lg px-6">
+          VS
+        </div>
         <div className="text-center flex-1">
           <p className="text-xs text-muted-foreground mb-1">Computer</p>
-          <p className="font-heading text-3xl font-bold text-red-500">{computerScore}</p>
+          <p className="font-heading text-3xl font-bold text-red-500">
+            {computerScore}
+          </p>
         </div>
       </div>
 
@@ -149,7 +255,10 @@ export default function HangmanGame({ cards, onRoundComplete }) {
       {/* Lives */}
       <div className="flex items-center justify-center gap-1.5 my-4">
         {Array.from({ length: MAX_WRONG }).map((_, i) => (
-          <Heart key={i} className={`w-5 h-5 ${i < livesLeft ? "text-red-500 fill-red-500" : "text-muted-foreground"}`} />
+          <Heart
+            key={i}
+            className={`w-5 h-5 ${i < livesLeft ? "text-red-500 fill-red-500" : "text-muted-foreground"}`}
+          />
         ))}
       </div>
 
@@ -159,7 +268,10 @@ export default function HangmanGame({ cards, onRoundComplete }) {
           const isLetter = /[A-Z0-9]/.test(char);
           const revealed = guessed.has(char);
           return (
-            <div key={i} className={`flex flex-col items-center justify-end ${char === " " ? "w-4" : "w-8"}`}>
+            <div
+              key={i}
+              className={`flex flex-col items-center justify-end ${char === " " ? "w-4" : "w-8"}`}
+            >
               {isLetter ? (
                 <>
                   <AnimatePresence>
@@ -168,17 +280,32 @@ export default function HangmanGame({ cards, onRoundComplete }) {
                         key="revealed"
                         initial={{ scale: 0, y: -10, opacity: 0 }}
                         animate={{ scale: 1, y: 0, opacity: 1 }}
-                        transition={{ type: "spring", stiffness: 400, damping: 18 }}
+                        transition={{
+                          type: "spring",
+                          stiffness: 400,
+                          damping: 18,
+                        }}
                         className="text-xl font-heading font-bold leading-none mb-1 text-foreground"
-                      >{char}</motion.span>
+                      >
+                        {char}
+                      </motion.span>
                     ) : (
-                      <motion.span key="blank" className="text-xl font-heading font-bold leading-none mb-1 text-muted-foreground/40">_</motion.span>
+                      <motion.span
+                        key="blank"
+                        className="text-xl font-heading font-bold leading-none mb-1 text-muted-foreground/40"
+                      >
+                        _
+                      </motion.span>
                     )}
                   </AnimatePresence>
-                  <div className={`w-full h-0.5 rounded-full transition-colors ${revealed ? "bg-primary" : "bg-border"}`} />
+                  <div
+                    className={`w-full h-0.5 rounded-full transition-colors ${revealed ? "bg-primary" : "bg-border"}`}
+                  />
                 </>
               ) : (
-                <span className="text-xl font-heading font-bold mb-1 text-muted-foreground">{char}</span>
+                <span className="text-xl font-heading font-bold mb-1 text-muted-foreground">
+                  {char}
+                </span>
               )}
             </div>
           );
@@ -196,17 +323,28 @@ export default function HangmanGame({ cards, onRoundComplete }) {
             {roundResult === "win" ? (
               <>
                 <Trophy className="w-10 h-10 text-green-500 mx-auto mb-2" />
-                <p className="font-heading text-xl font-bold text-green-500">You got it!</p>
+                <p className="font-heading text-xl font-bold text-green-500">
+                  You got it!
+                </p>
               </>
             ) : (
               <>
                 <Skull className="w-10 h-10 text-red-500 mx-auto mb-2" />
-                <p className="font-heading text-xl font-bold text-red-500">Computer wins this round!</p>
-                <p className="text-sm text-muted-foreground mt-1">Answer: <span className="font-semibold text-foreground">{answer}</span></p>
+                <p className="font-heading text-xl font-bold text-red-500">
+                  Computer wins this round!
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Answer:{" "}
+                  <span className="font-semibold text-foreground">
+                    {answer}
+                  </span>
+                </p>
               </>
             )}
             <Button type="button" onClick={nextRound} className="mt-4 gap-2">
-              {currentIdx + 1 >= totalRounds ? "See Final Results" : "Next Round"}
+              {currentIdx + 1 >= totalRounds
+                ? "See Final Results"
+                : "Next Round"}
               <ArrowRight className="w-4 h-4" />
             </Button>
           </motion.div>
@@ -225,7 +363,11 @@ export default function HangmanGame({ cards, onRoundComplete }) {
                 key={letter}
                 initial={{ opacity: 0, scale: 0.6 }}
                 animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: li * 0.012, type: "spring", stiffness: 300 }}
+                transition={{
+                  delay: li * 0.012,
+                  type: "spring",
+                  stiffness: 300,
+                }}
                 whileHover={!isGuessed ? { scale: 1.15, y: -2 } : {}}
                 whileTap={{ scale: 0.85 }}
                 onClick={() => guess(letter)}

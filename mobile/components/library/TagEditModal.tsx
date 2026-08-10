@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact } from "../../lib/haptics";
@@ -38,7 +39,8 @@ export function TagEditModal({
   onSave,
   onClose,
 }: TagEditModalProps) {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
   const [tags, setTags] = useState<string[]>(() => normalizeTagsList(initialTags));
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -105,14 +107,14 @@ export function TagEditModal({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType={reduceMotion ? "none" : "slide"}
       transparent
       onRequestClose={() => {
         if (!saving) onClose();
       }}
     >
       <KeyboardAvoidingView
-        style={styles.backdrop}
+        style={[styles.backdrop, { backgroundColor: colors.overlay }]}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <Pressable
@@ -176,7 +178,7 @@ export function TagEditModal({
               onPress={handleAddTag}
               disabled={!input.trim() || saving}
             >
-              <Text style={styles.addBtnText}>Add</Text>
+              <Text style={[styles.addBtnText, { color: colors.onPrimary }]}>Add</Text>
             </Pressable>
           </View>
 
@@ -200,7 +202,7 @@ export function TagEditModal({
                   style={[
                     styles.chip,
                     {
-                      backgroundColor: isDark ? "#1e293b" : "#f1f5f9",
+                      backgroundColor: colors.surfaceMuted,
                       borderColor: colors.border,
                     },
                   ]}
@@ -239,9 +241,9 @@ export function TagEditModal({
               disabled={saving || !hasChanged}
             >
               {saving ? (
-                <ActivityIndicator color="#ffffff" size="small" />
+                <ActivityIndicator color={colors.onPrimary} size="small" />
               ) : (
-                <Text style={styles.saveBtnText}>Save</Text>
+                <Text style={[styles.saveBtnText, { color: colors.onPrimary }]}>Save</Text>
               )}
             </Pressable>
           </View>
@@ -254,7 +256,6 @@ export function TagEditModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "flex-end",
   },
   backdropPressable: {
@@ -304,7 +305,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   addBtnText: {
-    color: "#ffffff",
     fontWeight: "600",
     fontSize: 14,
   },
@@ -375,7 +375,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   saveBtnText: {
-    color: "#ffffff",
     fontSize: 15,
     fontWeight: "700",
   },

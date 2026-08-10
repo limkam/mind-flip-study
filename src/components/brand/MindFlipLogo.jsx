@@ -3,9 +3,9 @@ import React from "react";
 const ICON_SRC = "/mindflip-icon.png";
 
 const MARK_SIZES = {
-  sm: "h-8 w-8",
-  md: "h-9 w-9",
-  lg: "h-10 w-10",
+  sm: "h-8 w-8 text-xs",
+  md: "h-9 w-9 text-sm",
+  lg: "h-10 w-10 text-base",
 };
 
 const WORDMARK_SIZES = {
@@ -23,15 +23,15 @@ function BrandMark({ size = "md", surface = "on-dark", showText = true }) {
       : "text-foreground";
 
   return (
-    <div className="flex items-center gap-2 min-w-0">
-      <img
-        src={ICON_SRC}
-        alt=""
+    <div className="flex items-center gap-3.5 min-w-0 group">
+      <span
         aria-hidden
-        className={`${iconClass} object-contain flex-shrink-0 ${
-          surface === "on-dark" ? "mix-blend-screen brightness-110" : ""
-        }`}
-      />
+        className={`grid ${iconClass} place-items-center rounded-xl bg-indigo-600 shadow-md shadow-indigo-500/30 transition-transform duration-300 group-hover:scale-110 flex-shrink-0 select-none rotate-[30deg] my-1 ml-1`}
+      >
+        <span className="-rotate-[30deg] font-heading font-black text-white">
+          M
+        </span>
+      </span>
       {showText && (
         <span className={`font-heading font-bold tracking-tight ${textClass} ${textColor}`}>
           MindFlip
@@ -49,16 +49,17 @@ export default function MindFlipLogo({ className = "", alt = "MindFlip", compact
   );
 }
 
-export function MindFlipLogoMark({ className = "", size = "md", surface = "on-dark" }) {
+export function MindFlipLogoMark({ className = "", size = "md", surface: _surface = "on-dark" }) {
   const iconClass = MARK_SIZES[size] || MARK_SIZES.md;
   return (
-    <img
-      src={ICON_SRC}
-      alt="MindFlip"
-      className={`object-contain flex-shrink-0 ${iconClass} ${className} ${
-        surface === "on-dark" ? "mix-blend-screen brightness-110" : ""
-      }`}
-    />
+    <span
+      aria-label="MindFlip"
+      className={`grid ${iconClass} place-items-center rounded-xl bg-indigo-600 shadow-md shadow-indigo-500/30 flex-shrink-0 select-none rotate-[30deg] my-1 ${className}`}
+    >
+      <span className="-rotate-[30deg] font-heading font-black text-white">
+        M
+      </span>
+    </span>
   );
 }
 

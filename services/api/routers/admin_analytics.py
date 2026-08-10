@@ -17,10 +17,14 @@ from models.assignment import Assignment
 from models.book import Book
 from models.enums import AssignmentStatus
 from models.flashcard import Flashcard, FlashcardSet, Workbook
-from models.license import License
+from models.plan import Plan
 from models.quiz import QuizResult, StudyEvent
 from models.token_usage import TokenUsage
+from models.billing_analytics import BillingEvent, BillingInvoice
+from models.user_subscription import UserSubscription
 from models.user import User
+from services.plan_catalog import normalize_plan_label
+from services.financial_metrics_service import FinancialMetricsService
 from schemas.admin_analytics import (
     ActiveUserRow,
     AiUsageAnalyticsOut,
@@ -50,7 +54,7 @@ from job_cache import get_cached_job
 
 router = APIRouter(tags=["admin-analytics"])
 
-_ACTIVE_LICENSE_STATUSES = ("active", "paid")
+_ACTIVE_SUBSCRIPTION_STATUSES = ("active", "trialing", "past_due")
 
 
 def _quiz_pct_expr():
@@ -74,12 +78,30 @@ def _geo_label(col):
     )
 
 
-def _license_monthly_rev():
-    return License.price / func.nullif(License.billing_period_months, 0)
+def _merge_labeled_counts(rows: list[tuple[str, int]]) -> list[LabeledCount]:
+    merged: dict[str, int] = {}
+    for label, count in rows:
+        normalized = normalize_plan_label(label)
+        merged[normalized] = merged.get(normalized, 0) + int(count or 0)
+    return [
+        LabeledCount(label=label, count=count)
+        for label, count in sorted(
+            merged.items(), key=lambda item: item[1], reverse=True
+        )
+    ]
 
 
-def _active_license_clause():
-    return License.status.in_(_ACTIVE_LICENSE_STATUSES)
+def _merge_labeled_amounts(rows: list[tuple[str, float]]) -> list[LabeledAmount]:
+    merged: dict[str, float] = {}
+    for label, amount in rows:
+        normalized = normalize_plan_label(label)
+        merged[normalized] = merged.get(normalized, 0.0) + float(amount or 0)
+    return [
+        LabeledAmount(label=label, amount_usd=round(amount, 2))
+        for label, amount in sorted(
+            merged.items(), key=lambda item: item[1], reverse=True
+        )
+    ]
 
 
 async def _avg_quiz_score_pct(db: AsyncSession) -> float:
@@ -337,9 +359,11 @@ async def demographics(
         await db.scalar(select(func.count(func.distinct(_geo_label(User.continent)))))
         or 0,
     )
-    active_licenses = int(
+    active_subscriptions = int(
         await db.scalar(
-            select(func.count(License.id)).where(_active_license_clause()),
+            select(func.count(UserSubscription.id)).where(
+                UserSubscription.status.in_(_ACTIVE_SUBSCRIPTION_STATUSES),
+            ),
         )
         or 0,
     )
@@ -395,7 +419,9 @@ async def demographics(
         .order_by(func.count().desc())
         .limit(12),
     )
-    dob_rows = await db.execute(select(User.date_of_birth).where(User.date_of_birth.is_not(None)))
+    dob_rows = await db.execute(
+        select(User.date_of_birth).where(User.date_of_birth.is_not(None))
+    )
     age_group_map: dict[str, int] = {label: 0 for label in AGE_GROUP_LABELS}
     unknown_dob = 0
     for (dob,) in dob_rows.all():
@@ -404,13 +430,18 @@ async def demographics(
             continue
         group = age_group_from_dob(dob)
         age_group_map[group] = age_group_map.get(group, 0) + 1
-    users_by_age_group = [LabeledCount(label=label, count=age_group_map[label]) for label in AGE_GROUP_LABELS]
+    users_by_age_group = [
+        LabeledCount(label=label, count=age_group_map[label])
+        for label in AGE_GROUP_LABELS
+    ]
     if unknown_dob:
         users_by_age_group.append(LabeledCount(label="Unknown", count=unknown_dob))
     plan_rows = await db.execute(
-        select(License.plan_name.label("label"), func.count().label("n"))
-        .where(_active_license_clause())
-        .group_by(License.plan_name)
+        select(Plan.name.label("label"), func.count().label("n"))
+        .select_from(UserSubscription)
+        .join(Plan, Plan.id == UserSubscription.plan_id)
+        .where(UserSubscription.status.in_(_ACTIVE_SUBSCRIPTION_STATUSES))
+        .group_by(Plan.name)
         .order_by(func.count().desc()),
     )
     role_rows = await db.execute(
@@ -420,7 +451,9 @@ async def demographics(
     )
 
     books_topics = select(Book.title.label("topic")).select_from(Book)
-    assignment_topics = select(Assignment.subject.label("topic")).select_from(Assignment)
+    assignment_topics = select(Assignment.subject.label("topic")).select_from(
+        Assignment
+    )
     set_topics = select(FlashcardSet.title.label("topic")).select_from(FlashcardSet)
     topics_union = union_all(books_topics, assignment_topics, set_topics).subquery()
     topic_rows = await db.execute(
@@ -441,21 +474,24 @@ async def demographics(
         total_users=total_users,
         countries_distinct=countries_distinct,
         continents_distinct=continents_distinct,
-        active_licenses=active_licenses,
+        active_subscriptions=active_subscriptions,
         user_growth_monthly=user_growth_monthly,
         users_by_country=[
-            LabeledCount(label=row.label, count=int(row.n)) for row in country_rows.all()
+            LabeledCount(label=row.label, count=int(row.n))
+            for row in country_rows.all()
         ],
         users_by_continent=[
-            LabeledCount(label=row.label, count=int(row.n)) for row in continent_rows.all()
+            LabeledCount(label=row.label, count=int(row.n))
+            for row in continent_rows.all()
         ],
         users_by_occupation=[
-            LabeledCount(label=row.label, count=int(row.n)) for row in occupation_rows.all()
+            LabeledCount(label=row.label, count=int(row.n))
+            for row in occupation_rows.all()
         ],
         users_by_age_group=users_by_age_group,
-        plan_distribution=[
-            LabeledCount(label=row.label, count=int(row.n)) for row in plan_rows.all()
-        ],
+        plan_distribution=_merge_labeled_counts(
+            [(str(row.label), int(row.n)) for row in plan_rows.all()]
+        ),
         users_by_role=[
             LabeledCount(label=str(row.label.value), count=int(row.n))
             for row in role_rows.all()
@@ -470,73 +506,154 @@ async def financial_analytics(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> FinancialAnalyticsOut:
     now = datetime.now(UTC)
-    twelve_months_ago = datetime.combine(
-        (date.today().replace(day=1) - timedelta(days=365)),
-        time.min,
+    month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
+    previous_month_start = datetime(
+        now.year - (1 if now.month == 1 else 0),
+        12 if now.month == 1 else now.month - 1,
+        1,
         tzinfo=UTC,
     )
-    monthly_rev = _license_monthly_rev()
-
-    mrr_raw = await db.scalar(
-        select(func.coalesce(func.sum(monthly_rev), 0)).where(_active_license_clause()),
+    twelve_months_ago = datetime(
+        month_start.year - (1 if month_start.month < 12 else 0),
+        month_start.month % 12 + 1,
+        1,
+        tzinfo=UTC,
     )
-    mrr_usd = float(mrr_raw or 0)
-    paying_users = int(
-        await db.scalar(
-            select(func.count(func.distinct(License.user_id))).where(
-                _active_license_clause(),
-            ),
-        )
-        or 0,
-    )
-    arr_usd = mrr_usd * 12
-    arpu = round(mrr_usd / paying_users, 2) if paying_users else 0.0
+    recurring = await FinancialMetricsService(db).current_snapshot()
+    mrr_usd = recurring.mrr
+    paying_users = recurring.paying_users
+    active_subscriptions = recurring.active_subscriptions
+    conflicts = recurring.conflict_users
+    arr_usd = recurring.arr
+    arpu = recurring.arppu
 
-    license_month = _month_bucket(License.created_at)
+    net_revenue = (
+        BillingInvoice.amount_paid_cents - BillingInvoice.amount_refunded_cents
+    )
+    invoice_month = _month_bucket(BillingInvoice.paid_at)
     revenue_monthly_rows = await db.execute(
         select(
-            _month_label(license_month).label("month"),
-            func.coalesce(func.sum(monthly_rev), 0).label("revenue"),
+            _month_label(invoice_month).label("month"),
+            func.coalesce(func.sum(net_revenue), 0).label("revenue"),
         )
         .where(
-            _active_license_clause(),
-            License.created_at >= twelve_months_ago,
+            BillingInvoice.status == "paid",
+            BillingInvoice.paid_at >= twelve_months_ago,
         )
-        .group_by(license_month)
-        .order_by(license_month),
+        .group_by(invoice_month)
+        .order_by(invoice_month),
     )
-    revenue_monthly = [
-        RevenueMonthPoint(month=row.month, revenue_usd=round(float(row.revenue or 0), 2))
-        for row in revenue_monthly_rows.all()
-    ]
+    revenue_map = {
+        row.month: float(row.revenue or 0) / 100 for row in revenue_monthly_rows.all()
+    }
+    revenue_monthly = []
+    cursor = twelve_months_ago
+    for _ in range(12):
+        label = cursor.strftime("%Y-%m")
+        revenue_monthly.append(
+            RevenueMonthPoint(
+                month=label, revenue_usd=round(revenue_map.get(label, 0), 2)
+            )
+        )
+        cursor = datetime(
+            cursor.year + (1 if cursor.month == 12 else 0),
+            1 if cursor.month == 12 else cursor.month + 1,
+            1,
+            tzinfo=UTC,
+        )
+
+    current_revenue = sum(
+        p.revenue_usd
+        for p in revenue_monthly
+        if p.month == month_start.strftime("%Y-%m")
+    )
+    previous_revenue = sum(
+        p.revenue_usd
+        for p in revenue_monthly
+        if p.month == previous_month_start.strftime("%Y-%m")
+    )
+    revenue_growth = (
+        round(((current_revenue - previous_revenue) / previous_revenue) * 100, 1)
+        if previous_revenue
+        else 0.0
+    )
+    lifetime_revenue_cents = int(
+        await db.scalar(
+            select(func.coalesce(func.sum(net_revenue), 0)).where(
+                BillingInvoice.status == "paid"
+            )
+        )
+        or 0
+    )
+    lifetime_payers = int(
+        await db.scalar(
+            select(func.count(func.distinct(BillingInvoice.user_id))).where(
+                BillingInvoice.status == "paid"
+            )
+        )
+        or 0
+    )
+    ltv = (
+        round(lifetime_revenue_cents / 100 / lifetime_payers, 2)
+        if lifetime_payers
+        else 0.0
+    )
+    first_payment = (
+        select(
+            BillingInvoice.user_id.label("uid"),
+            func.min(BillingInvoice.paid_at).label("first_paid"),
+        )
+        .where(BillingInvoice.status == "paid")
+        .group_by(BillingInvoice.user_id)
+        .subquery()
+    )
+    new_customers = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(first_payment)
+            .where(first_payment.c.first_paid >= month_start)
+        )
+        or 0
+    )
+    churned = int(
+        await db.scalar(
+            select(func.count(BillingEvent.id)).where(
+                BillingEvent.event_type == "customer.subscription.deleted",
+                BillingEvent.received_at >= month_start,
+            )
+        )
+        or 0
+    )
+    churn_rate = round(churned / max(paying_users + churned, 1) * 100, 1)
 
     plan_rev_rows = await db.execute(
         select(
-            License.plan_name.label("label"),
-            func.coalesce(func.sum(monthly_rev), 0).label("revenue"),
+            func.coalesce(BillingInvoice.plan_slug, literal("Unknown")).label("label"),
+            func.coalesce(func.sum(net_revenue), 0).label("revenue"),
         )
-        .where(_active_license_clause())
-        .group_by(License.plan_name)
-        .order_by(func.sum(monthly_rev).desc()),
+        .where(BillingInvoice.status == "paid")
+        .group_by(BillingInvoice.plan_slug)
+        .order_by(func.sum(net_revenue).desc()),
     )
-    revenue_by_plan = [
-        LabeledAmount(label=row.label, amount_usd=round(float(row.revenue or 0), 2))
-        for row in plan_rev_rows.all()
-    ]
+    revenue_by_plan = _merge_labeled_amounts(
+        [(str(row.label), float(row.revenue or 0) / 100) for row in plan_rev_rows.all()]
+    )
 
     continent_rev_label = _geo_label(User.continent)
     continent_rev_rows = await db.execute(
         select(
             continent_rev_label.label("label"),
-            func.coalesce(func.sum(monthly_rev), 0).label("revenue"),
+            func.coalesce(func.sum(net_revenue), 0).label("revenue"),
         )
-        .join(User, User.id == License.user_id)
-        .where(_active_license_clause())
+        .join(User, User.id == BillingInvoice.user_id)
+        .where(BillingInvoice.status == "paid")
         .group_by(continent_rev_label)
-        .order_by(func.sum(monthly_rev).desc()),
+        .order_by(func.sum(net_revenue).desc()),
     )
     revenue_by_continent = [
-        LabeledAmount(label=row.label, amount_usd=round(float(row.revenue or 0), 2))
+        LabeledAmount(
+            label=row.label, amount_usd=round(float(row.revenue or 0) / 100, 2)
+        )
         for row in continent_rev_rows.all()
     ]
 
@@ -544,19 +661,20 @@ async def financial_analytics(
     country_rev_rows = await db.execute(
         select(
             country_rev_label.label("country"),
-            func.count(func.distinct(License.user_id)).label("users"),
-            func.coalesce(func.sum(monthly_rev), 0).label("revenue"),
+            func.count(func.distinct(BillingInvoice.user_id)).label("users"),
+            func.coalesce(func.sum(net_revenue), 0).label("revenue"),
         )
-        .join(User, User.id == License.user_id)
-        .where(_active_license_clause())
+        .join(User, User.id == BillingInvoice.user_id)
+        .where(BillingInvoice.status == "paid")
         .group_by(country_rev_label)
-        .order_by(func.sum(monthly_rev).desc())
+        .order_by(func.sum(net_revenue).desc())
         .limit(10),
     )
     revenue_by_country: list[RevenueByCountryRow] = []
     for row in country_rev_rows.all():
-        rev = float(row.revenue or 0)
-        pct = round((rev / mrr_usd) * 100, 1) if mrr_usd else 0.0
+        rev = float(row.revenue or 0) / 100
+        total_revenue = lifetime_revenue_cents / 100
+        pct = round((rev / total_revenue) * 100, 1) if total_revenue else 0.0
         revenue_by_country.append(
             RevenueByCountryRow(
                 country=row.country,
@@ -571,7 +689,13 @@ async def financial_analytics(
         mrr_usd=round(mrr_usd, 2),
         arr_usd=round(arr_usd, 2),
         paying_users=paying_users,
+        active_subscriptions=active_subscriptions,
         avg_revenue_per_user_usd=arpu,
+        revenue_growth_pct=revenue_growth,
+        churn_rate_pct=churn_rate,
+        lifetime_value_usd=ltv,
+        new_customers=new_customers,
+        subscription_conflicts=conflicts,
         revenue_monthly=revenue_monthly,
         revenue_by_plan=revenue_by_plan,
         revenue_by_continent=revenue_by_continent,
@@ -593,10 +717,25 @@ async def ai_usage_analytics(
             func.coalesce(func.sum(TokenUsage.input_tokens), 0),
             func.coalesce(func.sum(TokenUsage.output_tokens), 0),
             func.coalesce(func.sum(TokenUsage.cached_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.cache_read_tokens), 0),
+            func.coalesce(func.sum(TokenUsage.cache_creation_tokens), 0),
             func.coalesce(func.avg(TokenUsage.duration_ms), 0),
+            func.count(TokenUsage.id).filter(TokenUsage.status == "succeeded"),
+            func.count(TokenUsage.id).filter(TokenUsage.status == "failed"),
         ),
     )
-    total_cost, total_calls, total_in, total_out, total_cached, avg_dur = totals.one()
+    (
+        total_cost,
+        total_calls,
+        total_in,
+        total_out,
+        total_cached,
+        total_cache_read,
+        total_cache_creation,
+        avg_dur,
+        successful_calls,
+        failed_calls,
+    ) = totals.one()
 
     feature_rows = await db.execute(
         select(
@@ -717,9 +856,13 @@ async def ai_usage_analytics(
         updated_at=now,
         total_cost_usd=round(float(total_cost or 0), 4),
         total_calls=int(total_calls or 0),
+        successful_calls=int(successful_calls or 0),
+        failed_calls=int(failed_calls or 0),
         total_input_tokens=total_in_int,
         total_output_tokens=int(total_out or 0),
         total_cached_tokens=int(total_cached or 0),
+        total_cache_read_tokens=int(total_cache_read or 0),
+        total_cache_creation_tokens=int(total_cache_creation or 0),
         avg_duration_ms=round(float(avg_dur or 0), 1),
         cache_hit_rate_pct=cache_hit,
         by_feature=by_feature,
@@ -774,9 +917,16 @@ async def ai_usage_logs(
             task=usage.task,
             feature_type=usage.feature_type,
             model=usage.model,
+            provider=usage.provider,
+            status=usage.status,
+            provider_request_id=usage.provider_request_id,
+            error_code=usage.error_code,
+            error_message=usage.error_message,
             input_tokens=int(usage.input_tokens),
             output_tokens=int(usage.output_tokens),
             cached_tokens=int(usage.cached_tokens or 0),
+            cache_read_tokens=int(usage.cache_read_tokens or 0),
+            cache_creation_tokens=int(usage.cache_creation_tokens or 0),
             duration_ms=usage.duration_ms,
             estimated_cost_usd=round(float(usage.estimated_cost_usd), 6),
             book_id=str(usage.book_id) if usage.book_id else None,
@@ -797,7 +947,9 @@ async def generation_job_detail(
 ) -> GenerationJobDetailOut:
     cached = get_cached_job(job_id)
     if not cached:
-        raise HTTPException(status_code=404, detail="Generation job not found or expired from cache")
+        raise HTTPException(
+            status_code=404, detail="Generation job not found or expired from cache"
+        )
     return GenerationJobDetailOut(
         job_id=job_id,
         status=cached.get("status"),

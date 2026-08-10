@@ -190,3 +190,17 @@ The foundation requires physical runtime/device QA verification during later MFU
 - Scorecard social sharing is image-first. Public links are separately managed and session-only.
 - Public display-name sharing is an explicit opt-in independent from the profile name.
 - Administrative surfaces use semantic tokens, calm recovery states, restrained motion, and cached content during refresh.
+
+---
+
+## 13. Full-App Visual Quality Standards
+
+- Standard screens use a 16dp horizontal gutter and a 24dp section rhythm. Focused Study, Games, and bounded tablet layouts may use intentional exceptions.
+- Standard headers use `ScreenHeader`; titles and subtitles may wrap to two lines for Dynamic Type and long translations.
+- Cards communicate grouping, interaction, or a meaningful summary. Ordinary metadata and navigation rows should not gain decorative containers.
+- Buttons use semantic foreground tokens, a minimum 44dp target, visible pressed/disabled states, and stable loading dimensions.
+- Centered dialogs fade; bottom-anchored surfaces slide from the bottom. Both use the semantic overlay and disable decorative transitions for Reduced Motion.
+- Screen-level loading preserves established layout when practical. Inline spinners are reserved for short actions; empty and error states include clear context and recovery.
+- Custom motion uses the shared fast/standard/deliberate durations, communicates a real state change, cleans up on unmount, and provides a static Reduced Motion result.
+- Dark mode relies on semantic surface hierarchy, borders, and `onPrimary`/`onDanger` foregrounds rather than light-mode constants.
+- TypeScript and platform exports are implementation gates. Notches, system bars, keyboards, assistive technology, haptics, and OEM behavior remain physical-device release gates.

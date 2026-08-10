@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy import Date, cast, func, select
 
 from database_sync import sync_session
+from models.flashcard import FlashcardSet
 from models.quiz import QuizResult, StudyEvent
 from models.user import User
 
@@ -30,6 +31,7 @@ def compute_weekly_stats(user_id: UUID) -> dict:
     now = datetime.now(UTC)
     today = now.date()
     since = now - timedelta(days=7)
+    previous_since = since - timedelta(days=7)
     since_30 = now - timedelta(days=30)
 
     with sync_session() as db:
@@ -62,6 +64,62 @@ def compute_weekly_stats(user_id: UUID) -> dict:
             )
             or 0,
         )
+
+        assessments_completed = int(
+            db.scalar(
+                select(func.count(QuizResult.id)).where(
+                    QuizResult.user_id == user_id,
+                    QuizResult.completed_at >= since,
+                ),
+            )
+            or 0,
+        )
+        learning_seconds = int(
+            db.scalar(
+                select(func.sum(QuizResult.time_taken_seconds)).where(
+                    QuizResult.user_id == user_id,
+                    QuizResult.completed_at >= since,
+                ),
+            )
+            or 0,
+        )
+        previous_assessments = int(
+            db.scalar(
+                select(func.count(QuizResult.id)).where(
+                    QuizResult.user_id == user_id,
+                    QuizResult.completed_at >= previous_since,
+                    QuizResult.completed_at < since,
+                ),
+            )
+            or 0,
+        )
+        previous_sets_completed = int(
+            db.scalar(
+                select(func.count(func.distinct(QuizResult.set_id))).where(
+                    QuizResult.user_id == user_id,
+                    QuizResult.completed_at >= previous_since,
+                    QuizResult.completed_at < since,
+                ),
+            )
+            or 0,
+        )
+        previous_learning_seconds = int(
+            db.scalar(
+                select(func.sum(QuizResult.time_taken_seconds)).where(
+                    QuizResult.user_id == user_id,
+                    QuizResult.completed_at >= previous_since,
+                    QuizResult.completed_at < since,
+                ),
+            )
+            or 0,
+        )
+        latest_set = db.execute(
+            select(FlashcardSet.id, FlashcardSet.title)
+            .join(QuizResult, QuizResult.set_id == FlashcardSet.id)
+            .where(QuizResult.user_id == user_id)
+            .order_by(QuizResult.completed_at.desc())
+            .limit(1),
+        ).one_or_none()
 
         dates = db.scalars(
             select(cast(QuizResult.completed_at, Date))
@@ -102,6 +160,18 @@ def compute_weekly_stats(user_id: UUID) -> dict:
         "streak_days": streak_days,
         "rank": rank,
         "sets_completed": sets_completed,
+        "assessments_completed": assessments_completed,
+        "learning_minutes": learning_seconds // 60,
+        "change_from_previous": {
+            "units_completed": sets_completed - previous_sets_completed,
+            "assessments_completed": assessments_completed - previous_assessments,
+            "learning_minutes": (learning_seconds - previous_learning_seconds) // 60,
+        },
+        "suggested_next_action": (
+            {"type": "review_set", "entity_id": str(latest_set.id), "label": latest_set.title}
+            if latest_set is not None
+            else None
+        ),
         "active_30d": active_30d,
     }
 

@@ -50,14 +50,14 @@ export function ScreenHeader({
         <View style={styles.titleWrap}>
           <Text
             style={[styles.title, { color: colors.textPrimary }]}
-            numberOfLines={1}
+            numberOfLines={2}
           >
             {title}
           </Text>
           {subtitle ? (
             <Text
               style={[styles.subtitle, { color: colors.textMuted }]}
-              numberOfLines={1}
+              numberOfLines={2}
             >
               {subtitle}
             </Text>
@@ -86,6 +86,7 @@ const styles = StyleSheet.create({
   },
   titleWrap: {
     flex: 1,
+    flexShrink: 1,
     justifyContent: "center",
   },
   title: {

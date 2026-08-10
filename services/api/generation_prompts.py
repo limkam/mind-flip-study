@@ -7,7 +7,7 @@ from difficulty_engine import difficulty_mix_instruction
 # Hard output token budget (enforced via prompt + max_tokens API cap)
 STUDY_OUTPUT_TOKEN_HARD_CAP = 4096
 STUDY_OUTPUT_TOKEN_TARGET = 2800
-GENERATION_PIPELINE_VERSION = "2026-06-15-reliable-v1"
+GENERATION_PIPELINE_VERSION = "2026-07-26-dedicated-scenarios-v3"
 
 SUMMARY_DETAIL_LEVELS = ("brief", "standard", "in_depth")
 
@@ -74,9 +74,8 @@ def token_budget_block(level: str = "standard") -> str:
         "- core_concept: 20–30 tokens max (1–2 sentences)\n"
         f"- {cfg['key_points']}, one short sentence each unless in-depth mode says otherwise\n"
         f"- {cfg['watch_out_for']}\n"
-        "- scenarios (3–5): 40–60 tokens each, total ≤ 350 tokens\n"
         "- flashcards: question ≤ 12 words, answer ≤ 30 words, ~45 tokens each\n"
-        "- TOTAL RESPONSE: honor the summary detail level above; shorten scenarios if needed to fit flashcards"
+        "- TOTAL RESPONSE: honor the summary detail level above; keep flashcards compact"
     )
 
 
@@ -90,7 +89,7 @@ def study_content_required_sections(level: str = "standard") -> str:
         "- difficulty (beginner|intermediate|advanced)\n"
         f"- key_points: {cfg['key_points']}\n"
         f"- watch_out_for: {cfg['watch_out_for']}\n"
-        "- scenarios: exactly 5 compact scenarios (≤500 tokens total)"
+        "- flashcards: exactly the requested count"
     )
 
 
@@ -182,10 +181,10 @@ Summary detail level for this request: {level.upper()}.
 {cfg["instruction"]}
 
 You must follow the token budgets for summary fields exactly as specified in the user message.
-Flashcards and scenarios must stay concise regardless of detail level.
+Flashcards must stay concise regardless of detail level.
 
 Style rules:
-- Do NOT repeat ideas across sections (summary ≠ overview ≠ key_points ≠ scenarios ≠ flashcards).
+- Do NOT repeat ideas across sections (summary ≠ overview ≠ key_points ≠ flashcards).
 - Each section must add NEW information — no verbatim repetition.
 - Honor the requested summary detail level — in_depth must be visibly longer and richer than standard.
 
@@ -199,16 +198,6 @@ Required JSON:
   "overview": "{overview_style}",
   "key_points": ["exactly {kp} items per level budget"],
   "watch_out_for": ["exactly {wo} items per level budget"],
-  "scenarios": [
-    {{
-      "type": "real_life|decision|professional",
-      "title": "Max 6 words",
-      "description": "2–3 sentences only (40–80 tokens). No narrative expansion.",
-      "question": "Short decision/analysis prompt",
-      "model_answer": "1–2 sentences max",
-      "explanation": "1 sentence max — omit if redundant with model_answer"
-    }}
-  ],
   "flashcards": [
     {{
       "front": "Direct question (≤15 words)",
@@ -219,8 +208,7 @@ Required JSON:
   ]
 }}
 Rules:
-- scenarios: 3–5 distinct, application-focused. Do NOT repeat chapter summary or key points.
-- flashcards: exact count requested; direct questions; no repetition of scenario/summary text.
+- flashcards: exact count requested; direct questions; no repetition of summary text.
 - key_points: exactly {kp}. watch_out_for: exactly {wo}.
 - Stay grounded ONLY in the provided chapter text.
 - If over budget: shorten flashcards and scenarios first, never compress in_depth summaries below their minimum budgets."""
@@ -310,18 +298,13 @@ def study_content_user_prompt(
 ) -> str:
     mix = difficulty_mix_instruction(difficulty_quota)
     detail = summary_detail_block(summary_detail_level)
-    scenario_specs = "\n".join(
-        f"  {i + 1}. type={t} — {desc}" for i, (t, desc) in enumerate(SCENARIO_TYPE_SPECS)
-    )
     return (
         f'Generate complete study content for chapter "{chapter_title}" from "{book_title}".\n'
-        f"Return ONE compact JSON object. STRICT token budgets apply — total ≤ 2000 tokens.\n\n"
+        f"Return ONE compact JSON object containing every required section.\n\n"
         f"{detail}\n\n"
         f"{token_budget_block(summary_detail_level)}\n\n"
         f"{study_content_required_sections(summary_detail_level)}\n"
-        f"{scenario_specs}\n"
-        f"  Each: title ≤6 words, description 2–3 sentences, no summary repetition\n"
-        f"- flashcards: exactly {num_cards} cards (≤900 tokens total)\n"
+        f"- flashcards: exactly {num_cards} compact cards; do not reduce the scenario count to fit them\n"
         f"  Question ≤15 words. Answer ≤40 words. No essay answers.\n"
         f"Flashcard difficulty mix: {mix}.\n"
         f"Variation style: {variation_instruction(style_index)}.\n"
