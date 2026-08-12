@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from typing import Any
 from uuid import UUID
 
 from pypdf import PdfReader
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from ai_generation import (
     build_set_description,
@@ -56,6 +57,8 @@ from models.book import Book
 from models.flashcard import Flashcard, FlashcardSet
 from models.quiz import StudyEvent
 from models.token_usage import TokenUsage
+from models.usage_event import UsageEvent, UsageReservation
+from models.user import User
 from prompt_cache import cached_system_block, cached_user_message, extract_usage_tokens
 from s3_service import get_object_bytes
 from seeded_random import make_generation_seed, pick_variation_style
@@ -1476,6 +1479,7 @@ def generate_flashcards_task(
     selected_chapters: list[str] | None = None,
     summary_detail_level: str = "standard",
     pipeline_version: str | None = None,
+    operation_id: str | None = None,
 ) -> dict[str, str]:
     tid = self.request.id
     uid = UUID(user_id)
@@ -1573,6 +1577,20 @@ def generate_flashcards_task(
         _update_job_progress(tid, "saving_content", book_id=book_id, percent_complete=95)
 
         with sync_session() as db:
+            # Serialize successful creation/accounting for this user's allowance.
+            db.execute(select(User.id).where(User.id == uid).with_for_update())
+            usage_key = f"flashcard-generation:{operation_id or tid}"
+            prior_usage = db.scalar(select(UsageEvent).where(UsageEvent.idempotency_key == usage_key))
+            if prior_usage is not None:
+                db.execute(delete(UsageReservation).where(UsageReservation.task_id == tid))
+                payload = {
+                    "status": "complete",
+                    "phase": "completed",
+                    "set_id": str(prior_usage.resource_id),
+                    "percent_complete": 100,
+                }
+                cache_job(tid, payload)
+                return payload
             dup = find_flashcard_set_for_job(db, user_id=uid, task_id=tid)
             if dup is not None:
                 sid = str(dup.id)
@@ -1598,6 +1616,20 @@ def generate_flashcards_task(
                 )
                 db.add(fset)
                 db.flush()
+                now = datetime.now(timezone.utc)
+                db.add(
+                    UsageEvent(
+                        user_id=uid,
+                        event_type="flashcards_generated",
+                        resource_type="flashcard_set",
+                        resource_id=fset.id,
+                        quantity=1,
+                        billing_period_start=datetime(now.year, now.month, 1, tzinfo=timezone.utc),
+                        idempotency_key=usage_key,
+                        meta={"celery_task_id": tid, "operation_id": operation_id},
+                    )
+                )
+                db.execute(delete(UsageReservation).where(UsageReservation.task_id == tid))
                 for c in cards_data:
                     db.add(
                         Flashcard(
@@ -1647,6 +1679,7 @@ def generate_flashcards_task(
         )
         if _is_final_attempt(self):
             with sync_session() as db:
+                db.execute(delete(UsageReservation).where(UsageReservation.task_id == tid))
                 book = db.execute(select(Book).where(Book.id == bid)).scalar_one_or_none()
                 if book is not None:
                     mark_book_ai_finished(

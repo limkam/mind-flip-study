@@ -265,14 +265,6 @@ class OwnerDashboardService:
                 "Canonical subscription status history is required for a reliable churn rate.",
             ),
             (
-                "trial_conversion",
-                "Trial → Paid Conversion",
-                None,
-                None,
-                "percent",
-                "Canonical trial transition history is required for a reliable conversion rate.",
-            ),
-            (
                 "failed_payments",
                 "Failed Payments",
                 failed_payments,
@@ -311,7 +303,6 @@ class OwnerDashboardService:
             "avg_ai_document": "Canonical document-level AI attribution is not stored.",
             "avg_ai_chapter": "Canonical chapter-level AI attribution is not stored.",
             "monthly_churn": "Canonical subscription-transition history is not stored.",
-            "trial_conversion": "Canonical trial-cohort transition history is not stored.",
         }
         estimated = {
             "avg_margin",

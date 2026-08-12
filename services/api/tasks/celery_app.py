@@ -72,10 +72,6 @@ PHASE3_BEAT_SCHEDULE = {
         "task": "tasks.leaderboard_tasks.refresh_leaderboard_task",
         "schedule": 300.0,
     },
-    "send-trial-ending-reminders": {
-        "task": "tasks.email_tasks.send_trial_ending_reminders_task",
-        "schedule": crontab(hour=9, minute=0),
-    },
     "engagement-due-email": {
         "task": "tasks.automation_tasks.process_due_email_automation",
         "schedule": float(settings.EMAIL_PROCESSOR_INTERVAL_SECONDS),

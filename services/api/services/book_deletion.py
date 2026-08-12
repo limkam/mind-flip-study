@@ -111,7 +111,13 @@ async def _delete_flashcard_sets(db: AsyncSession, set_ids: list[UUID]) -> int:
     return int(result.rowcount or 0)
 
 
-async def cascade_delete_book(db: AsyncSession, book: Book) -> int:
+async def cascade_delete_book(
+    db: AsyncSession,
+    book: Book,
+    *,
+    commit: bool = True,
+    delete_assets: bool = True,
+) -> int:
     """
     Delete a book and all flashcard sets/cards tied to it.
     Returns number of flashcard sets removed.
@@ -130,8 +136,10 @@ async def cascade_delete_book(db: AsyncSession, book: Book) -> int:
     )
     removed_sets = await _delete_flashcard_sets(db, set_ids)
 
-    delete_book_s3_assets(s3_key=book.s3_key, extras=book.extras)
+    if delete_assets:
+        delete_book_s3_assets(s3_key=book.s3_key, extras=book.extras)
     await db.execute(delete(Workbook).where(Workbook.book_id == book.id))
     await db.execute(delete(Book).where(Book.id == book.id))
-    await db.commit()
+    if commit:
+        await db.commit()
     return removed_sets

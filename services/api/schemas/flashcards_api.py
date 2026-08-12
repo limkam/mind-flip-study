@@ -74,6 +74,7 @@ class FlashcardSetCreate(BaseModel):
     book_id: UUID | None = None
     description: str | None = None
     tags: list[str] | None = None
+    operation_id: UUID | None = None
 
 
 class GenerateFlashcardsRequest(BaseModel):
@@ -86,6 +87,10 @@ class GenerateFlashcardsRequest(BaseModel):
         "standard",
         description="Summary detail: brief, standard, or in_depth",
         pattern=r"^(brief|standard|in_depth)$",
+    )
+    operation_id: UUID | None = Field(
+        None,
+        description="Stable client operation ID used to make generation accounting idempotent.",
     )
 
 

@@ -183,9 +183,10 @@ export default function FlashcardSets() {
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>Delete flashcard set?</AlertDialogTitle>
+                          <AlertDialogTitle>Delete these flashcards?</AlertDialogTitle>
                           <AlertDialogDescription>
-                            This permanently deletes &quot;{set.title}&quot; and all {set.card_count} flashcards.
+                            Deleting &quot;{set.title}&quot; and all {set.card_count} flashcards will remove them
+                            from your account, but it will not restore the generation allowance used to create them.
                             This cannot be undone.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
@@ -195,7 +196,7 @@ export default function FlashcardSets() {
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             onClick={() => deleteSet(set.id, set.title)}
                           >
-                            Delete
+                            Delete Flashcards
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>

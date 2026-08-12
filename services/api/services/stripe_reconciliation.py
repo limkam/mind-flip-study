@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 import stripe
@@ -10,12 +11,15 @@ from sqlalchemy import select
 from config import settings
 from database_sync import sync_session
 from models.billing_analytics import BillingEvent, BillingInvoice
+from models.credit_ledger import CreditLedger
+from models.credit_purchase import CreditPurchase
 from models.plan import Plan
 from models.user import User
 from models.user_subscription import UserSubscription
 
 
 ACTIVE_STATUSES = {"active", "trialing", "past_due"}
+logger = logging.getLogger(__name__)
 
 
 def _dict(value):
@@ -108,7 +112,9 @@ def reconcile_stripe(*, limit: int = 100) -> dict[str, int]:
     stripe.api_key = settings.STRIPE_SECRET_KEY
     catalog = _price_catalog()
     counts = {"subscriptions_seen": 0, "subscriptions_upserted": 0, "invoices_seen": 0,
-              "invoices_upserted": 0, "events_seen": 0, "conflicted_users": 0}
+              "invoices_upserted": 0, "events_seen": 0, "conflicted_users": 0,
+              "credit_sessions_seen": 0, "credit_purchases_recovered": 0,
+              "credit_sessions_invalid": 0, "credit_receipts_updated": 0}
 
     products = {_dict(p).get("id"): _dict(p) for p in stripe.Product.list(limit=limit).auto_paging_iter()}
     for raw_price in stripe.Price.list(limit=limit).auto_paging_iter():
@@ -122,10 +128,105 @@ def reconcile_stripe(*, limit: int = 100) -> dict[str, int]:
     subscriptions = list(stripe.Subscription.list(status="all", limit=limit).auto_paging_iter())
     invoices = list(stripe.Invoice.list(limit=limit).auto_paging_iter())
     events = list(stripe.Event.list(limit=limit).auto_paging_iter())
+    checkout_sessions = list(stripe.checkout.Session.list(limit=limit).auto_paging_iter())
 
     with sync_session() as db:
         users = {u.stripe_customer_id: u for u in db.execute(select(User).where(User.stripe_customer_id.is_not(None))).scalars()}
         plans = {p.slug: p for p in db.execute(select(Plan)).scalars()}
+
+        for raw in checkout_sessions:
+            session = _dict(raw)
+            if session.get("mode") != "payment":
+                continue
+            counts["credit_sessions_seen"] += 1
+            session_id = str(session.get("id") or "")
+            metadata = _dict(session.get("metadata"))
+            customer_id = str(session.get("customer") or "")
+            user = users.get(customer_id)
+            try:
+                quantity = int(metadata.get("credit_quantity"))
+                unit_price = int(metadata.get("unit_price_cents"))
+                metadata_user_id = str(metadata.get("user_id") or "")
+                amount_total = int(session.get("amount_total"))
+            except (TypeError, ValueError):
+                counts["credit_sessions_invalid"] += 1
+                continue
+            currency = str(session.get("currency") or metadata.get("currency") or "").lower()
+            valid = (
+                bool(session_id)
+                and session.get("payment_status") == "paid"
+                and user is not None
+                and metadata_user_id == str(user.id)
+                and str(session.get("client_reference_id") or user.id) == str(user.id)
+                and 1 <= quantity <= 100
+                and unit_price == int(settings.CREDIT_UNIT_PRICE_CENTS)
+                and amount_total == quantity * unit_price
+                and currency == str(settings.CREDIT_CURRENCY or "usd").lower()
+            )
+            if not valid:
+                counts["credit_sessions_invalid"] += 1
+                continue
+            purchase = db.execute(
+                select(CreditPurchase).where(CreditPurchase.stripe_session_id == session_id)
+            ).scalar_one_or_none()
+            payment_intent_id = session.get("payment_intent")
+            if isinstance(payment_intent_id, dict):
+                payment_intent_id = payment_intent_id.get("id")
+            charge_id = None
+            receipt_url = None
+            if payment_intent_id:
+                try:
+                    payment_intent = _dict(stripe.PaymentIntent.retrieve(str(payment_intent_id), expand=["latest_charge"]))
+                    latest_charge = payment_intent.get("latest_charge")
+                    if isinstance(latest_charge, dict):
+                        charge_id = latest_charge.get("id")
+                        receipt_url = latest_charge.get("receipt_url")
+                    elif isinstance(latest_charge, str):
+                        charge_id = latest_charge
+                except Exception:
+                    logger.warning(
+                        "stripe_reconciliation_receipt_lookup_failed",
+                        extra={"payment_intent_id": str(payment_intent_id), "session_id": session_id},
+                        exc_info=True,
+                    )
+            if purchase is not None:
+                changed = False
+                if not purchase.stripe_payment_intent_id and payment_intent_id:
+                    purchase.stripe_payment_intent_id = str(payment_intent_id)
+                    changed = True
+                if not purchase.stripe_charge_id and charge_id:
+                    purchase.stripe_charge_id = str(charge_id)
+                    changed = True
+                if not purchase.receipt_url and receipt_url:
+                    purchase.receipt_url = str(receipt_url)
+                    changed = True
+                if changed:
+                    counts["credit_receipts_updated"] += 1
+                continue
+            db.add(CreditLedger(
+                user_id=user.id,
+                amount=quantity,
+                pool="purchased",
+                reason="purchased_credits",
+                idempotency_key=f"stripe_checkout:{session_id}:credits",
+                meta={"purchase_type": "stripe_checkout", "stripe_session_id": session_id, "reconciled": True},
+                expires_at=None,
+            ))
+            db.add(CreditPurchase(
+                user_id=user.id,
+                quantity=quantity,
+                amount_paid_cents=amount_total,
+                currency=currency,
+                unit_price_cents=unit_price,
+                stripe_session_id=session_id,
+                stripe_payment_intent_id=str(payment_intent_id) if payment_intent_id else None,
+                stripe_customer_id=customer_id,
+                stripe_charge_id=str(charge_id) if charge_id else None,
+                receipt_url=str(receipt_url) if receipt_url else None,
+                status="completed",
+                notes="Recovered from authoritative paid Stripe Checkout Session",
+            ))
+            counts["credit_purchases_recovered"] += 1
 
         for raw in subscriptions:
             sub = _dict(raw)

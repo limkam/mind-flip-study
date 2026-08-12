@@ -26,4 +26,5 @@ class UserSubscription(Base):
     unit_amount_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     interval_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stripe_event_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -53,6 +53,7 @@ async def test_standard_can_start_game(monkeypatch):
 async def test_premium_priority_allowed(monkeypatch):
     user = _User("u_p", "premium_30")
     fake_db = AsyncMock()
+    monkeypatch.setattr("services.entitlements._user_plan_slug", AsyncMock(return_value="premium_30"))
     ent = await can_user_do(fake_db, user, Action.PRIORITY_PROCESSING)
     assert ent["allowed"] is True
 
@@ -101,24 +102,26 @@ def test_published_plan_matrix(plan, books, sets, cards, games, challenges, grou
         ("premium_30", Action.CREATE_SET, 20),
     ],
 )
-async def test_resource_allowances_are_per_user(plan, action, limit):
+async def test_resource_allowances_are_per_user(plan, action, limit, monkeypatch):
     user = _User(f"user-{plan}", plan)
+    monkeypatch.setattr("services.entitlements._user_plan_slug", AsyncMock(return_value=plan))
+    consumed = AsyncMock(return_value=limit - 1)
+    monkeypatch.setattr("services.entitlements.consumed_quantity", consumed)
 
     below_db = AsyncMock()
-    below_db.scalar = AsyncMock(side_effect=[None, None, limit - 1])
     allowed = await can_user_do(below_db, user, action)
     assert allowed == {"allowed": True}
 
-    count_query = below_db.scalar.await_args_list[-1].args[0]
-    params = count_query.compile().params
-    assert user.id in params.values()
+    assert consumed.await_args.args[1] == user.id
+    period_start = consumed.await_args.kwargs["period_start"]
     if plan == "free":
-        assert not any("created_at" in str(clause) for clause in count_query._where_criteria)
+        assert period_start is None
     else:
-        assert any("created_at" in str(clause) for clause in count_query._where_criteria)
+        assert period_start is not None
 
+    consumed.reset_mock()
+    consumed.return_value = limit
     at_limit_db = AsyncMock()
-    at_limit_db.scalar = AsyncMock(side_effect=[None, None, limit])
     denied = await can_user_do(at_limit_db, user, action)
     assert denied["allowed"] is False
     assert denied["reason"] == ("book_limit" if action == Action.CREATE_BOOK else "set_limit")

@@ -419,27 +419,6 @@ export type CheckoutVerificationResponse =
   | SubscriptionCheckoutVerificationResponse
   | CreditCheckoutVerificationResponse;
 
-export type TrialEligibilityReason =
-  | "trial_disabled"
-  | "already_paid"
-  | "trial_already_used"
-  | "subscription_history"
-  | "payment_history";
-
-export type TrialEligibilitySignals = {
-  trial_enabled?: boolean;
-  trial_used?: boolean;
-  has_prior_subscription?: boolean;
-  has_credit_purchase_history?: boolean;
-};
-
-export type TrialEligibilityResponse = {
-  eligible: boolean;
-  reason: TrialEligibilityReason | null;
-  signals: TrialEligibilitySignals;
-  trial_days?: number;
-};
-
 export type SubscriptionCancelResponse = {
   canceled_at_period_end: boolean;
   current_period_end: string | null;
@@ -460,6 +439,9 @@ export type CreditBalance = {
   total: number;
   monthly: number;
   purchased: number;
+  available_total: number;
+  plan: { allocated: number; used: number; remaining: number };
+  purchased_position: { purchased_total: number; used: number; remaining: number };
 };
 
 export type CreditBalanceResponse = {
@@ -490,6 +472,7 @@ export type CreditPurchaseRecord = {
   unit_price_cents: number;
   created_at: string;
   status: string;
+  receipt_url?: string | null;
 };
 
 export type PurchaseHistoryResponse = {

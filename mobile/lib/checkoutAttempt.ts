@@ -1,6 +1,6 @@
 import { BillingInterval, BillingPlanSlug } from "../types/api";
 
-export type CheckoutKind = "subscription" | "trial" | "credit_purchase";
+export type CheckoutKind = "subscription" | "credit_purchase";
 
 export type CheckoutAttempt = {
   attemptId: number;

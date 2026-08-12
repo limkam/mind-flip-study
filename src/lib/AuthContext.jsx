@@ -35,6 +35,7 @@ export function AuthProvider({ children }) {
             setAccessToken(data.access_token);
           } catch {
             /* no refresh cookie — not signed in */
+            setRememberMe(false);
           }
         }
       }

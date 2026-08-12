@@ -33,6 +33,18 @@ def test_utc_week_bounds():
     assert (w_end - w_start).days == 7
 
 
+def test_utc_week_boundary_rolls_only_at_monday_midnight():
+    sunday = datetime(2026, 8, 9, 23, 59, 59, tzinfo=UTC)
+    monday = datetime(2026, 8, 10, 0, 0, 0, tzinfo=UTC)
+    sunday_start, sunday_end = get_current_utc_week_bounds(sunday)
+    monday_start, monday_end = get_current_utc_week_bounds(monday)
+
+    assert sunday_start == datetime(2026, 8, 3, tzinfo=UTC)
+    assert sunday_end == monday
+    assert monday_start == monday
+    assert monday_end == datetime(2026, 8, 17, tzinfo=UTC)
+
+
 def test_is_card_mastered_rule():
     # Rule: repetitions >= 3 OR (repetitions >= 1 AND ease_factor >= 2.5)
     assert is_card_mastered(3, 2.0) is True

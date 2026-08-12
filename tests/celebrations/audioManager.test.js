@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { AudioManager } from "../../src/lib/celebrations/audioManager.js";
 
 test("SSR unlock is inert", async () => { const manager = new AudioManager(); assert.equal(await manager.unlock(), false); manager.destroy(); });
-test("missing approved assets never create Audio", async () => { let creations = 0; const manager = new AudioManager({ createAudio: () => { creations++; } }); assert.equal((await manager.play("lesson_complete")).outcome, "asset_missing"); assert.equal(creations, 0); });
+test("approved assets do not create Audio before user interaction", async () => { let creations = 0; const manager = new AudioManager({ createAudio: () => { creations++; } }); assert.equal((await manager.play("lesson_complete")).outcome, "locked"); assert.equal(creations, 0); });
 test("unknown key is represented safely", async () => { const manager = new AudioManager(); assert.equal((await manager.play("unknown")).outcome, "asset_missing"); });
 test("global mute state applies immediately", () => { const manager = new AudioManager(); manager.setGlobalMute(true); assert.equal(manager.isMuted(), true); });
 test("category preferences and progress policy suppress only matching enabled sounds", async () => {

@@ -26,6 +26,9 @@ class CreditBalance(BaseModel):
     total: int
     monthly: int
     purchased: int
+    available_total: int
+    plan: dict[str, int]
+    purchased_position: dict[str, int]
 
 
 class CreditPricing(BaseModel):
@@ -45,6 +48,7 @@ class CreditPurchaseRecord(BaseModel):
     unit_price_cents: int
     created_at: str
     status: str
+    receipt_url: str | None = None
 
 
 class CreditBalanceResponse(BaseModel):
@@ -86,14 +90,16 @@ async def get_credit_balance(
 
     Returns total balance, monthly allowance balance, and purchased credits balance.
     """
-    total = await credits_service.get_user_balance(db, current_user.id, pool="content")
-    monthly, purchased = await credits_service._split_pool_balances(db, current_user.id, pool="content")
+    snapshot = await credits_service.get_credit_accounting_snapshot(db, current_user.id, pool="content")
 
     return CreditBalanceResponse(
         balance=CreditBalance(
-            total=total,
-            monthly=monthly,
-            purchased=purchased,
+            total=snapshot["available_total"],
+            monthly=snapshot["plan"]["remaining"],
+            purchased=snapshot["purchased"]["remaining"],
+            available_total=snapshot["available_total"],
+            plan=snapshot["plan"],
+            purchased_position=snapshot["purchased"],
         )
     )
 
@@ -128,10 +134,11 @@ async def get_purchase_history(
 
     Returns all credit purchases ordered by most recent first.
     """
-    q = select(CreditPurchase).where(
-        CreditPurchase.user_id == current_user.id,
-        CreditPurchase.status == "completed",
-    ).order_by(desc(CreditPurchase.created_at))
+    q = (
+        select(CreditPurchase)
+        .where(CreditPurchase.user_id == current_user.id)
+        .order_by(desc(CreditPurchase.created_at))
+    )
 
     r = await db.execute(q)
     purchases = r.scalars().all()
@@ -145,6 +152,7 @@ async def get_purchase_history(
             unit_price_cents=p.unit_price_cents,
             created_at=p.created_at.isoformat() if p.created_at else "",
             status=p.status,
+            receipt_url=p.receipt_url,
         )
         for p in purchases
     ]

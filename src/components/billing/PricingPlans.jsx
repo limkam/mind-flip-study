@@ -37,7 +37,11 @@ export default function PricingPlans({ compact = false }) {
     queryFn: fetchBillingPricing,
   });
 
-  const { data: entitlements } = useQuery({
+  const {
+    data: entitlements,
+    isPending: entitlementsPending,
+    isError: entitlementsError,
+  } = useQuery({
     queryKey: ["billing-entitlements"],
     queryFn: fetchEntitlementsSnapshot,
     enabled: isAuthenticated,
@@ -59,6 +63,7 @@ export default function PricingPlans({ compact = false }) {
   }, [pricing, interval]);
 
   const currentPlan = entitlements?.plan_slug || "free";
+  const accountStateUnresolved = isAuthenticated && (entitlementsPending || entitlementsError);
 
   const onCheckout = async (slug) => {
     if (slug === "free") return;
@@ -66,12 +71,13 @@ export default function PricingPlans({ compact = false }) {
     try {
       await startCheckout(checkoutPlanForSlug(slug), interval);
     } catch (err) {
-      setLoadingPlan(null);
       toast({
         title: "Checkout unavailable",
         description: getApiErrorMessage(err, "Could not start checkout."),
         variant: "destructive",
       });
+    } finally {
+      setLoadingPlan(null);
     }
   };
 
@@ -152,7 +158,7 @@ export default function PricingPlans({ compact = false }) {
                     {plan.headline}
                   </h3>
                 </div>
-                {isCurrent ? (
+                {!accountStateUnresolved && isCurrent ? (
                   <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
                     Current
                   </span>
@@ -197,7 +203,11 @@ export default function PricingPlans({ compact = false }) {
                     You&apos;ll be charged <span className="font-semibold text-foreground">{priceAmount}</span> today. Your subscription renews automatically every {interval === "annual" ? "year" : "month"} until you cancel. Cancel anytime from Billing &amp; Credits.
                   </p>
                 ) : null}
-                {isCurrent ? (
+                {accountStateUnresolved ? (
+                  <Button disabled className="h-12 w-full rounded-xl">
+                    {entitlementsError ? "Account state unavailable" : "Checking account…"}
+                  </Button>
+                ) : isCurrent ? (
                   <Button disabled className="h-12 w-full rounded-xl">
                     Current plan
                   </Button>

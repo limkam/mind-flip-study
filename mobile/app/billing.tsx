@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { BuyCreditsModal } from "../components/billing/BuyCreditsModal";
 import { Screen } from "../components/Screen";
@@ -136,13 +136,13 @@ export default function BillingScreen() {
   const isPlanUnavailable = entitlements.isError && !entitlements.data;
   const isFree = subStatus === "free" && planSlug === "free";
   const isPaidActive = subStatus === "active" && planSlug !== "free";
-  const isTrialing = subStatus === "trialing";
+  const hasLegacyActiveAccess = subStatus === "trialing";
   const isCanceledStatus = subStatus === "canceled";
 
   const accessUsable = planSlug !== "free" && !parsedDate.isPast;
   const isCancelingAtPeriodEnd = isCanceledStatus && accessUsable;
   const isFullyExpired = isCanceledStatus && parsedDate.isPast;
-  const canCancel = (isPaidActive || isTrialing) && accessUsable && !isConflict && !entitlements.isLoading;
+  const canCancel = (isPaidActive || hasLegacyActiveAccess) && accessUsable && !isConflict && !entitlements.isLoading;
 
   const hasDiscardedRows = (usage.data?.discarded_count || 0) > 0 || (purchaseHistory.data?.discarded_count || 0) > 0;
 
@@ -300,7 +300,7 @@ export default function BillingScreen() {
                   {
                     color: isPaidActive
                       ? colors.success
-                      : isTrialing
+                      : hasLegacyActiveAccess
                       ? colors.primary
                       : isCancelingAtPeriodEnd
                       ? colors.warning
@@ -312,8 +312,8 @@ export default function BillingScreen() {
                   ? "Cancellation Scheduled"
                   : isFree
                   ? "Free"
-                  : isTrialing
-                  ? "Active Trial"
+                  : hasLegacyActiveAccess
+                  ? "Active"
                   : isPaidActive
                   ? "Active Paid"
                   : isFullyExpired
@@ -325,8 +325,8 @@ export default function BillingScreen() {
                 <Text style={[styles.renewalDate, { color: colors.muted }]}>
                   {isCancelingAtPeriodEnd
                     ? `Ends ${parsedDate.formatted}`
-                    : isTrialing
-                    ? `Trial ends ${parsedDate.formatted}`
+                    : hasLegacyActiveAccess
+                    ? `Ends ${parsedDate.formatted}`
                     : isPaidActive
                     ? `Renews ${parsedDate.formatted}`
                     : `Ended ${parsedDate.formatted}`}
@@ -378,17 +378,26 @@ export default function BillingScreen() {
             <ActivityIndicator size="small" color={colors.primary} />
           </View>
         ) : (
-          <View style={styles.balanceGrid}>
-            {[
-              ["Monthly content", balances?.monthly_content_credits ?? 0],
-              ["Purchased", balances?.purchased_credits ?? 0],
-              ["Regeneration", balances?.monthly_regen_credits ?? 0],
-            ].map(([label, value]) => (
-              <View key={String(label)} style={[styles.balance, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Text style={[styles.balanceValue, { color: colors.text }]}>{value}</Text>
-                <Text style={[styles.label, { color: colors.muted }]}>{label}</Text>
+          <View style={{ gap: 12 }}>
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.label, { color: colors.muted }]}>Total available</Text>
+              <Text style={[styles.balanceValue, { color: colors.text }]}>{balances?.available_total ?? 0} credits</Text>
+            </View>
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.reason, { color: colors.text }]}>Plan credits</Text>
+              <View style={styles.balanceGrid}>
+                {[["Included", balances?.plan_allocated_credits ?? 0], ["Used", balances?.plan_used_credits ?? 0], ["Remaining", balances?.monthly_content_credits ?? 0]].map(([label, value]) => <View key={String(label)} style={styles.balanceMetric}><Text style={[styles.balanceValue, { color: colors.text }]}>{value}</Text><Text style={[styles.label, { color: colors.muted }]}>{label}</Text></View>)}
               </View>
-            ))}
+              <Text style={[styles.label, { color: colors.muted }]}>Plan credits are consumed first and reset with their plan cycle.</Text>
+            </View>
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.reason, { color: colors.text }]}>Purchased credits</Text>
+              {(balances?.purchased_total_credits ?? 0) === 0 ? <Text style={[styles.label, { color: colors.muted }]}>You haven&apos;t purchased any extra credits yet.</Text> : null}
+              <View style={styles.balanceGrid}>
+                {[["Purchased", balances?.purchased_total_credits ?? 0], ["Used", balances?.purchased_used_credits ?? 0], ["Remaining", balances?.purchased_credits ?? 0]].map(([label, value]) => <View key={String(label)} style={styles.balanceMetric}><Text style={[styles.balanceValue, { color: colors.text }]}>{value}</Text><Text style={[styles.label, { color: colors.muted }]}>{label}</Text></View>)}
+              </View>
+              <Text style={[styles.label, { color: colors.muted }]}>Purchased credits never expire and survive renewal, downgrade, or cancellation.</Text>
+            </View>
           </View>
         )}
 
@@ -499,6 +508,11 @@ export default function BillingScreen() {
                     <Text style={[styles.purchaseSubtext, { color: colors.muted }]}>
                       {unitPriceFormatted} per credit · {formattedDate || p.created_at}
                     </Text>
+                    {p.receipt_url ? (
+                      <Pressable onPress={() => void Linking.openURL(p.receipt_url!)} accessibilityRole="link">
+                        <Text style={[styles.purchaseSubtext, { color: colors.primary, fontWeight: "700" }]}>View Stripe receipt</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 </View>
               );
@@ -520,6 +534,7 @@ const styles = StyleSheet.create({
   bannerTitle: { fontWeight: "700", fontSize: 15 },
   bannerText: { fontSize: 13, lineHeight: 18 },
   label: { fontSize: 13, textTransform: "capitalize" },
+  balanceMetric: { flex: 1, minWidth: 80 },
   plan: { fontSize: 26, fontWeight: "800" },
   statusRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 },
   statusBadge: { fontSize: 14, fontWeight: "700", textTransform: "capitalize" },

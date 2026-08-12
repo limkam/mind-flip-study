@@ -32,3 +32,20 @@ def test_streak_extension_and_milestone_are_stable_derivatives() -> None:
 
 def test_started_or_unchanged_streak_does_not_celebrate_extension() -> None:
     assert events_for_trusted_row(row("assessment.completed", {"streak_change": "started", "streak_days": 1})) == []
+
+
+def test_achievement_unlock_is_returned_to_the_triggering_client() -> None:
+    event = row("assessment.completed", {
+        "achievement_unlocks": [{
+            "id": "achievement-1",
+            "title": "Quiz Starter",
+            "description": "Completed your first quiz.",
+            "major": True,
+        }],
+    })
+    result = events_for_trusted_row(event)
+    assert len(result) == 1
+    assert result[0].event_id == "achievement:achievement-1"
+    assert result[0].event_type == "achievement_unlock"
+    assert result[0].title == "Achievement unlocked: Quiz Starter"
+    assert result[0].metadata == {"major": True}

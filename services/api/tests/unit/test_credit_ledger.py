@@ -54,7 +54,7 @@ async def test_consume_burns_monthly_first(monkeypatch):
     # two entries added
     assert len(added) == 2
     metas = [getattr(o, "meta", {}) for o in added]
-    assert metas[0].get("consumed_from") == "monthly_allowance"
+    assert metas[0].get("consumed_from") == "plan_credits"
     assert metas[1].get("consumed_from") == "purchased_or_unlocked"
     assert getattr(added[0], "pool") == "content"
     assert getattr(added[1], "pool") == "purchased"

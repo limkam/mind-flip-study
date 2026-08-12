@@ -37,3 +37,22 @@ class FeedbackStatus(StrEnum):
     pending = "pending"
     reviewed = "reviewed"
     resolved = "resolved"
+
+
+class SupportConversationStatus(StrEnum):
+    open = "open"
+    resolved = "resolved"
+
+
+class SupportSenderType(StrEnum):
+    user = "user"
+    admin = "admin"
+
+
+class SupportCategory(StrEnum):
+    general = "general"
+    bug_report = "bug_report"
+    feature_request = "feature_request"
+    account = "account"
+    billing = "billing"
+    other = "other"

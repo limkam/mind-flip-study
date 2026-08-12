@@ -15,7 +15,14 @@ if (sentryDsn) {
 }
 
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const app = googleClientId ? (
+// OAuth must be deliberately enabled after every exact app origin has been
+// registered in Google Cloud. This avoids loading a known-to-fail third-party
+// iframe in misconfigured environments.
+const googleOAuthEnabled = Boolean(
+  googleClientId
+  && import.meta.env.VITE_GOOGLE_OAUTH_ENABLED === "true",
+);
+const app = googleOAuthEnabled ? (
   <GoogleOAuthProvider clientId={googleClientId}>
     <App />
   </GoogleOAuthProvider>

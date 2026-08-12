@@ -13,15 +13,19 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.plan import Plan
 from models.user import User
-from models.book import Book
-from models.flashcard import FlashcardSet
 from models.user_subscription import UserSubscription
 import services.credits as credits
+from services.usage_events import (
+    BOOK_UPLOADED,
+    FLASHCARDS_GENERATED,
+    consumed_quantity,
+    current_period_start,
+)
 
 
 class Action(Enum):
@@ -36,36 +40,29 @@ class Action(Enum):
 
 
 async def _user_plan_slug(db: AsyncSession, user: User) -> str:
-    # Prefer internal subscription rows if present and still paid-through.
+    # Prefer the latest internal subscription row. Once subscription history is
+    # known locally, never fall back to a potentially stale denormalized tier.
     now = datetime.now(timezone.utc)
     sub = await db.scalar(
         select(UserSubscription)
         .where(
             UserSubscription.user_id == user.id,
-            UserSubscription.current_period_end.is_not(None),
-            UserSubscription.current_period_end > now,
-            UserSubscription.status.in_(("active", "trialing", "past_due", "canceled")),
         )
-        .order_by(UserSubscription.current_period_end.desc())
+        .order_by(UserSubscription.current_period_end.desc().nullslast(), UserSubscription.created_at.desc())
         .limit(1)
     )
     if isinstance(sub, UserSubscription):
-        plan = await db.get(Plan, sub.plan_id)
-        if isinstance(plan, Plan) and isinstance(plan.slug, str) and plan.slug:
-            return str(plan.slug)
-
-    # Fallback to user's denormalized tier mapping.
-    tier = (user.subscription_tier or "").lower()
-    # Map legacy tiers to plan slugs
-    if tier in ("free", "free_tier"):
+        paid_through = sub.current_period_end is not None and sub.current_period_end > now
+        access_status = sub.status in ("active", "trialing", "past_due", "canceled")
+        if paid_through and access_status:
+            plan = await db.get(Plan, sub.plan_id)
+            if isinstance(plan, Plan) and isinstance(plan.slug, str) and plan.slug:
+                return str(plan.slug)
         return "free"
-    if tier in ("quick", "quick_7", "quick_72"):
-        return "quick_72"
-    if tier in ("premium", "premium_30"):
-        return "premium_30"
-    if tier in ("standard", "student", "standard_15"):
-        return "standard_15"
-    # default to free
+
+    # The denormalized User.subscription_tier is display/compatibility data only.
+    # Absence of a canonical subscription row is free access, even if that field
+    # is stale and still says "student" or "premium".
     return "free"
 
 
@@ -189,18 +186,12 @@ async def can_user_do(db: AsyncSession, user: User, action: Action, **kwargs: An
 
     # Free allowances are lifetime. Paid allowances reset monthly and are
     # counted independently for each user.
-    period_start = None
-    if plan_slug != "free":
-        now = datetime.now(timezone.utc)
-        period_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    period_start = current_period_start(lifetime=plan_slug == "free")
 
     if action == Action.CREATE_BOOK:
         max_books = features.get("max_books")
         if max_books is not None:
-            filters = [Book.user_id == user.id]
-            if period_start is not None:
-                filters.append(Book.created_at >= period_start)
-            n = await db.scalar(select(func.count(Book.id)).where(*filters))
+            n = await consumed_quantity(db, user.id, BOOK_UPLOADED, period_start=period_start)
             if int(n or 0) >= int(max_books):
                 return {"allowed": False, "reason": "book_limit"}
         return {"allowed": True}
@@ -208,10 +199,7 @@ async def can_user_do(db: AsyncSession, user: User, action: Action, **kwargs: An
     if action == Action.CREATE_SET:
         max_sets = features.get("max_sets")
         if max_sets is not None:
-            filters = [FlashcardSet.user_id == user.id]
-            if period_start is not None:
-                filters.append(FlashcardSet.created_at >= period_start)
-            n = await db.scalar(select(func.count(FlashcardSet.id)).where(*filters))
+            n = await consumed_quantity(db, user.id, FLASHCARDS_GENERATED, period_start=period_start)
             if int(n or 0) >= int(max_sets):
                 return {"allowed": False, "reason": "set_limit"}
         return {"allowed": True}

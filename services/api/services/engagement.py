@@ -240,8 +240,15 @@ async def emit_trusted_event(
         else []
     )
     authorized_achievement_ids: list[str] = []
+    achievement_unlocks: list[dict[str, str | bool]] = []
     for achievement in awarded:
         meta = dict(achievement.metadata_ or {})
+        achievement_unlocks.append({
+            "id": str(achievement.id),
+            "title": str(meta.get("title") or "New achievement"),
+            "description": str(meta.get("description") or "You reached a meaningful learning milestone."),
+            "major": bool(meta.get("major", False)),
+        })
         await create_notification(
             db,
             user_id=user_id,
@@ -272,6 +279,7 @@ async def emit_trusted_event(
         row.metadata_ = {
             **row.metadata_,
             "authorized_achievement_email_ids": authorized_achievement_ids,
+            "achievement_unlocks": achievement_unlocks,
         }
         await db.commit()
     # Celery performs durable email scheduling after the trusted transaction;

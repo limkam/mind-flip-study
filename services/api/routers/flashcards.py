@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Annotated
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -19,6 +19,7 @@ from models.enums import QuizChallengeStatus
 from models.flashcard import Flashcard, FlashcardSet
 from models.quiz import QuizChallenge
 from models.user import User
+from models.usage_event import UsageEvent, UsageReservation
 from scenario_regeneration import regenerate_all_scenarios_sync, replace_set_scenarios_in_description
 from services import credits
 from services.entitlements import (
@@ -27,6 +28,7 @@ from services.entitlements import (
     _user_plan_slug,
     can_user_do,
 )
+from services.usage_events import FLASHCARDS_GENERATED, current_period_start, record_usage
 from schemas.flashcards_api import (
     FlashcardOut,
     FlashcardSetCreate,
@@ -174,6 +176,21 @@ async def create_flashcard_set(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> FlashcardSetOut:
+    await db.execute(select(User.id).where(User.id == current_user.id).with_for_update())
+    if body.operation_id is not None:
+        prior = await db.scalar(
+            select(UsageEvent).where(
+                UsageEvent.idempotency_key == f"flashcard-set:{body.operation_id}"
+            )
+        )
+        if prior is not None:
+            existing_set = await db.get(FlashcardSet, prior.resource_id)
+            if existing_set is not None and existing_set.user_id == current_user.id:
+                return await _serialize_set(db, existing_set)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This generation operation was already completed and its usage remains consumed.",
+            )
     ent = await can_user_do(db, current_user, EntitlementAction.CREATE_SET)
     if not ent.get("allowed"):
         raise HTTPException(
@@ -197,6 +214,17 @@ async def create_flashcard_set(
         tags=tags,
     )
     db.add(s)
+    await db.flush()
+    await record_usage(
+        db,
+        user_id=current_user.id,
+        event_type=FLASHCARDS_GENERATED,
+        resource_type="flashcard_set",
+        resource_id=s.id,
+        period_start=current_period_start(lifetime=False),
+        idempotency_key=f"flashcard-set:{body.operation_id or s.id}",
+        metadata={"operation_id": str(body.operation_id)} if body.operation_id else {"source": "direct_create"},
+    )
     await db.commit()
     await db.refresh(s)
     return await _serialize_set(db, s)
@@ -272,6 +300,25 @@ async def enqueue_generate_flashcards(
                 message="Returning the complete existing flashcard set.",
             )
 
+    await db.execute(select(User.id).where(User.id == current_user.id).with_for_update())
+    operation_key = f"flashcard-generation:{body.operation_id}" if body.operation_id else None
+    if operation_key:
+        completed = await db.scalar(
+            select(UsageEvent).where(UsageEvent.idempotency_key == operation_key)
+        )
+        if completed is not None:
+            return JobEnqueueResponse(
+                job_id=f"existing-{completed.resource_id}",
+                set_id=str(completed.resource_id),
+                reused=True,
+                message="This generation operation was already completed.",
+            )
+        existing_reservation = await db.scalar(
+            select(UsageReservation).where(UsageReservation.operation_key == operation_key)
+        )
+        if existing_reservation is not None:
+            return JobEnqueueResponse(job_id=existing_reservation.task_id)
+
     ent = await can_user_do(db, current_user, EntitlementAction.CREATE_SET)
     if not ent.get("allowed"):
         raise HTTPException(
@@ -293,15 +340,41 @@ async def enqueue_generate_flashcards(
             reason="create_set",
         )
 
-    task = generate_flashcards_task.delay(
-        str(body.book_id),
-        str(current_user.id),
-        body.title,
-        int(body.num_cards),
-        selected_chapters=chapters,
-        summary_detail_level=body.summary_detail_level,
-        pipeline_version=GENERATION_PIPELINE_VERSION,
+    task_id = str(uuid4())
+    operation_key = operation_key or f"flashcard-generation:{task_id}"
+    db.add(
+        UsageReservation(
+            user_id=current_user.id,
+            event_type=FLASHCARDS_GENERATED,
+            operation_key=operation_key,
+            task_id=task_id,
+        )
     )
+    await db.commit()
+    try:
+        task = generate_flashcards_task.apply_async(
+            args=[
+                str(body.book_id),
+                str(current_user.id),
+                body.title,
+                int(body.num_cards),
+            ],
+            kwargs={
+                "selected_chapters": chapters,
+                "summary_detail_level": body.summary_detail_level,
+                "pipeline_version": GENERATION_PIPELINE_VERSION,
+                "operation_id": str(body.operation_id) if body.operation_id else None,
+            },
+            task_id=task_id,
+        )
+    except Exception:
+        reservation = await db.scalar(
+            select(UsageReservation).where(UsageReservation.task_id == task_id)
+        )
+        if reservation is not None:
+            await db.delete(reservation)
+            await db.commit()
+        raise
     return JobEnqueueResponse(job_id=task.id)
 
 

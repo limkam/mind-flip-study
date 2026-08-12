@@ -1,6 +1,8 @@
 from collections.abc import AsyncGenerator
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+import time
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -84,6 +86,20 @@ AsyncSessionLocal: async_sessionmaker[AsyncSession] | None = None
 def init_engine(database_url: str):
     global engine, AsyncSessionLocal
     engine = create_engine(database_url)
+    # SQLAlchemy events attach to the synchronous engine underlying AsyncEngine.
+    # Aggregate timings are associated with the current request via a ContextVar.
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        conn.info.setdefault("mindflip_query_started", []).append(time.perf_counter())
+
+    @event.listens_for(engine.sync_engine, "after_cursor_execute")
+    def _after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        starts = conn.info.get("mindflip_query_started") or []
+        if not starts:
+            return
+        from middleware.performance_timing import record_sql
+
+        record_sql((time.perf_counter() - starts.pop()) * 1000)
     AsyncSessionLocal = async_sessionmaker(
         bind=engine,
         class_=AsyncSession,

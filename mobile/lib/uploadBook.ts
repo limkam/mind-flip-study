@@ -17,6 +17,7 @@ export type UploadBookOptions = {
   subject?: string;
   tags?: string[];
   onProgress?: (phase: "uploading" | "creating") => void;
+  operationId?: string;
 };
 
 /** Derive book title from file name (no PDF parsing). */
@@ -43,6 +44,7 @@ export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<{ i
     subject = "other",
     tags = [],
     onProgress,
+    operationId,
   } = opts;
   const contentType = mimeType || "application/pdf";
 
@@ -65,6 +67,7 @@ export async function uploadBookFromPicker(opts: UploadBookOptions): Promise<{ i
   onProgress?.("creating");
 
   const { data: book } = await api.post<{ id: string }>("/books/", {
+    operation_id: operationId,
     title: title.trim(),
     author: author.trim(),
     s3_key: presign.s3_key,

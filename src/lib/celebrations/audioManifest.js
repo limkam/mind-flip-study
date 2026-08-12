@@ -7,9 +7,16 @@ const categories = {
   streak_milestone: "streak", course_complete: "achievement",
 };
 
-// Production audio is intentionally disabled until approved compressed assets are supplied.
+const sources = {
+  lesson_complete: "/audio/celebration-power-up.ogg",
+  achievement_unlock: "/audio/achievement-unlock.ogg",
+  streak_extended: "/audio/celebration-power-up.ogg",
+  streak_milestone: "/audio/achievement-unlock.ogg",
+  course_complete: "/audio/achievement-unlock.ogg",
+};
+
 export const audioAssetManifest = Object.freeze(SOUND_KEYS.map((key) => Object.freeze({
-  key, src: undefined, category: categories[key], enabled: false, preload: "none", volume: 0.7, maxDurationMs: 8_000,
+  key, src: sources[key], category: categories[key], enabled: true, preload: "metadata", volume: 0.7, maxDurationMs: 8_000,
 })));
 
 export function validateAudioManifest(entries = audioAssetManifest) {

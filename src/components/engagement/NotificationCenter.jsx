@@ -21,9 +21,11 @@ export default function NotificationCenter() {
     queryKey: ["notifications-unread"],
     queryFn: async () => (await client.get("/engagement/notifications/unread-count")).data,
     retry: (failureCount, error) => error?.response?.status !== 401 && failureCount < 2,
+    // Notifications are secondary UI. Poll less aggressively while closed so
+    // navigation does not continually compete with primary content queries.
     refetchInterval: (query) => query.state.error?.response?.status === 401
       ? false
-      : (open ? 30_000 : 60_000),
+      : (open ? 60_000 : 5 * 60_000),
   });
   const { data, isLoading, isError } = useQuery({
     queryKey: ["notifications", "recent"],

@@ -12,7 +12,8 @@ import SessionSummary from "@/components/study/SessionSummary";
 import { RatingOnboarding } from "@/components/study/RatingHelp";
 import { studyThemeFromUser } from "@/lib/studyTheme";
 import { useCelebration } from "@/lib/celebrations/CelebrationContext";
-import { parseTrustedCelebrationEvents } from "@/lib/celebrations/trustedEvents";
+import { parseTrustedCelebrationEvents, refreshAchievementSurfaces } from "@/lib/celebrations/trustedEvents";
+import { fetchAllBooksPages } from "@/lib/fetchAllBooksPages";
 
 const RATING_TO_QUALITY = { hard: 2, medium: 3, easy: 5 };
 
@@ -56,11 +57,8 @@ export default function DailyReview() {
   const { requestMany } = useCelebration();
 
   const { data: books = [] } = useQuery({
-    queryKey: ["books-daily-review"],
-    queryFn: async () => {
-      const { data } = await client.get("/books/", { params: { page: 1, size: 100 } });
-      return data.items || [];
-    },
+    queryKey: ["books"],
+    queryFn: fetchAllBooksPages,
     enabled: !!user,
   });
 
@@ -70,21 +68,24 @@ export default function DailyReview() {
   );
 
   const booksInitialized = books.length > 0 && Object.keys(selectedBooks).length > 0;
+  const reviewBookScope = !booksInitialized || activeBookIds.length === books.length
+    ? "all"
+    : activeBookIds;
 
   const {
     data: reviewItems = [],
     isPending,
     isFetching,
   } = useQuery({
-    queryKey: ["daily-review-queue", user?.id, activeBookIds, hardOnly],
-    enabled: !!user && booksInitialized && activeBookIds.length > 0,
+    queryKey: ["daily-review-queue", user?.id, reviewBookScope, hardOnly],
+    enabled: !!user && (!booksInitialized || activeBookIds.length > 0),
     placeholderData: keepPreviousData,
     queryFn: async () => {
       const params = { limit: 100 };
-      if (activeBookIds.length === 1) {
-        params.book_id = activeBookIds[0];
-      } else if (activeBookIds.length > 1) {
-        params.book_ids = activeBookIds;
+      if (reviewBookScope !== "all" && reviewBookScope.length === 1) {
+        params.book_id = reviewBookScope[0];
+      } else if (reviewBookScope !== "all" && reviewBookScope.length > 1) {
+        params.book_ids = reviewBookScope;
       }
 
       const { data: rows } = await client.get("/study/daily-review", {
@@ -92,10 +93,10 @@ export default function DailyReview() {
         paramsSerializer: { indexes: null },
       });
 
-      const idSet = new Set(activeBookIds.map(String));
-      const filtered = (rows || []).filter(
-        (r) => r.book_id && idSet.has(String(r.book_id)),
-      );
+      const idSet = reviewBookScope === "all" ? null : new Set(reviewBookScope.map(String));
+      const filtered = idSet
+        ? (rows || []).filter((r) => r.book_id && idSet.has(String(r.book_id)))
+        : (rows || []);
       return mapReviewRows(filtered);
     },
   });
@@ -117,11 +118,12 @@ export default function DailyReview() {
   }, [selectedChapters, availableChapters]);
 
   const displayItems = useMemo(() => {
+    if (booksInitialized && activeBookIds.length === 0) return [];
     if (activeChapterNames === null) return reviewItems;
     if (activeChapterNames.length === 0) return [];
     const allowed = new Set(activeChapterNames);
     return reviewItems.filter((i) => i.card.chapter && allowed.has(i.card.chapter));
-  }, [reviewItems, activeChapterNames]);
+  }, [reviewItems, activeChapterNames, booksInitialized, activeBookIds.length]);
 
   const count = displayItems.length;
 
@@ -184,7 +186,10 @@ export default function DailyReview() {
         quality,
       });
       const trustedEvents = parseTrustedCelebrationEvents(data);
-      if (trustedEvents.length) requestMany(trustedEvents);
+      if (trustedEvents.length) {
+        requestMany(trustedEvents);
+        refreshAchievementSurfaces(queryClient, trustedEvents);
+      }
       void queryClient.invalidateQueries({ queryKey: ["scorecards"] });
       await queryClient.invalidateQueries({ queryKey: ["daily-review-queue"] });
       if (currentIdx >= count - 1) {
@@ -267,7 +272,7 @@ export default function DailyReview() {
 
   if (!user) return null;
 
-  const initialLoading = isPending && reviewItems.length === 0 && activeBookIds.length > 0;
+  const initialLoading = isPending && reviewItems.length === 0;
 
   if (initialLoading) {
     return (

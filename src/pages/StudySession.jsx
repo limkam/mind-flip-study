@@ -47,7 +47,7 @@ import { logGameEvent } from "@/lib/gameLifecycle";
 import { fetchEntitlementsSnapshot } from "@/lib/billing";
 import ContextualNudge from "@/components/engagement/ContextualNudge";
 import { useCelebration } from "@/lib/celebrations/CelebrationContext";
-import { parseTrustedCelebrationEvents } from "@/lib/celebrations/trustedEvents";
+import { parseTrustedCelebrationEvents, refreshAchievementSurfaces } from "@/lib/celebrations/trustedEvents";
 
 export default function StudySession() {
   const { id } = useParams();
@@ -191,7 +191,10 @@ export default function StudySession() {
           quality,
         });
         const trustedEvents = parseTrustedCelebrationEvents(record);
-        if (trustedEvents.length) requestMany(trustedEvents);
+        if (trustedEvents.length) {
+          requestMany(trustedEvents);
+          refreshAchievementSurfaces(queryClient, trustedEvents);
+        }
         void queryClient.invalidateQueries({ queryKey: ["scorecards"] });
         setCardProgressMap((prev) => ({
           ...prev,
@@ -244,7 +247,10 @@ export default function StudySession() {
           },
         });
         const trustedEvents = parseTrustedCelebrationEvents(savedResult);
-        if (trustedEvents.length) requestMany(trustedEvents);
+        if (trustedEvents.length) {
+          requestMany(trustedEvents);
+          refreshAchievementSurfaces(queryClient, trustedEvents);
+        }
         void queryClient.invalidateQueries({ queryKey: ["scorecards"] });
         queryClient.invalidateQueries({ queryKey: ["quiz-results"] });
         queryClient.invalidateQueries({ queryKey: ["analytics-summary"] });
@@ -287,7 +293,10 @@ export default function StudySession() {
           },
         });
         const trustedEvents = parseTrustedCelebrationEvents(savedResult);
-        if (trustedEvents.length) requestMany(trustedEvents);
+        if (trustedEvents.length) {
+          requestMany(trustedEvents);
+          refreshAchievementSurfaces(queryClient, trustedEvents);
+        }
         void queryClient.invalidateQueries({ queryKey: ["scorecards"] });
         queryClient.invalidateQueries({ queryKey: ["quiz-results"] });
         queryClient.invalidateQueries({ queryKey: ["analytics-summary"] });

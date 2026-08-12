@@ -12,3 +12,11 @@ export function parseTrustedCelebrationEvents(response) {
       metadata: item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata) ? item.metadata : {} }];
   });
 }
+
+export function refreshAchievementSurfaces(queryClient, events) {
+  if (!events.some((event) => event.type === "achievement_unlock")) return;
+  void queryClient.invalidateQueries({ queryKey: ["achievements"] });
+  void queryClient.invalidateQueries({ queryKey: ["notifications-unread"] });
+  void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+  void queryClient.invalidateQueries({ queryKey: ["engagement-nudge"] });
+}

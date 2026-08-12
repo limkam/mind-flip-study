@@ -390,6 +390,7 @@ Project → **Settings → Environment Variables** (Production):
 |----------|-------|
 | `VITE_API_URL` | `https://api.mindflip.io` |
 | `VITE_GOOGLE_CLIENT_ID` | Google Web client ID (same as `GOOGLE_CLIENT_ID` on API) |
+| `VITE_GOOGLE_OAUTH_ENABLED` | Set `true` only after every deployed origin is authorized in Google Cloud |
 | `VITE_ENV` | `production` |
 | `VITE_SENTRY_DSN` | Optional |
 | `VITE_SUBSCRIPTIONS_ENABLED` | `true` when Stripe is live |

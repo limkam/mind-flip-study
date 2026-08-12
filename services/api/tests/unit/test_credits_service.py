@@ -37,6 +37,18 @@ async def test_award_onetime_credits():
 
 
 @pytest.mark.asyncio
+async def test_award_onetime_credits_links_ledger_to_checkout_session():
+    mock_db = AsyncMock(spec=AsyncSession)
+    user_id = uuid4()
+
+    await award_onetime_credits_for_user(mock_db, user_id, 3, stripe_session_id="cs_paid_123")
+
+    entry = mock_db.add.call_args.args[0]
+    assert entry.idempotency_key == "stripe_checkout:cs_paid_123:credits"
+    assert entry.meta["stripe_session_id"] == "cs_paid_123"
+
+
+@pytest.mark.asyncio
 async def test_award_onetime_credits_fallback_non_expiring_when_no_subscription_period():
     mock_db = AsyncMock(spec=AsyncSession)
     mock_db.scalar = AsyncMock(return_value=None)
@@ -141,4 +153,3 @@ async def test_consume_extra_credits_insufficient_throws_402():
             )
         assert exc_info.value.status_code == 402
         assert exc_info.value.detail["code"] == "INSUFFICIENT_CREDITS"
-

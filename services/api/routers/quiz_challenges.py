@@ -80,11 +80,21 @@ async def list_challenges(
         ),
     )
     challenges = r.scalars().all()
+    user_ids = {ch.challenger_id for ch in challenges} | {ch.challengee_id for ch in challenges}
+    set_ids = {ch.set_id for ch in challenges}
+    users = {}
+    sets = {}
+    if user_ids:
+        user_rows = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+        users = {user.id: user for user in user_rows}
+    if set_ids:
+        set_rows = (await db.execute(select(FlashcardSet).where(FlashcardSet.id.in_(set_ids)))).scalars().all()
+        sets = {flashcard_set.id: flashcard_set for flashcard_set in set_rows}
     out: list[dict[str, Any]] = []
     for ch in challenges:
-        cu = await db.get(User, ch.challenger_id)
-        ce = await db.get(User, ch.challengee_id)
-        fs = await db.get(FlashcardSet, ch.set_id)
+        cu = users.get(ch.challenger_id)
+        ce = users.get(ch.challengee_id)
+        fs = sets.get(ch.set_id)
         if cu and ce and fs:
             out.append(_serialize_challenge(ch, cu, ce, fs))
     out.sort(key=lambda x: x.get("created_at") or "", reverse=True)

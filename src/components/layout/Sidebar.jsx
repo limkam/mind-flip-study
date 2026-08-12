@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { MindFlipBrand } from "@/components/brand/MindFlipLogo";
 import { fetchEntitlementsSnapshot } from "@/lib/billing";
+import { routePreloads } from "@/lib/routeModules";
 
 const navItems = [
   { path: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -65,6 +66,9 @@ function NavLinks({ user, collapsed, onLinkClick, mobileSheet = false }) {
             key={item.path}
             to={item.path}
             onClick={onLinkClick}
+            onMouseEnter={() => void routePreloads[item.path]?.()}
+            onFocus={() => void routePreloads[item.path]?.()}
+            onTouchStart={() => void routePreloads[item.path]?.()}
             style={isActive ? { backgroundColor: "hsl(var(--theme-highlight))" } : undefined}
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group
               ${
@@ -100,6 +104,8 @@ function NavLinks({ user, collapsed, onLinkClick, mobileSheet = false }) {
                 key={item.path}
                 to={item.path}
                 onClick={onLinkClick}
+                onMouseEnter={() => void routePreloads[item.path]?.()}
+                onFocus={() => void routePreloads[item.path]?.()}
                 style={isActive ? { backgroundColor: "hsl(var(--theme-highlight))" } : undefined}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group
                   ${
@@ -193,7 +199,7 @@ export function MobileNav({ user, headerActions }) {
           {primaryItems.map((item) => {
             const active = isActive(item);
             return (
-              <Link key={item.path} to={item.path} className={`group relative flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold ${active ? "text-primary" : "text-muted-foreground"}`}>
+              <Link key={item.path} to={item.path} onTouchStart={() => void routePreloads[item.path]?.()} onMouseEnter={() => void routePreloads[item.path]?.()} onFocus={() => void routePreloads[item.path]?.()} className={`group relative flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold ${active ? "text-primary" : "text-muted-foreground"}`}>
                 {item.featured ? (
                   <span className={`-mt-7 flex h-12 w-12 items-center justify-center rounded-2xl border-4 border-background bg-gradient-to-br from-primary to-accent text-white shadow-lg shadow-primary/25 ${active ? "scale-105" : ""}`}>
                     <item.icon className="h-5 w-5" />

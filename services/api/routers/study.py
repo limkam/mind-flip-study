@@ -297,12 +297,14 @@ async def get_daily_review_queue(
             Flashcard,
             FlashcardSet.title,
             FlashcardSet.book_id,
+            Book.title,
             CardProgress.ease_factor,
             CardProgress.interval_days,
             CardProgress.next_review_date,
             CardProgress.repetitions,
         )
         .join(FlashcardSet, FlashcardSet.id == Flashcard.set_id)
+        .outerjoin(Book, Book.id == FlashcardSet.book_id)
         .outerjoin(
             CardProgress,
             and_(
@@ -328,21 +330,15 @@ async def get_daily_review_queue(
     if chapter:
         stmt = stmt.where(Flashcard.chapter == chapter)
     if subject:
-        stmt = stmt.join(Book, Book.id == FlashcardSet.book_id).where(
+        stmt = stmt.where(
             Book.extras["subject"].astext == subject,
         )
 
     stmt = stmt.order_by(CardProgress.next_review_date.asc().nullsfirst()).limit(limit)
     r = await db.execute(stmt)
     rows = r.all()
-    book_ids = {bid for _, _, bid, _, _, _, _ in rows if bid}
-    book_titles: dict[Any, str] = {}
-    if book_ids:
-        br = await db.execute(select(Book).where(Book.id.in_(book_ids)))
-        book_titles = {b.id: b.title for b in br.scalars().all()}
-
     out: list[DueFlashcardOut] = []
-    for flashcard, set_title, b_id, ef, iv, nrd, rep in rows:
+    for flashcard, set_title, b_id, book_title, ef, iv, nrd, rep in rows:
         out.append(
             DueFlashcardOut(
                 id=flashcard.id,
@@ -354,7 +350,7 @@ async def get_daily_review_queue(
                 chapter=flashcard.chapter,
                 difficulty=flashcard.difficulty,
                 book_id=b_id,
-                book_title=book_titles.get(b_id) if b_id else None,
+                book_title=book_title,
                 ease_factor=ef,
                 interval_days=iv,
                 next_review_date=nrd,
@@ -422,5 +418,3 @@ async def complete_daily_review(
     tx = await process_daily_review_completion_xp(db, user_id=current_user.id, date_str=str(today_date))
     await db.commit()
     return {"xp_awarded": tx.amount if tx else 0, "status": "completed"}
-
-

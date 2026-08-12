@@ -12,9 +12,9 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import BuyCreditsModal from "@/components/billing/BuyCreditsModal";
-import { cancelSubscriptionAtPeriodEnd, fetchBillingOverview, openCustomerPortal, syncSubscriptionFromStripe } from "@/lib/billing";
+import { cancelSubscriptionAtPeriodEnd, fetchBillingInvoices, fetchBillingOverview, fetchBillingPaymentMethod, fetchCreditPurchaseHistory, openCustomerPortal, syncSubscriptionFromStripe } from "@/lib/billing";
 import { planLabelFromSlug } from "@/lib/plans";
-import { annualSavings, daysUntil, formatBillingDate, formatMoney, remainingAllowance, usageLevel, usagePercentage } from "@/lib/billingView";
+import { annualSavings, formatBillingDate, formatMoney, remainingAllowance, usageLevel, usagePercentage } from "@/lib/billingView";
 import { getApiErrorMessage } from "@/lib/apiError";
 import { trackClientEvent } from "@/lib/analytics";
 
@@ -30,18 +30,28 @@ const REASON_LABELS = {
   create_set: "Flashcard set generated",
   regen: "Content regenerated",
 };
-const ACTIVITY_FILTERS = ["all", "usage", "allowances", "purchases"];
+const ACTIVITY_FILTERS = [
+  { value: "all", label: "All activity" },
+  { value: "added", label: "Credits added" },
+  { value: "used", label: "Credits used" },
+  { value: "purchases", label: "Purchases" },
+];
 const levelStyles = {
   normal: "bg-emerald-500", warning: "bg-amber-500", critical: "bg-orange-500", exhausted: "bg-destructive",
 };
 
+function retryTransientFailure(failureCount, error) {
+  const status = error?.response?.status;
+  return failureCount < 1 && (!status || status >= 500);
+}
+
 function statusLabel(subscription) {
   if (subscription.cancel_at_period_end) return "Canceling";
-  return ({ active: "Active", trialing: "Trialing", past_due: "Past due", canceled: "Canceled", free: "Free" })[subscription.status] || "Unknown";
+  return ({ active: "Active", trialing: "Active", past_due: "Past due", canceled: "Canceled", free: "Free" })[subscription.status] || "Unknown";
 }
 
 function BillingSkeleton() {
-  return <div className="mx-auto max-w-7xl space-y-6 pb-12"><Skeleton className="h-24 rounded-3xl" /><Skeleton className="h-72 rounded-3xl" /><div className="grid gap-4 md:grid-cols-2"><Skeleton className="h-48 rounded-2xl" /><Skeleton className="h-48 rounded-2xl" /></div></div>;
+  return <div className="space-y-6"><Skeleton className="h-72 rounded-3xl" /><div className="grid gap-4 md:grid-cols-2"><Skeleton className="h-48 rounded-2xl" /><Skeleton className="h-48 rounded-2xl" /></div></div>;
 }
 
 function UsageCard({ item }) {
@@ -78,7 +88,28 @@ export default function BillingUsage() {
     queryFn: fetchBillingOverview,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
-    retry: 1,
+    retry: retryTransientFailure,
+  });
+  const invoices = useQuery({
+    queryKey: ["billing-invoices"],
+    queryFn: fetchBillingInvoices,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: retryTransientFailure,
+  });
+  const paymentMethod = useQuery({
+    queryKey: ["billing-payment-method"],
+    queryFn: fetchBillingPaymentMethod,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: retryTransientFailure,
+  });
+  const purchaseHistory = useQuery({
+    queryKey: ["credit-purchase-history"],
+    queryFn: fetchCreditPurchaseHistory,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: retryTransientFailure,
   });
 
   useEffect(() => { trackClientEvent("billing_page_viewed"); }, []);
@@ -88,14 +119,14 @@ export default function BillingUsage() {
       const result = await syncSubscriptionFromStripe();
       if (result?.synced) await queryClient.invalidateQueries({ queryKey: ["billing-overview"] });
       return result;
-    }, enabled: overview.data?.subscription?.plan_slug === "free", retry: false, staleTime: 60_000,
+    }, enabled: overview.data?.subscription?.needs_reconciliation === true, retry: false, staleTime: 60_000,
   });
 
   const data = overview.data;
   const activity = useMemo(() => (data?.activity || []).filter((entry) => {
     if (filter === "all") return true;
-    if (filter === "usage") return entry.amount < 0;
-    if (filter === "allowances") return entry.reason.includes("allowance");
+    if (filter === "used") return entry.amount < 0;
+    if (filter === "added") return entry.amount > 0;
     return filter === "purchases" && entry.reason === "purchased_credits";
   }), [data?.activity, filter]);
 
@@ -130,16 +161,29 @@ export default function BillingUsage() {
     }
   };
 
-  if (overview.isLoading) return <BillingSkeleton />;
-  if (overview.isError || !data) return <div className="mx-auto max-w-xl rounded-3xl border border-destructive/20 bg-card p-8 text-center"><AlertCircle className="mx-auto h-10 w-10 text-destructive" /><h1 className="mt-4 text-2xl font-bold">Billing data is unavailable</h1><p className="mt-2 text-muted-foreground">We could not load your subscription or usage. No missing values have been shown as zero.</p><Button className="mt-6" onClick={() => overview.refetch()}><RefreshCw className="mr-2 h-4 w-4" />Try again</Button></div>;
+  if (overview.isLoading) return <div className="mx-auto max-w-7xl space-y-8 pb-14"><header><h1 className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">Billing &amp; Usage</h1><p className="mt-2 max-w-2xl text-muted-foreground">Manage your subscription, monitor monthly allowances, review credits, and access billing history.</p></header><BillingSkeleton /></div>;
+  if (overview.isError || !data) return <div className="mx-auto max-w-7xl space-y-8 pb-14"><header><h1 className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">Billing &amp; Usage</h1><p className="mt-2 max-w-2xl text-muted-foreground">Manage your subscription, monitor monthly allowances, review credits, and access billing history.</p></header><div className="mx-auto max-w-xl rounded-3xl border border-destructive/20 bg-card p-8 text-center"><AlertCircle className="mx-auto h-10 w-10 text-destructive" /><h2 className="mt-4 text-2xl font-bold">Billing data is unavailable</h2><p className="mt-2 text-muted-foreground">We could not load your subscription or usage. No missing values have been shown as zero.</p><Button className="mt-6" onClick={() => overview.refetch()}><RefreshCw className="mr-2 h-4 w-4" />Try again</Button></div></div>;
 
   const sub = data.subscription;
   const conflict = sub.state === "subscription_conflict";
   const paid = !conflict && sub.plan_slug !== "free";
   const planName = conflict ? "Subscription review required" : planLabelFromSlug(sub.plan_slug);
-  const renewalDays = daysUntil(sub.current_period_end);
   const nearLimit = data.usage.find((item) => usagePercentage(item.used, item.limit) >= 90);
-  const optionalCredits = data.credits.purchased + data.credits.monthly_regeneration + data.credits.purchased_regeneration;
+  const creditPosition = data.credits;
+  const hasAuthoritativeCreditPosition = Boolean(
+    creditPosition
+    && Number.isInteger(creditPosition.available_total)
+    && creditPosition.plan
+    && Number.isInteger(creditPosition.plan.allocated)
+    && Number.isInteger(creditPosition.plan.used)
+    && Number.isInteger(creditPosition.plan.remaining)
+    && creditPosition.purchased
+    && typeof creditPosition.purchased === "object"
+    && Number.isInteger(creditPosition.purchased.purchased_total)
+    && Number.isInteger(creditPosition.purchased.used)
+    && Number.isInteger(creditPosition.purchased.remaining)
+  );
+  const purchasedPosition = hasAuthoritativeCreditPosition ? creditPosition.purchased : null;
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 pb-14">
@@ -163,7 +207,7 @@ export default function BillingUsage() {
             </div>
             <div className="mt-7 flex items-end gap-2">
               <span className="text-4xl font-bold">{formatMoney(sub.amount_cents, sub.currency)}</span>
-              <span className="pb-1 text-muted-foreground">{paid ? (sub.billing_interval === "annual" ? "/ year" : "/ month") : "forever"}</span>
+              {paid ? <span className="pb-1 text-muted-foreground">{sub.billing_interval === "annual" ? "/ year" : "/ month"}</span> : null}
             </div>
             <p className="mt-5 text-sm text-muted-foreground">
               {sub.cancel_at_period_end ? `Your plan remains active until ${formatBillingDate(sub.current_period_end)}.` : paid ? `Your plan renews on ${formatBillingDate(sub.current_period_end)}.` : "Upgrade whenever you need higher monthly allowances."}
@@ -188,12 +232,23 @@ export default function BillingUsage() {
         <div className="rounded-3xl border border-border/70 bg-card p-6"><h2 className="font-heading text-xl font-bold">Your plan includes</h2><div className="mt-5 grid gap-x-8 sm:grid-cols-2">{[
           [BookOpen, "Books", `${data.usage.find(x => x.key === "books")?.limit} per month`], [Layers3, "Flashcard sets", `${data.usage.find(x => x.key === "flashcard_sets")?.limit} per month`], [FileText, "Cards per set", `Up to ${data.limits.cards_per_set}`], [Gamepad2, "Game modes", `${data.limits.games} modes · summary + ${data.limits.game_scenarios} scenarios`], [Sparkles, "Challenges", data.limits.challenges ? "Included" : "Not included in your plan"], [Users, "Study groups", data.limits.study_groups === "create_and_run" ? "Create and run" : "Join only"], [Zap, "Regeneration", ({ included: "Included", extra_credits: "Requires extra credits", not_included: "Not included" })[data.limits.regeneration]], [Check, "Daily Review", data.limits.daily_review === "unlimited" ? "Unlimited" : `${data.limits.daily_review} cards daily`],
         ].map(([Icon, label, value]) => <div key={label} className="flex gap-3 border-b border-border/60 py-4"><Icon className="mt-0.5 h-5 w-5 text-primary" /><div><p className="font-medium">{label}</p><p className="text-sm text-muted-foreground">{value}</p></div></div>)}</div></div>
-        <div className="rounded-3xl border border-border/70 bg-card p-6"><div className="flex items-center justify-between"><div><h2 className="font-heading text-xl font-bold">Credits wallet</h2><p className="text-sm text-muted-foreground">Shared and optional balances</p></div><WalletCards className="h-6 w-6 text-primary" /></div><div className="mt-5 rounded-2xl bg-muted/50 p-4"><p className="text-sm text-muted-foreground">Monthly content credits</p><p className="mt-1 text-3xl font-bold">{data.credits.monthly_content}</p><p className="mt-1 text-xs text-muted-foreground">Used for books and flashcard generation; expires at the monthly reset.</p></div><p className="mt-3 text-xs leading-5 text-muted-foreground">Creating content requires both an available feature allowance above and enough credits. Monthly credits are consumed first, followed by purchased credits.</p>{optionalCredits > 0 ? <div className="mt-3 grid grid-cols-2 gap-3 text-sm"><div className="rounded-xl border p-3"><span className="text-muted-foreground">Purchased</span><strong className="mt-1 block text-xl">{data.credits.purchased}</strong></div><div className="rounded-xl border p-3"><span className="text-muted-foreground">Regeneration</span><strong className="mt-1 block text-xl">{data.credits.monthly_regeneration + data.credits.purchased_regeneration}</strong></div></div> : <p className="mt-4 text-sm text-muted-foreground">No additional credits purchased. Your monthly plan allowances remain available above.</p>}<Button variant="outline" className="mt-5 w-full" onClick={() => { setBuying(true); trackClientEvent("credit_purchase_initiated"); }}>Buy credits</Button></div>
+        <div className="rounded-3xl border border-border/70 bg-card p-6">
+          <div className="flex items-center justify-between"><div><h2 className="font-heading text-xl font-bold">Credit balance</h2><p className="text-sm text-muted-foreground">Plan and purchased credits are tracked separately</p></div><WalletCards className="h-6 w-6 text-primary" /></div>
+          {hasAuthoritativeCreditPosition ? <>
+            <div className="mt-5 rounded-2xl bg-primary/10 p-4"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total available</p><p className="mt-1 text-3xl font-bold">{creditPosition.available_total} credits</p></div>
+            <div className="mt-3 rounded-2xl border p-4"><h3 className="font-semibold">Plan credits</h3><div className="mt-3 grid grid-cols-3 gap-2 text-sm"><div><span className="text-muted-foreground">Included</span><strong className="block text-xl">{creditPosition.plan.allocated}</strong></div><div><span className="text-muted-foreground">Used</span><strong className="block text-xl">{creditPosition.plan.used}</strong></div><div><span className="text-muted-foreground">Remaining</span><strong className="block text-xl">{creditPosition.plan.remaining}</strong></div></div><p className="mt-3 text-xs text-muted-foreground">Renewable plan credits are used first and reset at the plan-cycle boundary.</p></div>
+            <div className="mt-3 rounded-2xl border border-primary/20 p-4"><h3 className="font-semibold">Purchased credits</h3>{purchasedPosition.purchased_total === 0 ? <p className="mt-2 text-sm text-muted-foreground">You haven&apos;t purchased any extra credits yet.</p> : null}<div className="mt-3 grid grid-cols-3 gap-2 text-sm"><div><span className="text-muted-foreground">Purchased</span><strong className="block text-xl">{purchasedPosition.purchased_total}</strong></div><div><span className="text-muted-foreground">Used</span><strong className="block text-xl">{purchasedPosition.used}</strong></div><div><span className="text-muted-foreground">Remaining</span><strong className="block text-xl">{purchasedPosition.remaining}</strong></div></div><p className="mt-3 text-xs text-muted-foreground">Extra credits do not expire and survive renewal, downgrade, or cancellation.</p></div>
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">Plan credits are consumed first. Purchased credits are used only after eligible plan credits run out.</p>
+          </> : <div className="mt-5 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4" role="status"><p className="font-semibold">Credit accounting details are temporarily unavailable</p><p className="mt-1 text-sm text-muted-foreground">The server returned an older billing response. No missing values have been estimated.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => overview.refetch()}><RefreshCw className="mr-2 h-4 w-4" />Retry</Button></div>}
+          <Button variant="outline" className="mt-5 w-full" onClick={() => { setBuying(true); trackClientEvent("credit_purchase_initiated"); }}>Buy credits</Button>
+        </div>
       </section>
 
-      <section className="rounded-3xl border border-border/70 bg-card p-6"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-heading text-xl font-bold">Usage &amp; credit activity</h2><p className="text-sm text-muted-foreground">Every allowance grant and credit movement.</p></div><div className="flex flex-wrap gap-1 rounded-xl bg-muted p-1">{ACTIVITY_FILTERS.map((value) => <button key={value} type="button" onClick={() => setFilter(value)} className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize ${filter === value ? "bg-background shadow-sm" : "text-muted-foreground"}`}>{value}</button>)}</div></div><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="border-b text-muted-foreground"><tr><th className="py-3">Date</th><th>Activity</th><th>Source</th><th>Expires</th><th className="text-right">Change</th></tr></thead><tbody>{activity.map((entry) => <tr key={entry.id} className="border-b border-border/60"><td className="py-4 pr-4">{formatBillingDate(entry.created_at)}</td><td className="font-medium">{REASON_LABELS[entry.reason] || entry.reason.replaceAll("_", " ")}</td><td className="capitalize text-muted-foreground">{entry.pool}</td><td className="text-muted-foreground">{entry.expires_at ? formatBillingDate(entry.expires_at) : "Does not expire"}</td><td className={`text-right font-semibold ${entry.amount >= 0 ? "text-emerald-600" : "text-amber-600"}`}>{entry.amount > 0 ? "+" : ""}{entry.amount} credits</td></tr>)}</tbody></table>{!activity.length ? <div className="py-12 text-center"><RefreshCw className="mx-auto h-8 w-8 text-muted-foreground/40" /><p className="mt-3 font-medium">No matching activity</p><p className="text-sm text-muted-foreground">Allowance grants and usage will appear here.</p></div> : null}</div></section>
+      <section className="rounded-3xl border border-border/70 bg-card p-6"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-heading text-xl font-bold">Usage &amp; credit activity</h2><p className="text-sm text-muted-foreground">See credits added to and used from your balance.</p></div><div className="flex flex-wrap gap-1 rounded-xl bg-muted p-1">{ACTIVITY_FILTERS.map(({ value, label }) => <button key={value} type="button" onClick={() => setFilter(value)} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${filter === value ? "bg-background shadow-sm" : "text-muted-foreground"}`}>{label}</button>)}</div></div><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="border-b text-muted-foreground"><tr><th className="py-3">Date</th><th>Activity</th><th>Source</th><th>Expires</th><th className="text-right">Change</th></tr></thead><tbody>{activity.map((entry) => <tr key={entry.id} className="border-b border-border/60"><td className="py-4 pr-4">{formatBillingDate(entry.created_at)}</td><td className="font-medium">{REASON_LABELS[entry.reason] || entry.reason.replaceAll("_", " ")}</td><td className="capitalize text-muted-foreground">{entry.pool}</td><td className="text-muted-foreground">{entry.expires_at ? formatBillingDate(entry.expires_at) : "Does not expire"}</td><td className={`text-right font-semibold ${entry.amount >= 0 ? "text-emerald-600" : "text-amber-600"}`}>{entry.amount > 0 ? "+" : ""}{entry.amount} credits</td></tr>)}</tbody></table>{!activity.length ? <div className="py-12 text-center"><RefreshCw className="mx-auto h-8 w-8 text-muted-foreground/40" /><p className="mt-3 font-medium">No matching activity</p><p className="text-sm text-muted-foreground">Credit additions and usage will appear here.</p></div> : null}</div></section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]"><div className="rounded-3xl border border-border/70 bg-card p-6"><h2 className="font-heading text-xl font-bold">Payment &amp; invoice history</h2><div className="mt-5 space-y-3">{data.invoices.map((invoice) => <div key={invoice.id} className="flex flex-col gap-3 rounded-2xl border border-border/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{planName} subscription</p><p className="text-sm text-muted-foreground">{formatBillingDate(invoice.created_at)} · {formatMoney(invoice.amount_cents, invoice.currency)}</p></div><div className="flex items-center gap-2"><Badge variant="secondary" className="capitalize">{invoice.status}</Badge>{invoice.hosted_invoice_url || invoice.invoice_pdf ? <Button variant="outline" size="sm" asChild><a href={invoice.hosted_invoice_url || invoice.invoice_pdf} target="_blank" rel="noreferrer">View invoice</a></Button> : null}</div></div>)}{!data.invoices.length ? <div className="rounded-2xl bg-muted/40 py-10 text-center"><FileText className="mx-auto h-8 w-8 text-muted-foreground/40" /><p className="mt-2 font-medium">No invoices available</p><p className="text-sm text-muted-foreground">Verified Stripe invoices will appear here.</p></div> : null}</div></div><div className="rounded-3xl border border-border/70 bg-card p-6"><h2 className="font-heading text-xl font-bold">Payment method</h2>{data.payment_method ? <div className="mt-5 flex items-center gap-4 rounded-2xl bg-muted/50 p-4"><span className="rounded-xl bg-background p-3"><CreditCard className="h-6 w-6" /></span><div><p className="font-semibold capitalize">{data.payment_method.brand} •••• {data.payment_method.last4}</p><p className="text-sm text-muted-foreground">Expires {data.payment_method.exp_month}/{data.payment_method.exp_year}</p></div></div> : <div className="mt-5 rounded-2xl bg-muted/40 p-5 text-center"><LockKeyhole className="mx-auto h-7 w-7 text-muted-foreground/50" /><p className="mt-2 font-medium">Managed securely by Stripe</p><p className="text-sm text-muted-foreground">Payment details are not stored by MindFlip.</p></div>} {paid ? <Button variant="outline" className="mt-5 w-full" onClick={manage}>Update in Stripe</Button> : null}</div></section>
+      <section className="rounded-3xl border border-border/70 bg-card p-6"><h2 className="font-heading text-xl font-bold">Credit purchase history</h2><p className="text-sm text-muted-foreground">Authoritative one-time Stripe purchases, separate from subscription invoices.</p><div className="mt-5 space-y-3">{purchaseHistory.isLoading ? <Skeleton className="h-24 rounded-2xl" /> : purchaseHistory.isError ? <div className="rounded-2xl border border-destructive/20 p-5"><p>Purchase history is unavailable.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => purchaseHistory.refetch()}>Retry</Button></div> : purchaseHistory.data.purchases.map((purchase) => <div key={purchase.id} className="flex flex-col gap-3 rounded-2xl border border-border/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{purchase.quantity} {purchase.quantity === 1 ? "credit" : "credits"}</p><p className="text-sm text-muted-foreground">{formatBillingDate(purchase.created_at)} · {formatMoney(purchase.amount_paid_cents, purchase.currency)}</p></div><div className="flex items-center gap-2"><Badge variant="secondary" className="capitalize">{purchase.status}</Badge>{purchase.receipt_url ? <Button variant="outline" size="sm" asChild><a href={purchase.receipt_url} target="_blank" rel="noreferrer">View receipt</a></Button> : null}</div></div>)}{purchaseHistory.isSuccess && !purchaseHistory.data.purchases.length ? <div className="rounded-2xl bg-muted/40 py-10 text-center"><CreditCard className="mx-auto h-8 w-8 text-muted-foreground/40" /><p className="mt-2 font-medium">No credit purchases yet</p></div> : null}</div></section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]"><div className="rounded-3xl border border-border/70 bg-card p-6"><h2 className="font-heading text-xl font-bold">Payment &amp; invoice history</h2><div className="mt-5 space-y-3">{invoices.isLoading ? <Skeleton className="h-28 rounded-2xl" /> : invoices.isError ? <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="font-medium">Invoice history is unavailable</p><p className="mt-1 text-sm text-muted-foreground">Your subscription and credits are unaffected.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => invoices.refetch()}>Retry</Button></div> : invoices.data.map((invoice) => <div key={invoice.id} className="flex flex-col gap-3 rounded-2xl border border-border/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{planName} subscription</p><p className="text-sm text-muted-foreground">{formatBillingDate(invoice.created_at)} · {formatMoney(invoice.amount_cents, invoice.currency)}</p></div><div className="flex items-center gap-2"><Badge variant="secondary" className="capitalize">{invoice.status}</Badge>{invoice.hosted_invoice_url || invoice.invoice_pdf ? <Button variant="outline" size="sm" asChild><a href={invoice.hosted_invoice_url || invoice.invoice_pdf} target="_blank" rel="noreferrer">View invoice</a></Button> : null}</div></div>)}{invoices.isSuccess && !invoices.data.length ? <div className="rounded-2xl bg-muted/40 py-10 text-center"><FileText className="mx-auto h-8 w-8 text-muted-foreground/40" /><p className="mt-2 font-medium">No invoices available</p><p className="text-sm text-muted-foreground">Verified Stripe invoices will appear here.</p></div> : null}</div></div><div className="rounded-3xl border border-border/70 bg-card p-6"><h2 className="font-heading text-xl font-bold">Payment method</h2>{paymentMethod.isLoading ? <Skeleton className="mt-5 h-24 rounded-2xl" /> : paymentMethod.isError ? <div className="mt-5 rounded-2xl border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="font-medium">Payment method is unavailable</p><Button variant="outline" size="sm" className="mt-3" onClick={() => paymentMethod.refetch()}>Retry</Button></div> : paymentMethod.data ? <div className="mt-5 flex items-center gap-4 rounded-2xl bg-muted/50 p-4"><span className="rounded-xl bg-background p-3"><CreditCard className="h-6 w-6" /></span><div><p className="font-semibold capitalize">{paymentMethod.data.brand} •••• {paymentMethod.data.last4}</p><p className="text-sm text-muted-foreground">Expires {paymentMethod.data.exp_month}/{paymentMethod.data.exp_year}</p></div></div> : <div className="mt-5 rounded-2xl bg-muted/40 p-5 text-center"><LockKeyhole className="mx-auto h-7 w-7 text-muted-foreground/50" /><p className="mt-2 font-medium">Managed securely by Stripe</p><p className="text-sm text-muted-foreground">Payment details are not stored by MindFlip.</p></div>} {paid ? <Button variant="outline" className="mt-5 w-full" onClick={manage}>Update in Stripe</Button> : null}</div></section>
 
       <section className="flex flex-col gap-4 rounded-3xl border border-primary/15 bg-primary/[0.045] p-6 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-heading text-xl font-bold">Need different limits?</h2><p className="mt-1 text-sm text-muted-foreground">Compare monthly and annual plans. Standard 15 is the most popular option.</p>{data.subscription.plan_slug === "quick_72" ? <p className="mt-2 text-xs text-muted-foreground">Annual Quick 7 saves {formatMoney(annualSavings(399, 2400))} compared with 12 monthly payments.</p> : null}</div><Button asChild><Link to="/pricing">Compare all plans <ArrowUpRight className="ml-2 h-4 w-4" /></Link></Button></section>
       <BuyCreditsModal open={buying} onClose={() => setBuying(false)} />

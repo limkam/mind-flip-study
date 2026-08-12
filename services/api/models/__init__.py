@@ -4,6 +4,7 @@ from models.enums import (
     AssignmentStatus,
     BookStatus,
     FeedbackStatus,
+    SupportCategory,
     QuizChallengeStatus,
     UserRole,
     WorkbookStatus,
@@ -15,10 +16,11 @@ from models.flashcard import Flashcard, FlashcardSet, Folder, Workbook
 from models.quiz import CardProgress, QuizChallenge, QuizResult, StudyEvent
 from models.study_group import StudyGroup, StudyGroupMaterial, StudyGroupMember
 from models.user import User
-from models.feedback import Feedback
+from models.feedback import Feedback, SupportConversation, SupportMessage
 from models.plan import Plan
 from models.user_subscription import UserSubscription
 from models.credit_ledger import CreditLedger
+from models.usage_event import UsageEvent, UsageReservation
 from models.credit_purchase import CreditPurchase
 from models.token_usage import TokenUsage
 from models.billing_analytics import BillingEvent, BillingInvoice
@@ -42,6 +44,9 @@ __all__ = [
     "CreditPurchase",
     "Feedback",
     "FeedbackStatus",
+    "SupportCategory",
+    "SupportConversation",
+    "SupportMessage",
     "EngagementEvent",
     "EngagementPreference",
     "EngagementAutomationRun",

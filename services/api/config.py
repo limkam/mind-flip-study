@@ -89,8 +89,6 @@ class Settings(BaseSettings):
     BILLING_PRICE_CENTS_PREMIUM_MONTHLY: int = 899
     BILLING_PRICE_CENTS_PREMIUM_ANNUAL: int = 5400
     BILLING_DEFAULT_INTERVAL: str = "monthly"
-    TRIAL_ENABLED: bool = True
-    TRIAL_DAYS_PREMIUM: int = 7
     STRIPE_WEBHOOK_SECRET: str = ""
     FRONTEND_URL: str = "http://localhost:5173"
     MOBILE_CHECKOUT_SUCCESS_URL: str = "http://localhost:5173/mobile/billing/success"

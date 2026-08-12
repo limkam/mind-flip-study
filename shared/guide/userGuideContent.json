@@ -34,7 +34,7 @@
       "id": "account-and-billing",
       "title": "Account & Subscriptions",
       "icon": "credit-card",
-      "description": "Manage your profile, subscription tiers, extra AI generation credits, and trial status."
+      "description": "Manage your profile, subscription tiers, and extra AI generation credits."
     }
   ],
   "articles": [
@@ -239,10 +239,10 @@
     {
       "id": "subscriptions-and-ai-credits",
       "categoryId": "account-and-billing",
-      "title": "Subscription Plans, Extra Credits & Trials",
-      "summary": "Understand plan entitlements, extra AI credit usage, and trial activation.",
+      "title": "Subscription Plans & Extra Credits",
+      "summary": "Understand plan entitlements and extra AI credit usage.",
       "articleType": "reference",
-      "keywords": ["subscription", "credits", "billing", "trial", "pro", "free"],
+      "keywords": ["subscription", "credits", "billing", "pro", "free"],
       "action": {
         "type": "product_route",
         "webRoute": "/pricing",

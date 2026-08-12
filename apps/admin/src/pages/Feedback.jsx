@@ -1,146 +1,32 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import client from '../api/client';
-import DataTable from '../components/DataTable';
 
-function formatDateTime(iso) {
-  return new Date(iso).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-const STATUS_OPTIONS = [
-  { value: '', label: 'All statuses' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'reviewed', label: 'Reviewed' },
-  { value: 'resolved', label: 'Resolved' },
-];
+const filters = ['all', 'unread', 'read', 'resolved'];
+const categoryLabels = { bug_report: 'Bug Report', feature_request: 'Feature Request', account: 'Account', billing: 'Billing', general: 'General', other: 'Other' };
+const when = (iso) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const initials = (name) => name.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
 
 export default function Feedback() {
-  const queryClient = useQueryClient();
-  const [q, setQ] = useState('');
-  const [debouncedQ, setDebouncedQ] = useState('');
-  const [status, setStatus] = useState('');
-  const [page, setPage] = useState(1);
+  const qc = useQueryClient(); const [view, setView] = useState('overview'); const [range, setRange] = useState('7d'); const [filter, setFilter] = useState('all'); const [categoryFilter, setCategoryFilter] = useState(''); const [q, setQ] = useState(''); const [search, setSearch] = useState(''); const [selected, setSelected] = useState(null); const [reply, setReply] = useState(''); const [older, setOlder] = useState([]); const [olderCursor, setOlderCursor] = useState(null); const [loadingOlder, setLoadingOlder] = useState(false); const bottom = useRef(null); const selectedRef = useRef(null);
+  useEffect(() => { const timer = setTimeout(() => setSearch(q.trim()), 300); return () => clearTimeout(timer); }, [q]);
+  const dashboard = useQuery({ queryKey: ['support-dashboard', range], queryFn: async () => (await client.get('/admin/feedback/dashboard', { params: { range } })).data, refetchInterval: view === 'overview' ? 15000 : false, refetchOnWindowFocus: true });
+  const inbox = useQuery({ queryKey: ['support-inbox', filter, categoryFilter, search], queryFn: async () => (await client.get('/admin/feedback/conversations', { params: { filter, category: categoryFilter || undefined, q: search } })).data, refetchInterval: view === 'inbox' ? 15000 : false, refetchOnWindowFocus: true });
+  const chat = useQuery({ queryKey: ['support-chat', selected], enabled: !!selected, queryFn: async () => (await client.get(`/admin/feedback/conversations/${selected}`)).data, refetchInterval: 15000 });
+  useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth' }); }, [chat.data?.messages?.length]);
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['support-inbox'] }); qc.invalidateQueries({ queryKey: ['support-chat', selected] }); };
+  const send = useMutation({ mutationFn: ({ conversationId, message, key }) => client.post(`/admin/feedback/conversations/${conversationId}/messages`, { message, client_message_id: key }), onSuccess: (_data, variables) => { if (selectedRef.current === variables.conversationId) setReply(''); refresh(); } });
+  const lifecycle = useMutation({ mutationFn: (action) => client.post(`/admin/feedback/conversations/${selected}/${action}`), onSuccess: refresh });
+  const open = (id) => { setView('inbox'); selectedRef.current = id; setSelected(id); setOlder([]); setOlderCursor(null); if (window.innerWidth < 800) document.body.classList.add('support-chat-open'); };
+  const effectiveOlderCursor = olderCursor ?? (older.length === 0 ? chat.data?.next_cursor : null);
+  const loadOlder = async () => { if (!effectiveOlderCursor || loadingOlder) return; const conversationId = selected; setLoadingOlder(true); try { const { data } = await client.get(`/admin/feedback/conversations/${conversationId}`, { params: { before: effectiveOlderCursor } }); if (selectedRef.current === conversationId) { setOlder((items) => [...data.messages, ...items]); setOlderCursor(data.next_cursor); } } finally { if (selectedRef.current === conversationId) setLoadingOlder(false); } };
 
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedQ(q);
-      setPage(1);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [q]);
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['admin-feedback', debouncedQ, status, page],
-    queryFn: async () => {
-      const { data: res } = await client.get('/admin/feedback', {
-        params: {
-          q: debouncedQ,
-          status: status || undefined,
-          page,
-          size: 20,
-        },
-      });
-      return res;
-    },
-  });
-
-  const updateStatus = useMutation({
-    mutationFn: ({ id, newStatus }) => client.patch(`/admin/feedback/${id}`, { status: newStatus }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-feedback'] }),
-  });
-
-  const columns = [
-    {
-      key: 'created_at',
-      label: 'Submitted',
-      render: (row) => formatDateTime(row.created_at),
-    },
-    {
-      key: 'user_name',
-      label: 'User',
-      render: (row) => (
-        <div>
-          <div>{row.user_name}</div>
-          <div className="text-muted">{row.user_email}</div>
-        </div>
-      ),
-    },
-    { key: 'category', label: 'Category', render: (row) => row.category || '—' },
-    {
-      key: 'content',
-      label: 'Feedback',
-      render: (row) => <span className="feedback-content">{row.content}</span>,
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      render: (row) => (
-        <span className={`status-badge status-${row.status}`}>{row.status}</span>
-      ),
-    },
-  ];
-
-  const onStatusChange = useCallback(
-    (row, newStatus) => {
-      if (row.status === newStatus) return;
-      updateStatus.mutate({ id: row.id, newStatus });
-    },
-    [updateStatus],
-  );
-
-  return (
-    <div>
-      <h2 className="page-title">Feedback Management</h2>
-      <div className="filters-row">
-        <input
-          className="search-input"
-          type="search"
-          placeholder="Search feedback, user, or category…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <select
-          className="filter-select"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
-            setPage(1);
-          }}
-        >
-          {STATUS_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
-      </div>
-      {isLoading ? (
-        <p>Loading…</p>
-      ) : (
-        <DataTable
-          columns={columns}
-          rows={data?.items ?? []}
-          page={page}
-          total={data?.total ?? 0}
-          size={20}
-          onPageChange={setPage}
-          renderActions={(row) => (
-            <select
-              className="action-select"
-              value={row.status}
-              onChange={(e) => onStatusChange(row, e.target.value)}
-            >
-              <option value="pending">Mark pending</option>
-              <option value="reviewed">Mark reviewed</option>
-              <option value="resolved">Mark resolved</option>
-            </select>
-          )}
-        />
-      )}
-    </div>
-  );
+  return <div className="support-page"><div className="support-title-row"><div><h2>Feedback &amp; Support</h2><p>Operational support activity and user conversations</p></div>{view === 'inbox' && <input aria-label="Search conversations" type="search" placeholder="Search name, email or user ID…" value={q} onChange={(e) => setQ(e.target.value)} />}</div>
+    <div className="support-view-tabs"><button className={view === 'overview' ? 'active' : ''} onClick={() => setView('overview')}>Overview</button><button className={view === 'inbox' ? 'active' : ''} onClick={() => setView('inbox')}>Inbox {dashboard.data?.unread_conversations ? <b>{dashboard.data.unread_conversations}</b> : null}</button></div>
+    {view === 'overview' ? <div className="support-overview"><div className="support-overview-tools"><span>Dashboard</span><select aria-label="Dashboard date range" value={range} onChange={(e) => setRange(e.target.value)}><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option><option value="all">All time</option></select></div>{dashboard.isLoading ? <p className="support-state">Loading dashboard…</p> : dashboard.isError ? <button className="support-state" onClick={() => dashboard.refetch()}>Couldn’t load dashboard. Retry</button> : <><div className="support-kpis"><article><span>Open conversations</span><strong>{dashboard.data.open_conversations}</strong></article><article><span>Unread</span><strong>{dashboard.data.unread_conversations}</strong><small>Open conversations awaiting review</small></article><article><span>Resolved</span><strong>{dashboard.data.resolved_conversations}</strong></article><article><span>New conversations</span><strong>{dashboard.data.new_conversations}</strong><small>{range === 'all' ? 'All time' : `Last ${range.replace('d', ' days')}`}</small></article></div><div className="support-overview-grid"><section><h3>Open conversations by category</h3><p className="support-definition">Latest categorized user topic in currently open conversations.</p><div className="support-category-summary">{Object.entries(categoryLabels).map(([key, label]) => { const count = dashboard.data.categories.find((item) => item.category === key)?.count ?? 0; return <button key={key} onClick={() => { setCategoryFilter(key); setFilter('all'); setView('inbox'); }}><span>{label}</span><strong>{count}</strong></button>; })}</div></section><section><h3>Recent support activity</h3><div className="support-recent">{dashboard.data.recent_activity.length === 0 ? <p className="support-state">No support activity yet.</p> : dashboard.data.recent_activity.map((item) => <button key={item.id} onClick={() => open(item.id)}><span className="support-avatar">{initials(item.user_name)}</span><span><strong>{item.user_name}</strong><small>{categoryLabels[item.latest_user_category] || 'Uncategorized'} · {item.last_message_preview}</small></span><em>{item.status === 'resolved' ? 'Resolved' : item.admin_unread_count ? 'Unread' : 'Read'}</em></button>)}</div></section></div></>}</div> :
+    <div className="support-shell"><aside className={`support-list ${selected ? 'has-selection' : ''}`}><div className="support-tabs">{filters.map((item) => <button key={item} className={filter === item ? 'active' : ''} onClick={() => setFilter(item)}>{item[0].toUpperCase() + item.slice(1)}{item === 'unread' && inbox.data?.unread_conversations ? <b>{inbox.data.unread_conversations}</b> : null}</button>)}</div>
+      <div className="support-category-filter"><select aria-label="Filter by category" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}><option value="">All categories</option>{Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div><div className="support-rows">{inbox.isLoading && <p className="support-state">Loading conversations…</p>}{inbox.isError && <button className="support-state" onClick={() => inbox.refetch()}>Couldn’t load inbox. Retry</button>}{!inbox.isLoading && !inbox.data?.items?.length && <p className="support-state">No conversations here.</p>}{inbox.data?.items.map((item) => <button key={item.id} className={`support-row ${selected === item.id ? 'active' : ''}`} onClick={() => open(item.id)}><span className="support-avatar">{initials(item.user_name)}</span><span className="support-row-main"><strong>{item.user_name}</strong><small>{item.user_email}</small>{item.latest_user_category && <em className="support-category-badge">{categoryLabels[item.latest_user_category]}</em>}<span>{item.last_message_preview}</span></span><span className="support-row-meta"><time>{when(item.last_message_at)}</time>{item.admin_unread_count > 0 && <b>{item.admin_unread_count}</b>}{item.status === 'resolved' && <em>Resolved</em>}</span></button>)}</div></aside>
+      <section className={`support-chat ${selected ? 'visible' : ''}`}>{!selected ? <div className="support-placeholder"><strong>Select a conversation</strong><span>User messages and replies will appear here.</span></div> : chat.isLoading ? <p className="support-state">Loading messages…</p> : chat.isError ? <button className="support-state" onClick={() => chat.refetch()}>Couldn’t load conversation. Retry</button> : <><header className="support-chat-header"><button className="support-back" onClick={() => { selectedRef.current = null; setSelected(null); document.body.classList.remove('support-chat-open'); }} aria-label="Back to inbox">←</button><span className="support-avatar">{initials(chat.data.user_name)}</span><div><strong>{chat.data.user_name}</strong><span>{chat.data.user_email}</span></div><button className="support-lifecycle" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate(chat.data.status === 'resolved' ? 'reopen' : 'resolve')}>{chat.data.status === 'resolved' ? 'Reopen conversation' : 'Mark resolved'}</button></header>
+        <div className="support-messages">{effectiveOlderCursor && <button className="support-load-older" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</button>}{[...older, ...chat.data.messages].map((item) => <div key={item.id} className={`support-message ${item.sender_type}`}><small>{item.sender_type === 'admin' ? 'Support' : 'User'}{item.category ? ` · ${categoryLabels[item.category]}` : ''}</small><p>{item.body}</p><time>{when(item.created_at)}</time></div>)}<div ref={bottom} /></div>
+        {send.isError && <div className="support-send-error">Reply failed. Your draft is still here; try again.</div>}<form className="support-compose" onSubmit={(e) => { e.preventDefault(); if (reply.trim()) send.mutate({ conversationId: selected, message: reply.trim(), key: crypto.randomUUID() }); }}><textarea aria-label={`Reply to ${chat.data.user_name}`} placeholder={`Reply to ${chat.data.user_name}…`} value={reply} onChange={(e) => { setReply(e.target.value); if (send.isError) send.reset(); }} maxLength={5000} /><button disabled={!reply.trim() || send.isPending}>{send.isPending ? 'Sending…' : 'Send'}</button></form></>}</section></div>}</div>;
 }

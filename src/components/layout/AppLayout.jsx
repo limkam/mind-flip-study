@@ -1,10 +1,6 @@
 import React, { useEffect } from "react";
 import { Outlet } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
-import client from "@/api/client";
 import { useAuth } from "@/lib/AuthContext";
-import { fetchAllBooksPages } from "@/lib/fetchAllBooksPages";
-import { fetchEntitlementsSnapshot } from "@/lib/billing";
 import { DesktopSidebar, MobileNav } from "./Sidebar";
 import UpgradeBanner from "@/components/billing/UpgradeBanner";
 import { initTheme } from "@/lib/appTheme";
@@ -15,7 +11,6 @@ import NotificationCenter from "@/components/engagement/NotificationCenter";
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
-  const queryClient = useQueryClient();
   const notificationsEnabled = import.meta.env.VITE_ENGAGEMENT_NOTIFICATIONS_ENABLED !== "false";
 
   const handleLogout = async () => {
@@ -23,43 +18,6 @@ export default function AppLayout() {
     initTheme("indigo");
     await logout();
   };
-
-  useEffect(() => {
-    if (!user) return;
-    void queryClient.prefetchQuery({
-      queryKey: ["books"],
-      queryFn: () => fetchAllBooksPages(),
-    });
-    void queryClient.prefetchQuery({
-      queryKey: ["flashcard-sets"],
-      queryFn: async () => {
-        const { data } = await client.get("/flashcard-sets/", {
-          params: { include_cards: false },
-        });
-        return data;
-      },
-    });
-    void queryClient.prefetchQuery({
-      queryKey: ["analytics-summary"],
-      queryFn: async () => {
-        const { data } = await client.get("/analytics/summary");
-        return data;
-      },
-    });
-    void queryClient.prefetchQuery({
-      queryKey: ["billing-entitlements"],
-      queryFn: fetchEntitlementsSnapshot,
-    });
-    void queryClient.prefetchQuery({
-      queryKey: ["quiz-results", "dashboard-recent"],
-      queryFn: async () => {
-        const { data } = await client.get("/quiz-results/", {
-          params: { page: 1, size: 2 },
-        });
-        return data;
-      },
-    });
-  }, [user, queryClient]);
 
   useEffect(() => {
     initTheme(user?.preferences?.study_theme || "indigo");

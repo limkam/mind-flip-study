@@ -37,6 +37,11 @@ class EntitlementBalances(BaseModel):
     monthly_content_credits: int
     purchased_credits: int
     monthly_regen_credits: int
+    available_total: int
+    plan_allocated_credits: int
+    plan_used_credits: int
+    purchased_total_credits: int
+    purchased_used_credits: int
 
 
 class EntitlementFeatures(BaseModel):
@@ -78,10 +83,3 @@ class BillingPricingResponse(BaseModel):
 class SubscriptionCancelResponse(BaseModel):
     canceled_at_period_end: bool
     current_period_end: datetime | None = None
-
-
-class TrialEligibilityResponse(BaseModel):
-    eligible: bool
-    reason: str | None = None
-    signals: dict
-    trial_days: int = Field(7, description="Trial period duration in days")

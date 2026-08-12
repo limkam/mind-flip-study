@@ -9,7 +9,6 @@ const PLAIN_ENGLISH_MAP = {
   BILLING_UNAVAILABLE: "Billing services are temporarily unavailable.",
   PORTAL_UNAVAILABLE: "Subscription management is temporarily unavailable.",
   CHECKOUT_UNAVAILABLE: "Checkout is temporarily unavailable.",
-  TRIAL_NOT_ELIGIBLE: "This account is not eligible for a free trial.",
   NETWORK_ERROR: "Unable to connect. Check your internet connection.",
   SERVER_ERROR: "Something went wrong. Please try again later.",
 };
@@ -80,4 +79,3 @@ export function getApiErrorMessage(err, fallback = 'Something went wrong. Please
 
   return fallback;
 }
-

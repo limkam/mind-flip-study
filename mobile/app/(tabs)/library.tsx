@@ -87,7 +87,7 @@ export default function LibraryTab() {
   const uploadMutation = useMutation({
     mutationFn: async () => {
       if (!picked || !title.trim() || !author.trim()) throw new Error("Choose a PDF and enter its title and author.");
-      return uploadBookFromPicker({ title: title.trim(), author: author.trim(), uri: picked.uri, size: picked.size, name: picked.name, mimeType: picked.mimeType ?? "application/pdf", onProgress: setUploadPhase });
+      return uploadBookFromPicker({ title: title.trim(), author: author.trim(), uri: picked.uri, size: picked.size, name: picked.name, mimeType: picked.mimeType ?? "application/pdf", operationId: crypto.randomUUID(), onProgress: setUploadPhase });
     },
     onSuccess: async (book) => {
       closeCreation();

@@ -24,7 +24,7 @@ async def test_monthly_consumption_inherits_grant_expiration(monkeypatch):
     assert len(added) == 1
     assert added[0].amount == -1
     assert added[0].expires_at == expiry
-    assert added[0].meta["consumed_from"] == "monthly_allowance"
+    assert added[0].meta["consumed_from"] == "plan_credits"
 
 
 @pytest.mark.asyncio

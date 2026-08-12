@@ -82,4 +82,4 @@ def test_extract_document_text_routes_by_extension():
 
 
 def test_max_upload_size_constant():
-    assert MAX_UPLOAD_SIZE_BYTES == 10 * 1024 * 1024
+    assert MAX_UPLOAD_SIZE_BYTES == 20 * 1024 * 1024

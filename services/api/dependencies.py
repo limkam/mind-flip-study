@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from database import get_db
 from jwt_tokens import TOKEN_TYPE_ACCESS, decode_token
-from models.book import Book
 from models.flashcard import Flashcard, FlashcardSet
 from models.user import User
+from services.entitlements import _user_plan_slug
+from services.usage_events import BOOK_UPLOADED, FLASHCARDS_GENERATED, consumed_quantity
 
 __all__ = [
     "get_db",
@@ -155,7 +156,7 @@ def enforce_tier_limit(resource: str):
         if not settings.FREE_TIER_PAYWALL_ENABLED:
             return
 
-        if current_user.subscription_tier != "free":
+        if await _user_plan_slug(db, current_user) != "free":
             return
         limit = FREE_TIER_LIMITS[resource]
         if resource == "cards":
@@ -166,14 +167,12 @@ def enforce_tier_limit(resource: str):
                 .where(FlashcardSet.user_id == current_user.id),
             )
         elif resource == "books":
-            count = await db.scalar(
-                select(func.count(Book.id)).select_from(Book).where(Book.user_id == current_user.id),
+            count = await consumed_quantity(
+                db, current_user.id, BOOK_UPLOADED, period_start=None
             )
         else:
-            count = await db.scalar(
-                select(func.count(FlashcardSet.id))
-                .select_from(FlashcardSet)
-                .where(FlashcardSet.user_id == current_user.id),
+            count = await consumed_quantity(
+                db, current_user.id, FLASHCARDS_GENERATED, period_start=None
             )
         n = int(count or 0)
         if n >= limit:

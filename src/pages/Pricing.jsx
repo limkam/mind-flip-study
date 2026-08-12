@@ -7,8 +7,6 @@ import { useToast } from "@/components/ui/use-toast";
 import {
   cancelSubscriptionAtPeriodEnd,
   fetchEntitlementsSnapshot,
-  fetchTrialEligibility,
-  startTrialCheckout,
 } from "@/lib/billing";
 import { getApiErrorMessage } from "@/lib/apiError";
 import { planLabelFromSlug } from "@/lib/plans";
@@ -16,7 +14,6 @@ import { useAuth } from "@/lib/AuthContext";
 
 export default function Pricing() {
   const { toast } = useToast();
-  const [loadingTrial, setLoadingTrial] = useState(false);
   const [loadingCancel, setLoadingCancel] = useState(false);
   const { isAuthenticated } = useAuth();
 
@@ -25,26 +22,6 @@ export default function Pricing() {
     queryFn: fetchEntitlementsSnapshot,
     enabled: isAuthenticated,
   });
-
-  const { data: trialEligibility } = useQuery({
-    queryKey: ["billing-trial-eligibility"],
-    queryFn: fetchTrialEligibility,
-    enabled: isAuthenticated,
-  });
-
-  const onStartTrial = async () => {
-    setLoadingTrial(true);
-    try {
-      await startTrialCheckout();
-    } catch (err) {
-      setLoadingTrial(false);
-      toast({
-        title: "Trial unavailable",
-        description: getApiErrorMessage(err, "Could not start trial checkout."),
-        variant: "destructive",
-      });
-    }
-  };
 
   const onCancel = async () => {
     setLoadingCancel(true);
@@ -84,21 +61,6 @@ export default function Pricing() {
           </p>
         </div>
       </div>
-
-      {trialEligibility?.eligible ? (
-        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <p className="font-semibold">Try Premium free for 7 days</p>
-            <p className="text-sm text-muted-foreground">
-              Optional trial with card authorization. Free signup remains
-              card-free.
-            </p>
-          </div>
-          <Button onClick={onStartTrial} disabled={loadingTrial}>
-            {loadingTrial ? "Redirecting…" : "Start 7-day Premium trial"}
-          </Button>
-        </div>
-      ) : null}
 
       <PricingPlans />
 

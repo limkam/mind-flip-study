@@ -1,7 +1,7 @@
 import pytest
 from types import SimpleNamespace
 from uuid import uuid4
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import routers.billing as billing
 
@@ -85,6 +85,7 @@ async def test_credit_checkout_verification_returns_tagged_union_credit_purchase
         "id": "cs_test_credit",
         "status": "complete",
         "mode": "payment",
+        "payment_status": "paid",
         "customer": "cus_123",
         "client_reference_id": str(user.id),
         "metadata": {
@@ -108,6 +109,22 @@ async def test_credit_checkout_verification_returns_tagged_union_credit_purchase
 
 
 @pytest.mark.asyncio
+async def test_credit_checkout_complete_but_unpaid_is_not_fulfilled(monkeypatch):
+    user = SimpleNamespace(id=uuid4(), stripe_customer_id="cus_123")
+    db = AsyncMock()
+    db.scalar = AsyncMock(return_value=None)
+    monkeypatch.setattr(billing.stripe.checkout.Session, "retrieve", lambda _session_id: {
+        "status": "complete", "mode": "payment", "payment_status": "unpaid",
+        "customer": "cus_123", "client_reference_id": str(user.id),
+        "metadata": {"user_id": str(user.id)},
+    })
+
+    response = await billing.verify_checkout_session("cs_test_unpaid", user, db)
+
+    assert response.purchase_state == "not_confirmed"
+
+
+@pytest.mark.asyncio
 async def test_credit_checkout_urls_enforce_https_in_production(monkeypatch):
     user = SimpleNamespace(id=uuid4(), email="test@example.com", stripe_customer_id="cus_123")
     db = AsyncMock()
@@ -125,12 +142,32 @@ async def test_credit_checkout_urls_enforce_https_in_production(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_credit_checkout_assigns_stripe_receipt_destination(monkeypatch):
+    user = SimpleNamespace(id=uuid4(), email="receipt@example.com", stripe_customer_id="cus_123")
+    db = AsyncMock()
+    db.execute = AsyncMock(return_value=_ExecResult(user))
+    create = MagicMock(return_value=SimpleNamespace(url="https://checkout.stripe.test/session"))
+    monkeypatch.setattr(billing.stripe.checkout.Session, "create", create)
+    monkeypatch.setattr(billing.settings, "STRIPE_SECRET_KEY", "sk_test")
+
+    await billing.create_credit_checkout_session(
+        current_user=user, db=db, quantity=3, client=billing.CheckoutClient.web,
+    )
+
+    params = create.call_args.kwargs
+    assert params["mode"] == "payment"
+    assert params["payment_intent_data"]["receipt_email"] == user.email
+    assert params["payment_intent_data"]["metadata"]["credit_quantity"] == "3"
+
+
+@pytest.mark.asyncio
 async def test_webhook_payment_rejects_amount_and_currency_mismatch(monkeypatch):
     user = SimpleNamespace(id=uuid4(), email="test@example.com", stripe_customer_id="cus_123")
     db = AsyncMock()
     db.execute = AsyncMock(return_value=_ExecResult(user))
     db.scalar = AsyncMock(return_value=None)
     db.commit = AsyncMock()
+    db.add = MagicMock()
     redis = AsyncMock()
 
     monkeypatch.setattr(billing.settings, "CREDIT_UNIT_PRICE_CENTS", 80)

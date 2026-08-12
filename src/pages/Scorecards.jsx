@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Download, Link2Off, Share2 } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
 import html2canvas from "html2canvas";
@@ -51,14 +51,10 @@ function ScorecardView({ card, displayName = "MindFlip Learner" }) {
 }
 
 export default function Scorecards() {
-  const { user } = /** @type {{ user: any }} */ (useOutletContext()); const { toast } = useToast(); const queryClient = useQueryClient(); const [period, setPeriod] = useState("weekly"); const [selectedId, setSelectedId] = useState(null); const [shareState, setShareState] = useState(null); const [shareBusy, setShareBusy] = useState(false); const [showName, setShowName] = useState(false); const [publicName, setPublicName] = useState(""); const [expiresIn, setExpiresIn] = useState(30); const previewRef = useRef(null);
-  const { data: cards = [], isLoading, isError, isSuccess } = useQuery({ queryKey: ["scorecards"], queryFn: async () => (await client.get("/scorecards/")).data, staleTime: 30_000, refetchOnWindowFocus: true });
-  useEffect(() => {
-    if (!isSuccess) return;
-    let active = true;
-    void client.post("/scorecards/refresh").then(({ data }) => { if (active) queryClient.setQueryData(["scorecards"], data); }).catch(() => {});
-    return () => { active = false; };
-  }, [isSuccess, queryClient]);
+  const { user } = /** @type {{ user: any }} */ (useOutletContext()); const { toast } = useToast(); const [period, setPeriod] = useState("weekly"); const [selectedId, setSelectedId] = useState(null); const [shareState, setShareState] = useState(null); const [shareBusy, setShareBusy] = useState(false); const [showName, setShowName] = useState(false); const [publicName, setPublicName] = useState(""); const [expiresIn, setExpiresIn] = useState(30); const previewRef = useRef(null);
+  // Scorecards are refreshed transactionally when study and quiz events are
+  // recorded. Opening this page should only read the persisted snapshots.
+  const { data: cards = [], isLoading, isError } = useQuery({ queryKey: ["scorecards"], queryFn: async () => (await client.get("/scorecards/")).data, staleTime: 5 * 60_000, refetchOnWindowFocus: false });
   const filtered = useMemo(() => cards.filter((item) => item.period_type === period), [cards, period]); const card = filtered.find((item) => item.id === selectedId) || filtered[0] || null;
   useEffect(() => { setSelectedId(null); }, [period]);
   useEffect(() => { setShareState(null); setShowName(false); setPublicName(""); }, [card?.id]);

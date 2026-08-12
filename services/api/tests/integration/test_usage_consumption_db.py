@@ -1,0 +1,180 @@
+"""PostgreSQL evidence for permanent feature usage accounting.
+
+Runs only against the explicitly disposable USAGE_TEST_DATABASE_URL.
+"""
+
+import os
+from uuid import uuid4
+
+import pytest
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from models.book import Book
+from models.enums import BookStatus, UserRole
+from models.flashcard import FlashcardSet
+from models.usage_event import UsageEvent
+from models.user import User
+from services.entitlements import Action, can_user_do
+from routers.books import delete_book
+from routers.flashcards import delete_flashcard_set
+
+
+@pytest.fixture
+async def db():
+    url = os.getenv("USAGE_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("USAGE_TEST_DATABASE_URL is required")
+    engine = create_async_engine(url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+        await session.rollback()
+    await engine.dispose()
+
+
+def _user(*, tier: str = "free") -> User:
+    token = uuid4().hex
+    return User(
+        email=f"usage-{token}@example.test",
+        hashed_password="test",
+        role=UserRole.student,
+        full_name="Usage Test",
+        subscription_tier=tier,
+        preferences={},
+        ip_history=[],
+    )
+
+
+def _book(user_id) -> Book:
+    token = uuid4().hex
+    return Book(
+        user_id=user_id,
+        title=f"Book {token}",
+        author="Test",
+        s3_key=f"test/{token}.pdf",
+        s3_url=f"https://example.test/{token}.pdf",
+        file_size_bytes=1,
+        status=BookStatus.ready,
+        extras={},
+    )
+
+
+def _event(user_id, resource_id, event_type, key) -> UsageEvent:
+    return UsageEvent(
+        user_id=user_id,
+        event_type=event_type,
+        resource_type="book" if event_type == "book_uploaded" else "flashcard_set",
+        resource_id=resource_id,
+        quantity=1,
+        idempotency_key=key,
+    )
+
+
+@pytest.mark.asyncio
+async def test_book_delete_keeps_usage_and_limit_consumed(db):
+    user = _user()
+    db.add(user)
+    await db.flush()
+    book = _book(user.id)
+    db.add(book)
+    await db.flush()
+    db.add(_event(user.id, book.id, "book_uploaded", f"book:{book.id}"))
+    await db.commit()
+
+    await db.delete(book)
+    await db.commit()
+
+    events = (await db.scalars(select(UsageEvent).where(UsageEvent.user_id == user.id))).all()
+    assert len(events) == 1
+    assert (await can_user_do(db, user, Action.CREATE_BOOK)) == {
+        "allowed": False,
+        "reason": "book_limit",
+    }
+
+
+@pytest.mark.asyncio
+async def test_flashcard_delete_keeps_generation_usage(db):
+    user = _user()
+    db.add(user)
+    await db.flush()
+    card_set = FlashcardSet(user_id=user.id, title="Generated", tags=[])
+    db.add(card_set)
+    await db.flush()
+    db.add(_event(user.id, card_set.id, "flashcards_generated", f"set:{card_set.id}"))
+    await db.commit()
+
+    await db.delete(card_set)
+    await db.commit()
+
+    assert await db.scalar(
+        select(UsageEvent).where(UsageEvent.resource_id == card_set.id)
+    ) is not None
+    assert (await can_user_do(db, user, Action.CREATE_SET))["allowed"] is False
+
+
+@pytest.mark.asyncio
+async def test_failed_creation_rolls_back_resource_and_usage(db):
+    user = _user()
+    db.add(user)
+    await db.commit()
+    user_id = user.id
+    resource_id = uuid4()
+
+    db.add(_book(user_id))
+    db.add(_event(user_id, resource_id, "book_uploaded", f"failed:{resource_id}"))
+    await db.flush()
+    await db.rollback()
+
+    assert await db.scalar(
+        select(UsageEvent).where(UsageEvent.idempotency_key == f"failed:{resource_id}")
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_two_consumptions_stay_at_limit_after_content_delete(db):
+    user = _user(tier="quick_72")
+    db.add(user)
+    await db.flush()
+    books = [_book(user.id), _book(user.id)]
+    db.add_all(books)
+    await db.flush()
+    for book in books:
+        db.add(_event(user.id, book.id, "book_uploaded", f"book:{book.id}"))
+    await db.commit()
+
+    await db.delete(books[0])
+    await db.commit()
+
+    denied = await can_user_do(db, user, Action.CREATE_BOOK)
+    assert denied == {"allowed": False, "reason": "book_limit"}
+
+
+@pytest.mark.asyncio
+async def test_other_user_cannot_delete_content_or_change_usage(db):
+    owner = _user()
+    attacker = _user()
+    db.add_all([owner, attacker])
+    await db.flush()
+    book = _book(owner.id)
+    card_set = FlashcardSet(user_id=owner.id, title="Owner set", tags=[])
+    db.add_all([book, card_set])
+    await db.flush()
+    db.add_all([
+        _event(owner.id, book.id, "book_uploaded", f"book:{book.id}"),
+        _event(owner.id, card_set.id, "flashcards_generated", f"set:{card_set.id}"),
+    ])
+    await db.commit()
+
+    with pytest.raises(HTTPException) as book_error:
+        await delete_book(book.id, attacker, db)
+    with pytest.raises(HTTPException) as set_error:
+        await delete_flashcard_set(card_set.id, attacker, db)
+
+    assert book_error.value.status_code == 404
+    assert set_error.value.status_code == 404
+    assert await db.get(Book, book.id) is not None
+    assert await db.get(FlashcardSet, card_set.id) is not None
+    events = (await db.scalars(select(UsageEvent).where(UsageEvent.user_id == owner.id))).all()
+    assert len(events) == 2

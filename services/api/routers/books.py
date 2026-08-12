@@ -19,6 +19,7 @@ from dependencies import get_current_user
 from models.book import Book
 from models.enums import BookStatus
 from models.user import User
+from models.usage_event import UsageEvent
 from s3_service import (
     S3ConfigurationError,
     build_s3_https_url,
@@ -26,12 +27,14 @@ from s3_service import (
     get_object_bytes,
     head_object_content_length,
 )
+from s3_cleanup import delete_book_s3_assets
 from services.book_deletion import cascade_delete_book
 from services.book_duplicate import PDF_SHA256_EXTRAS_KEY, find_duplicate_books, pdf_sha256
 from services.chapter_cards import chapter_card_counts_for_book
 from services.toc_editor import normalize_toc_chapters, validate_toc_chapters
 from services import credits as credits_service
 from services.entitlements import can_user_do, Action as EntitlementAction
+from services.usage_events import BOOK_UPLOADED, current_period_start, record_usage
 from schemas.book import (
     BookCreate,
     BookListPage,
@@ -52,7 +55,7 @@ from schemas.book import (
 from schemas.job import JobEnqueueResponse
 from schemas.pagination import total_pages
 from pdf_metadata import title_from_upload_filename
-from pdf_text import IMAGE_ONLY_PDF_MESSAGE, pdf_is_likely_image_only
+from pdf_text import IMAGE_ONLY_PDF_MESSAGE, MAX_UPLOAD_SIZE_BYTES, pdf_is_likely_image_only
 from tasks.book_tasks import extract_book_toc_task
 from toc_extraction import extract_toc_from_pdf_bytes
 
@@ -138,10 +141,10 @@ async def create_upload_url(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unsupported document format. Please upload a PDF (.pdf), Word (.docx), or PowerPoint (.pptx) file.",
         )
-    if body.file_size_bytes > 10 * 1024 * 1024:
+    if body.file_size_bytes > MAX_UPLOAD_SIZE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The selected file exceeds the 10 MB upload limit. Please upload a smaller document.",
+            detail="The selected file exceeds the 20 MB upload limit. Please upload a smaller document.",
         )
     try:
         key = f"{_user_book_prefix(current_user.id)}{uuid.uuid4()}/{safe_name}"
@@ -312,19 +315,19 @@ async def create_book(
     # Never trust client-supplied s3_key: must match this user's prefix (same as presign path).
     _assert_key_owned_by_user(s3_key=body.s3_key, user_id=current_user.id)
 
+    replacement: Book | None = None
     if body.replace_book_id is not None:
         result = await db.execute(
             select(Book).where(Book.id == body.replace_book_id, Book.user_id == current_user.id),
         )
-        existing = result.scalar_one_or_none()
-        if existing is None:
+        replacement = result.scalar_one_or_none()
+        if replacement is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book to replace not found")
-        await cascade_delete_book(db, existing)
 
-    if body.file_size_bytes > 10 * 1024 * 1024:
+    if body.file_size_bytes > MAX_UPLOAD_SIZE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The selected file exceeds the 10 MB upload limit. Please upload a smaller document.",
+            detail="The selected file exceeds the 20 MB upload limit. Please upload a smaller document.",
         )
     doc_bytes = _fetch_uploaded_pdf(s3_key=body.s3_key, expected_size=body.file_size_bytes)
     if pdf_is_likely_image_only(doc_bytes, filename=body.s3_key):
@@ -353,6 +356,20 @@ async def create_book(
                 ),
             )
 
+    # Serialize allowance checks and event creation for this user.
+    await db.execute(select(User.id).where(User.id == current_user.id).with_for_update())
+    if body.operation_id is not None:
+        prior = await db.scalar(
+            select(UsageEvent).where(UsageEvent.idempotency_key == f"book-upload:{body.operation_id}")
+        )
+        if prior is not None:
+            existing_book = await db.get(Book, prior.resource_id)
+            if existing_book is not None and existing_book.user_id == current_user.id:
+                return BookOut.model_validate(existing_book)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This upload operation was already completed and its usage remains consumed.",
+            )
     ent = await can_user_do(db, current_user, EntitlementAction.CREATE_BOOK)
     if not ent.get("allowed"):
         raise HTTPException(
@@ -391,8 +408,22 @@ async def create_book(
         book.extras = merged
     db.add(book)
     await db.flush()
+    await record_usage(
+        db,
+        user_id=current_user.id,
+        event_type=BOOK_UPLOADED,
+        resource_type="book",
+        resource_id=book.id,
+        period_start=current_period_start(lifetime=False),
+        idempotency_key=f"book-upload:{body.operation_id or book.id}",
+        metadata={"operation_id": str(body.operation_id)} if body.operation_id else None,
+    )
+    if replacement is not None:
+        await cascade_delete_book(db, replacement, commit=False, delete_assets=False)
     _enqueue_toc_extraction_for_book(book)
     await db.commit()
+    if replacement is not None:
+        delete_book_s3_assets(s3_key=replacement.s3_key, extras=replacement.extras)
     await db.refresh(book)
     return BookOut.model_validate(book)
 

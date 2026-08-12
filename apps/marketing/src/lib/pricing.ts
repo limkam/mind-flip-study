@@ -32,13 +32,6 @@ export const planAnnualPrices: Record<MarketingPlanSlug, string> = {
   premium_30: '$54',
 };
 
-export const planAnnualMonthlyEquivalents: Record<MarketingPlanSlug, string> = {
-  free: '$0',
-  quick_72: '$2',
-  standard_15: '$3.50',
-  premium_30: '$4.50',
-};
-
 export const planHighlights: Record<MarketingPlanSlug, string[]> = {
   free: ['2 chapters each month', 'Unlimited review', 'No card required', 'Your cards stay yours'],
   quick_72: ['2 books / month', '5 flashcard sets / month', '3 games', 'Unlimited daily review'],

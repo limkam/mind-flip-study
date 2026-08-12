@@ -18,7 +18,6 @@ from emails.templates.streak import streak_reminder_email
 from emails.templates.weekly_digest import weekly_digest_email
 from models.quiz import StudyEvent
 from models.user import User
-from models.user_subscription import UserSubscription
 from models.email import EmailJob
 from models.engagement import EngagementPreference
 from services.engagement import safe_timezone
@@ -227,59 +226,6 @@ def send_second_purchase_upsell_task(user_id: str, full_name: str, email: str) -
     return send_email(
         to=email, subject="Get unlimited credits with MindFlip Pro 🚀", html=html
     )
-
-
-@celery.task(name="tasks.email_tasks.send_trial_ending_reminders_task")
-def send_trial_ending_reminders_task() -> dict[str, int]:
-    """Send T-2 day reminder for trialing subscriptions."""
-    from emails.templates.trial import trial_ending_soon_email
-
-    now = datetime.now(UTC)
-    start = now + timedelta(hours=47)
-    end = now + timedelta(hours=49)
-
-    queued = 0
-    skipped = 0
-    with sync_session() as db:
-        rows = db.execute(
-            select(UserSubscription, User)
-            .join(User, User.id == UserSubscription.user_id)
-            .where(
-                UserSubscription.status == "trialing",
-                UserSubscription.current_period_end.is_not(None),
-                UserSubscription.current_period_end >= start,
-                UserSubscription.current_period_end < end,
-            )
-        ).all()
-
-        for sub, user in rows:
-            prefs = dict(user.preferences or {})
-            trial_meta = dict(prefs.get("trial") or {})
-            if trial_meta.get("reminder_sent_at"):
-                skipped += 1
-                continue
-            if not email_notifications_enabled(user, weekly_digest=True):
-                skipped += 1
-                continue
-
-            html = trial_ending_soon_email(user.full_name, days_left=2)
-            ok = send_email(
-                to=user.email,
-                subject="Your Premium trial ends in 2 days",
-                html=html,
-            )
-            if ok:
-                trial_meta["reminder_sent_at"] = now.isoformat()
-                prefs["trial"] = trial_meta
-                user.preferences = prefs
-                db.add(user)
-                queued += 1
-            else:
-                skipped += 1
-
-        db.commit()
-
-    return {"queued": queued, "skipped": skipped}
 
 
 @celery.task(name="tasks.email_tasks.schedule_engagement_email_task")

@@ -58,6 +58,10 @@ class BookCreate(BaseModel):
     s3_key: str = Field(..., min_length=1, max_length=1024)
     file_size_bytes: int = Field(..., gt=0)
     extras: dict[str, Any] | None = None
+    operation_id: UUID | None = Field(
+        None,
+        description="Stable client operation ID used to make upload accounting idempotent.",
+    )
     replace_book_id: UUID | None = Field(
         None,
         description="When set, delete this existing book and replace with the new upload.",

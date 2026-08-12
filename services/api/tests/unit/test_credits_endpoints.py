@@ -46,8 +46,11 @@ async def test_get_credit_balance(mock_user, mock_db, monkeypatch):
     try:
         from routers import credits as credits_router
 
-        monkeypatch.setattr(credits_router.credits_service, "get_user_balance", AsyncMock(return_value=150))
-        monkeypatch.setattr(credits_router.credits_service, "_split_pool_balances", AsyncMock(return_value=(50, 100)))
+        monkeypatch.setattr(credits_router.credits_service, "get_credit_accounting_snapshot", AsyncMock(return_value={
+            "available_total": 150,
+            "plan": {"allocated": 60, "used": 10, "remaining": 50},
+            "purchased": {"purchased_total": 110, "used": 10, "remaining": 100},
+        }))
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/credits/balance")
         assert response.status_code == 200
@@ -55,6 +58,9 @@ async def test_get_credit_balance(mock_user, mock_db, monkeypatch):
         assert data["balance"]["total"] == 150
         assert data["balance"]["monthly"] == 50
         assert data["balance"]["purchased"] == 100
+        assert data["balance"]["available_total"] == 150
+        assert data["balance"]["plan"] == {"allocated": 60, "used": 10, "remaining": 50}
+        assert data["balance"]["purchased_position"] == {"purchased_total": 110, "used": 10, "remaining": 100}
     finally:
         app.dependency_overrides.clear()
 
@@ -73,6 +79,13 @@ async def test_get_credit_packages():
 
 
 @pytest.mark.asyncio
+async def test_credit_balance_requires_authentication():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/credits/balance")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_get_purchase_history(mock_user, mock_db):
     """Test GET /credits/purchase-history endpoint."""
     purchase = CreditPurchase(
@@ -88,6 +101,7 @@ async def test_get_purchase_history(mock_user, mock_db):
         stripe_customer_id="cus_1",
         stripe_invoice_id="in_1",
         stripe_charge_id="ch_1",
+        receipt_url="https://pay.stripe.com/receipts/test",
         status="completed",
         created_at=datetime.now(timezone.utc),
     )
@@ -119,6 +133,7 @@ async def test_get_purchase_history(mock_user, mock_db):
         assert record["currency"] == "usd"
         assert record["unit_price_cents"] == 80
         assert record["status"] == "completed"
+        assert record["receipt_url"] == "https://pay.stripe.com/receipts/test"
         # Assert internal Stripe identifiers are strictly omitted from response output
         for key in record.keys():
             assert not key.startswith("stripe_"), f"Internal field {key} exposed in purchase history API"

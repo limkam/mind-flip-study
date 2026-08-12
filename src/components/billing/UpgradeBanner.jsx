@@ -4,16 +4,18 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { fetchEntitlementsSnapshot, subscriptionsEnabled } from "@/lib/billing";
 import { useAuth } from "@/lib/AuthContext";
+import { billingAccountState } from "@/lib/billingUiState";
 
 export default function UpgradeBanner() {
   const { isAuthenticated } = useAuth();
-  const { data } = useQuery({
+  const { data, isPending, isError } = useQuery({
     queryKey: ["billing-entitlements"],
     queryFn: fetchEntitlementsSnapshot,
     enabled: isAuthenticated && subscriptionsEnabled(),
   });
 
-  if (!subscriptionsEnabled() || !data || data.plan_slug !== "free") {
+  const accountState = billingAccountState({ data, isPending, isError });
+  if (!subscriptionsEnabled() || accountState !== "free") {
     return null;
   }
 

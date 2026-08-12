@@ -26,16 +26,16 @@ class _Req:
 
 @pytest.mark.asyncio
 async def test_invoice_payment_failed_marks_subscription_past_due(monkeypatch):
-    internal_sub = SimpleNamespace(status="active")
-
     db = AsyncMock()
     db.add = lambda *_args, **_kwargs: None
-    db.scalar = AsyncMock(return_value=internal_sub)
+    db.scalar = AsyncMock(side_effect=[None])
     db.commit = AsyncMock()
     redis = AsyncMock()
     redis.set = AsyncMock(return_value=True)
 
     monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    reconcile = AsyncMock(return_value=True)
+    monkeypatch.setattr(billing, "_reconcile_canonical_subscription", reconcile)
     monkeypatch.setattr(
         billing.stripe.Webhook,
         "construct_event",
@@ -52,22 +52,22 @@ async def test_invoice_payment_failed_marks_subscription_past_due(monkeypatch):
 
     out = await billing.stripe_webhook(_Req(), db=db, redis=redis)
     assert out == {"received": True}
-    assert internal_sub.status == "past_due"
+    reconcile.assert_awaited_once_with(db, "sub_123", event_created_at=None)
     db.commit.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_invoice_payment_succeeded_reactivates_and_updates_period_end(monkeypatch):
-    internal_sub = SimpleNamespace(status="past_due", current_period_end=None)
-
     db = AsyncMock()
     db.add = lambda *_args, **_kwargs: None
-    db.scalar = AsyncMock(return_value=internal_sub)
+    db.scalar = AsyncMock(side_effect=[None, None])
     db.commit = AsyncMock()
     redis = AsyncMock()
     redis.set = AsyncMock(return_value=True)
 
     monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    reconcile = AsyncMock(return_value=True)
+    monkeypatch.setattr(billing, "_reconcile_canonical_subscription", reconcile)
     monkeypatch.setattr(
         billing.stripe.Webhook,
         "construct_event",
@@ -93,8 +93,7 @@ async def test_invoice_payment_succeeded_reactivates_and_updates_period_end(monk
 
     out = await billing.stripe_webhook(_Req(), db=db, redis=redis)
     assert out == {"received": True}
-    assert internal_sub.status == "active"
-    assert internal_sub.current_period_end is not None
+    reconcile.assert_awaited_once_with(db, "sub_123", event_created_at=None)
     db.commit.assert_called_once()
 
 
@@ -113,6 +112,8 @@ async def test_invoice_payment_succeeded_can_relink_missing_internal_subscriptio
     redis.set = AsyncMock(return_value=True)
 
     monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    reconcile = AsyncMock(return_value=True)
+    monkeypatch.setattr(billing, "_reconcile_canonical_subscription", reconcile)
     monkeypatch.setattr(billing.settings, "STRIPE_PRICE_ID_STANDARD_MONTHLY", "price_std_month")
     monkeypatch.setattr(
         billing.stripe.Webhook,
@@ -141,4 +142,5 @@ async def test_invoice_payment_succeeded_can_relink_missing_internal_subscriptio
 
     out = await billing.stripe_webhook(_Req(), db=db, redis=redis)
     assert out == {"received": True}
+    reconcile.assert_awaited_once_with(db, "sub_missing", event_created_at=None)
     db.commit.assert_called_once()

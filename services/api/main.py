@@ -15,6 +15,7 @@ from config import settings
 from database import init_engine
 from middleware.ip_capture import IPCaptureMiddleware
 from middleware.onboarding_gate import OnboardingGateMiddleware
+from middleware.performance_timing import PerformanceTimingMiddleware
 from s3_service import S3ConfigurationError, validate_s3_configuration
 from routers.admin import router as admin_router
 from routers.admin_owner_dashboard import router as admin_owner_dashboard_router
@@ -106,6 +107,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+# Starlette wraps middleware in reverse registration order, so register this last
+# to include the complete API middleware and endpoint duration.
+app.add_middleware(PerformanceTimingMiddleware)
 
 
 @app.exception_handler(Exception)

@@ -55,7 +55,7 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
     onOpenChange(false);
   };
 
-  const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+  const MAX_SIZE_BYTES = 20 * 1024 * 1024;
   const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".pptx"];
 
   const handleFileSelect = useCallback((selectedFile) => {
@@ -73,7 +73,7 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
     if (selectedFile.size > MAX_SIZE_BYTES) {
       toast({
         title: "File too large",
-        description: "The selected file exceeds the 10 MB upload limit. Please upload a smaller document.",
+        description: "The selected file exceeds the 20 MB upload limit. Please upload a smaller document.",
         variant: "destructive",
       });
       return;
@@ -131,7 +131,7 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
     if (file.size > MAX_SIZE_BYTES) {
       toast({
         title: "File too large",
-        description: "The selected file exceeds the 10 MB upload limit. Please upload a smaller document.",
+        description: "The selected file exceeds the 20 MB upload limit. Please upload a smaller document.",
         variant: "destructive",
       });
       return;
@@ -201,6 +201,7 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
       setPhase("saving");
 
       const createPayload = {
+        operation_id: globalThis.crypto.randomUUID(),
         title: form.title.trim(),
         author: form.author.trim(),
         s3_key: presign.s3_key,
@@ -278,7 +279,7 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
             <div className="space-y-4 mt-2 overflow-y-auto pr-1">
 
           <div className="space-y-2">
-            <Label className="text-base font-semibold">Upload Document (PDF, Word, or PowerPoint — max 10MB)</Label>
+            <Label className="text-base font-semibold">Upload Document (PDF, Word, or PowerPoint — max 20MB)</Label>
             <div
               className="border-2 border-dashed border-primary/30 rounded-xl p-6 text-center hover:border-primary/60 transition-colors cursor-pointer bg-primary/5"
               onClick={() => !phase && document.getElementById("book-upload").click()}

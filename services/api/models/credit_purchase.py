@@ -32,8 +32,9 @@ class CreditPurchase(Base):
     stripe_customer_id: str = Column(String(255), nullable=True)
     stripe_invoice_id: str = Column(String(255), nullable=True)
     stripe_charge_id: str = Column(String(255), nullable=True)
+    receipt_url: str = Column(String(2048), nullable=True)
     status: str = Column(String(50), default="completed", nullable=False)  # completed, failed, refunded
-    created_at: datetime = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    created_at: datetime = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     notes: str = Column(Text, nullable=True)
 
     def __repr__(self) -> str:

@@ -10,7 +10,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.credit_ledger import CreditLedger
@@ -81,17 +81,19 @@ async def get_user_balance(db: AsyncSession, user_id: UUID, pool: str = "content
 
 
 async def _split_pool_balances(db: AsyncSession, user_id: UUID, pool: str = "content") -> tuple[int, int]:
-    """Return (monthly_balance, purchased_balance) for the user's pool.
+    """Return (plan_balance, purchased_balance) for the user's action pool.
 
-    monthly_balance: sum of entries with non-null expires_at (these are the monthly allowances)
-    purchased_balance: sum of unexpired one-time purchased entries
+    Plan balance includes renewable allowances and the lifetime Free-plan grant.
+    Purchased balance includes the shared purchased pool plus legacy pool-bound
+    purchase grants. This classification is based on ledger provenance, not
+    expiration alone.
     """
     now = await _now()
-    monthly_q = select(func.coalesce(func.sum(CreditLedger.amount), 0)).where(
+    plan_q = select(func.coalesce(func.sum(CreditLedger.amount), 0)).where(
         CreditLedger.user_id == user_id,
         CreditLedger.pool == pool,
-        CreditLedger.expires_at.is_not(None),
-        CreditLedger.expires_at > now,
+        CreditLedger.reason != "purchased_credits",
+        (CreditLedger.expires_at.is_(None) | (CreditLedger.expires_at > now)),
     )
     purchased_q = select(func.coalesce(func.sum(CreditLedger.amount), 0)).where(
         CreditLedger.user_id == user_id,
@@ -103,9 +105,69 @@ async def _split_pool_balances(db: AsyncSession, user_id: UUID, pool: str = "con
             ((CreditLedger.pool == pool) & (CreditLedger.expires_at.is_(None) | (CreditLedger.expires_at > now)) & (CreditLedger.reason == "purchased_credits"))
         ),
     )
-    monthly = int(await db.scalar(monthly_q) or 0)
+    monthly = int(await db.scalar(plan_q) or 0)
     purchased = int(await db.scalar(purchased_q) or 0)
-    return monthly, purchased
+    return max(0, monthly), max(0, purchased)
+
+
+# Refunds/chargebacks are not currently created by MindFlip. Reserving explicit
+# reasons here prevents a future financial reversal from being mislabeled as
+# product usage when that workflow is introduced.
+PURCHASED_BALANCE_ADJUSTMENT_REASONS = {
+    "credit_purchase_refund",
+    "credit_purchase_reversal",
+    "credit_chargeback",
+    "admin_purchased_credit_adjustment",
+}
+
+
+async def get_credit_accounting_snapshot(db: AsyncSession, user_id: UUID, *, pool: str = "content") -> dict:
+    """Return the authoritative plan/purchased accounting position.
+
+    ``purchased_total`` is the net valid purchased allocation before usage:
+    remaining purchased ledger balance plus purchased-pool consumption. Thus
+    explicit reversals reduce the allocation rather than masquerading as usage.
+    """
+    now = await _now()
+    plan_condition = (
+        (CreditLedger.pool == pool)
+        & (CreditLedger.reason != "purchased_credits")
+        & (CreditLedger.expires_at.is_(None) | (CreditLedger.expires_at > now))
+    )
+    purchased_condition = (
+        (CreditLedger.pool == "purchased")
+        | ((CreditLedger.pool == pool) & (CreditLedger.reason == "purchased_credits"))
+    ) & (CreditLedger.expires_at.is_(None) | (CreditLedger.expires_at > now))
+    is_purchased_usage = (
+        purchased_condition
+        & (CreditLedger.amount < 0)
+        & CreditLedger.reason.not_in(PURCHASED_BALANCE_ADJUSTMENT_REASONS)
+    )
+    row = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(case((plan_condition & (CreditLedger.amount > 0), CreditLedger.amount), else_=0)), 0),
+                func.coalesce(func.sum(case((plan_condition, CreditLedger.amount), else_=0)), 0),
+                func.coalesce(func.sum(case((purchased_condition, CreditLedger.amount), else_=0)), 0),
+                func.coalesce(func.sum(case((is_purchased_usage, -CreditLedger.amount), else_=0)), 0),
+            ).where(CreditLedger.user_id == user_id)
+        )
+    ).one()
+    plan_allocated, plan_remaining, purchased_remaining, purchased_used = map(int, row)
+    plan_remaining = max(0, plan_remaining)
+    purchased_remaining = max(0, purchased_remaining)
+    purchased_used = max(0, purchased_used)
+    purchased_total = max(0, purchased_remaining + purchased_used)
+    plan_used = max(0, plan_allocated - plan_remaining)
+    return {
+        "available_total": plan_remaining + purchased_remaining,
+        "plan": {"allocated": plan_allocated, "used": plan_used, "remaining": plan_remaining},
+        "purchased": {
+            "purchased_total": purchased_total,
+            "used": purchased_used,
+            "remaining": purchased_remaining,
+        },
+    }
 
 
 async def consume_credits(db: AsyncSession, user_id: UUID, amount: int, *, pool: str = "content", reason: str, metadata: Optional[dict] | None = None) -> int:
@@ -132,7 +194,8 @@ async def consume_credits(db: AsyncSession, user_id: UUID, amount: int, *, pool:
             },
         )
 
-    # Consume monthly allowances first (expires_at not null), then purchased (expires_at is null).
+    # Consume eligible plan credits first (renewable or lifetime Free grant),
+    # then shared non-expiring purchased credits.
     monthly_balance, purchased_balance = await _split_pool_balances(db, user_id, pool=pool)
     remaining = int(amount)
     # consume from monthly first
@@ -151,7 +214,7 @@ async def consume_credits(db: AsyncSession, user_id: UUID, amount: int, *, pool:
             amount=-int(take),
             pool=pool,
             reason=f"{reason}",
-            meta={**(metadata or {}), "consumed_from": "monthly_allowance"},
+            meta={**(metadata or {}), "consumed_from": "plan_credits"},
             expires_at=monthly_expires_at,
         )
         db.add(entry)
@@ -313,7 +376,13 @@ async def award_initial_free_credits(db: AsyncSession, user_id: UUID) -> None:
     await db.flush()
 
 
-async def award_onetime_credits_for_user(db: AsyncSession, user_id: UUID, amount: int) -> None:
+async def award_onetime_credits_for_user(
+    db: AsyncSession,
+    user_id: UUID,
+    amount: int,
+    *,
+    stripe_session_id: str | None = None,
+) -> None:
     """Award one-time purchased extra credits to a user.
 
     Extra purchased credits are permanent and do NOT expire with subscription resets.
@@ -327,7 +396,8 @@ async def award_onetime_credits_for_user(db: AsyncSession, user_id: UUID, amount
             amount=int(amount),
             pool="purchased",
             reason="purchased_credits",
-            meta={"purchase_type": "stripe_checkout"},
+            idempotency_key=(f"stripe_checkout:{stripe_session_id}:credits" if stripe_session_id else None),
+            meta={"purchase_type": "stripe_checkout", "stripe_session_id": stripe_session_id},
             expires_at=None,
         )
     )

@@ -207,6 +207,7 @@ export default function BookDetail() {
       const title = buildFlashcardSetTitle(book.title, selectedChapters);
 
       const { data: job } = await client.post("/flashcard-sets/generate", {
+        operation_id: globalThis.crypto.randomUUID(),
         book_id: id,
         title: title,
         num_cards: cardCount,
@@ -314,10 +315,10 @@ export default function BookDetail() {
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+              <AlertDialogTitle>Delete this book?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will permanently delete "{book.title}" and all generated
-                flashcards associated with it. This action cannot be undone.
+                Deleting "{book.title}" will remove it and its generated flashcards from your account,
+                but it will not restore the upload allowance used to add it. This cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

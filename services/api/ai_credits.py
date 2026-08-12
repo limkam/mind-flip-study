@@ -12,12 +12,13 @@ from sqlalchemy.orm import Session
 from config import settings
 from models.quiz import StudyEvent
 from models.user import User
+from services.entitlements import _user_plan_slug
 
 AI_GENERATION_EVENT = "ai_generation"
 
 
-def monthly_credit_limit(user: User) -> int:
-    if user.subscription_tier == "free":
+async def monthly_credit_limit(db: AsyncSession, user: User) -> int:
+    if await _user_plan_slug(db, user) == "free":
         return settings.AI_CREDITS_FREE_MONTHLY
     return settings.AI_CREDITS_STUDENT_MONTHLY
 
@@ -52,7 +53,7 @@ def count_ai_generations_sync(db: Session, user_id: UUID) -> int:
 
 
 async def ai_credits_snapshot(db: AsyncSession, user: User) -> dict[str, int]:
-    limit = monthly_credit_limit(user)
+    limit = await monthly_credit_limit(db, user)
     used = await count_ai_generations_async(db, user.id)
     return {
         "limit": limit,

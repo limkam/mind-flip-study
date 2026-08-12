@@ -1,9 +1,10 @@
 import client from "@/api/client";
 import { planLabelFromTier } from "@/lib/plans";
+import { subscriptionsFeatureEnabled } from "@/lib/billingUiState";
 
 /** Set VITE_SUBSCRIPTIONS_ENABLED=true to show upgrade UI (profile + header banner). */
 export function subscriptionsEnabled() {
-  return import.meta.env.VITE_SUBSCRIPTIONS_ENABLED === "true";
+  return subscriptionsFeatureEnabled(import.meta.env.VITE_SUBSCRIPTIONS_ENABLED);
 }
 
 export function isFreeTier(subscriptionTier) {
@@ -23,19 +24,6 @@ export async function startCheckout(plan = "standard", interval = "monthly") {
     throw new Error("Stripe did not return a checkout URL");
   }
   window.open(data.checkout_url, "_blank", "noopener,noreferrer");
-}
-
-export async function startTrialCheckout() {
-  const { data } = await client.post("/billing/trial/start");
-  if (!data?.checkout_url) {
-    throw new Error("Stripe did not return a checkout URL");
-  }
-  window.open(data.checkout_url, "_blank", "noopener,noreferrer");
-}
-
-export async function fetchTrialEligibility() {
-  const { data } = await client.get("/billing/trial/eligibility");
-  return data;
 }
 
 export async function cancelSubscriptionAtPeriodEnd() {
@@ -58,6 +46,16 @@ export async function fetchBillingOverview() {
   return data;
 }
 
+export async function fetchBillingInvoices() {
+  const { data } = await client.get("/billing/invoices");
+  return data?.invoices || [];
+}
+
+export async function fetchBillingPaymentMethod() {
+  const { data } = await client.get("/billing/payment-method");
+  return data?.payment_method || null;
+}
+
 export async function openCustomerPortal() {
   const { data } = await client.post("/billing/customer-portal");
   if (!data?.checkout_url) throw new Error("Stripe did not return a portal URL");
@@ -70,13 +68,36 @@ export async function fetchBillingPricing() {
 }
 
 export async function startCreditCheckout(quantity) {
-  const { data } = await client.post("/billing/checkout/credits", null, {
-    params: { quantity: Number(quantity) },
-  });
-  if (!data?.checkout_url) {
-    throw new Error("Stripe did not return a checkout URL");
+  // Open synchronously while the click is still an active user gesture so the
+  // browser does not mistake the Stripe tab for an unsolicited popup.
+  const checkoutTab = window.open("", "_blank");
+  if (!checkoutTab) {
+    throw new Error("Please allow popups to open Stripe Checkout");
   }
-  window.open(data.checkout_url, "_blank", "noopener,noreferrer");
+  checkoutTab.opener = null;
+
+  try {
+    const { data } = await client.post("/billing/checkout/credits", null, {
+      params: { quantity: Number(quantity) },
+    });
+    if (!data?.checkout_url) {
+      throw new Error("Stripe did not return a checkout URL");
+    }
+    checkoutTab.location.replace(data.checkout_url);
+  } catch (error) {
+    checkoutTab.close();
+    throw error;
+  }
+}
+
+export async function verifyCheckoutSession(sessionId) {
+  if (!/^cs_[a-zA-Z0-9_]{7,252}$/.test(String(sessionId || ""))) {
+    throw new Error("Invalid checkout session ID");
+  }
+  const { data } = await client.get(
+    `/billing/checkout/sessions/${encodeURIComponent(sessionId)}`,
+  );
+  return data;
 }
 
 export async function fetchCreditPricing() {

@@ -29,12 +29,13 @@ export default function BuyCreditsModal({ open, onClose }) {
     try {
       await startCreditCheckout(quantity);
     } catch (err) {
-      setLoading(false);
       toast({
         title: "Could not start purchase",
         description: getApiErrorMessage(err, "Please try again."),
         variant: "destructive",
       });
+    } finally {
+      setLoading(false);
     }
   };
 

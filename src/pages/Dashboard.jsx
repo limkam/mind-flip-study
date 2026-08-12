@@ -40,12 +40,18 @@ export default function Dashboard() {
     },
   });
 
+  // Prioritize the two collections needed to render the dashboard's primary
+  // content. Starting every secondary request at once can saturate a small
+  // remote Postgres compute and make all requests finish later.
+  const primaryContentSettled = !booksPending && !setsPending;
+
   const { data: summary } = useQuery({
     queryKey: ['analytics-summary'],
     queryFn: async () => {
       const { data } = await client.get('/analytics/summary');
       return data;
     },
+    enabled: primaryContentSettled,
   });
 
   const { data: quizPage } = useQuery({
@@ -54,6 +60,7 @@ export default function Dashboard() {
       const { data } = await client.get('/quiz-results/', { params: { page: 1, size: 2 } });
       return data;
     },
+    enabled: primaryContentSettled,
   });
 
   const quizResults = quizPage?.items ?? [];
@@ -65,7 +72,7 @@ export default function Dashboard() {
       const { data } = await client.get("/quiz-challenges/");
       return data;
     },
-    enabled: challengesEnabled,
+    enabled: challengesEnabled && primaryContentSettled,
   });
 
   const recentSets = flashcardSets.slice(0, 2);

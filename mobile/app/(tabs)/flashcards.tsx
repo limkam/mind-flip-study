@@ -47,12 +47,12 @@ export default function FlashcardsTab() {
 
   const confirmDelete = (setId: string, title: string, cardCount: number) => {
     Alert.alert(
-      "Delete flashcard set?",
-      `This permanently deletes "${title}" and all ${cardCount} flashcards.`,
+      "Delete these flashcards?",
+      `Deleting "${title}" and all ${cardCount} flashcards removes them from your account, but it will not restore the generation allowance used to create them.`,
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete",
+          text: "Delete Flashcards",
           style: "destructive",
           onPress: () => {
             void (async () => {

@@ -26,4 +26,16 @@ def events_for_trusted_row(row: EngagementEvent, *, title: str | None = None) ->
             title=f"{days}-day learning streak", message=f"Your streak increased to {days} days.",
             metadata={"streakDays": days},
         ))
+    for achievement in (row.metadata_ or {}).get("achievement_unlocks") or []:
+        if not isinstance(achievement, dict) or not achievement.get("id"):
+            continue
+        events.append(CelebrationEventOut(
+            event_id=f"achievement:{achievement['id']}",
+            event_type="achievement_unlock",
+            occurred_at=row.occurred_at,
+            entity_id=str(achievement["id"]),
+            title=f"Achievement unlocked: {achievement.get('title') or 'New achievement'}",
+            message=str(achievement.get("description") or "You reached a meaningful learning milestone."),
+            metadata={"major": bool(achievement.get("major", False))},
+        ))
     return events

@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 import logging
 import asyncio
+from time import perf_counter
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated
@@ -26,8 +27,7 @@ from models.billing_analytics import BillingEvent, BillingInvoice
 from models.user import User
 from models.credit_purchase import CreditPurchase
 from models.credit_ledger import CreditLedger
-from models.book import Book
-from models.flashcard import FlashcardSet
+from services.usage_events import BOOK_UPLOADED, FLASHCARDS_GENERATED, consumed_quantity
 from schemas.billing import CheckoutUrlResponse, CheckoutClient, CheckoutVerificationResponse
 from schemas.billing import (
     BillingPricingResponse,
@@ -37,7 +37,6 @@ from schemas.billing import (
     EntitlementFeatures,
     EntitlementsSnapshotResponse,
     SubscriptionCancelResponse,
-    TrialEligibilityResponse,
 )
 from services import credits as credits_service
 from services import entitlements as entitlements_service
@@ -263,28 +262,6 @@ async def _latest_subscription_row(db: AsyncSession, user_id: UUID) -> UserSubsc
     )
 
 
-async def _trial_eligibility_signals(db: AsyncSession, user: User) -> dict:
-    has_prior_subscription = bool(
-        await db.scalar(
-            select(UserSubscription.id).where(UserSubscription.user_id == user.id).limit(1)
-        )
-    )
-    has_credit_purchase_history = bool(
-        await db.scalar(
-            select(CreditPurchase.id).where(CreditPurchase.user_id == user.id).limit(1)
-        )
-    )
-    prefs = dict(user.preferences or {})
-    trial_meta = dict(prefs.get("trial") or {})
-    trial_used = bool(trial_meta.get("used_at"))
-    return {
-        "trial_enabled": bool(settings.TRIAL_ENABLED),
-        "has_prior_subscription": has_prior_subscription,
-        "has_credit_purchase_history": has_credit_purchase_history,
-        "trial_used": trial_used,
-    }
-
-
 def _current_period_end_dt(ts: object) -> datetime | None:
     if ts is None:
         return None
@@ -335,7 +312,14 @@ def _invoice_price_id(inv: dict) -> str | None:
     return None
 
 
-async def _sync_subscription_from_stripe_object(db: AsyncSession, sub: dict) -> None:
+async def _sync_subscription_from_stripe_object(
+    db: AsyncSession,
+    sub: dict,
+    *,
+    event_created_at: datetime | None = None,
+    _authoritative_tie: bool = False,
+    authoritative_snapshot: bool = False,
+) -> bool:
     """Sync internal subscription state from Stripe webhook object.
 
     This keeps Stripe as an external event source while internal records remain
@@ -345,11 +329,11 @@ async def _sync_subscription_from_stripe_object(db: AsyncSession, sub: dict) -> 
     if isinstance(customer_id, dict):
         customer_id = customer_id.get("id")
     if not customer_id or not isinstance(customer_id, str):
-        return
+        return False
 
     user = await db.scalar(select(User).where(User.stripe_customer_id == customer_id).limit(1))
     if user is None:
-        return
+        return False
 
     items = ((sub.get("items") or {}).get("data") or [])
     first_item = items[0] if items else {}
@@ -362,15 +346,15 @@ async def _sync_subscription_from_stripe_object(db: AsyncSession, sub: dict) -> 
     plan_slug, tier, billing_interval = _plan_slug_and_tier_for_price_id(price_id)
     if plan_slug is None:
         # Keep current internal state if this subscription item is unknown.
-        return
+        return False
 
     plan = await db.scalar(select(Plan).where(Plan.slug == plan_slug).limit(1))
     if plan is None:
-        return
+        return False
 
     stripe_sub_id = sub.get("id")
     if not stripe_sub_id:
-        return
+        return False
 
     status_raw = str(sub.get("status") or "")
     cpe = _subscription_period_end_dt(sub)
@@ -378,6 +362,32 @@ async def _sync_subscription_from_stripe_object(db: AsyncSession, sub: dict) -> 
     internal_sub = await db.scalar(
         select(UserSubscription).where(UserSubscription.stripe_subscription_id == str(stripe_sub_id)).limit(1)
     )
+    last_applied = getattr(internal_sub, "stripe_event_created_at", None) if internal_sub is not None else None
+    if (
+        internal_sub is not None
+        and event_created_at is not None
+        and last_applied == event_created_at
+        and not _authoritative_tie
+        and settings.STRIPE_SECRET_KEY
+    ):
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        current = await asyncio.to_thread(stripe.Subscription.retrieve, str(stripe_sub_id))
+        return await _sync_subscription_from_stripe_object(
+            db,
+            _stripe_object_as_dict(current),
+            event_created_at=event_created_at,
+            _authoritative_tie=True,
+        )
+    if (
+        internal_sub is not None
+        and not authoritative_snapshot
+        and _is_stale_subscription_event(internal_sub, event_created_at)
+    ):
+        logger.warning(
+            "stripe_subscription_stale_event_ignored",
+            extra={"subscription_id": str(stripe_sub_id), "event_created_at": event_created_at.isoformat()},
+        )
+        return False
     if internal_sub is None:
         internal_sub = UserSubscription(
             user_id=user.id,
@@ -395,6 +405,10 @@ async def _sync_subscription_from_stripe_object(db: AsyncSession, sub: dict) -> 
     internal_sub.billing_interval = billing_interval or internal_sub.billing_interval
     internal_sub.current_period_end = cpe
     internal_sub.stripe_price_id = str(price_id) if price_id else None
+    if event_created_at is not None:
+        internal_sub.stripe_event_created_at = max(
+            filter(None, (event_created_at, last_applied)), default=event_created_at
+        )
     if isinstance(price_obj, dict):
         internal_sub.unit_amount_cents = int(price_obj.get("unit_amount") or 0)
         recurring = price_obj.get("recurring") or {}
@@ -404,41 +418,55 @@ async def _sync_subscription_from_stripe_object(db: AsyncSession, sub: dict) -> 
 
     # Denormalized tier for legacy reads, while entitlement checks use internal_sub + plan.
     now = datetime.now(timezone.utc)
-    prefs = dict(user.preferences or {})
-    trial_meta = dict(prefs.get("trial") or {})
-
-    if status_raw == "trialing":
-        trial_meta.setdefault("started_at", now.isoformat())
-        if cpe is not None:
-            trial_meta["ends_at"] = cpe.isoformat()
-
     has_current_access = cpe is None or cpe > now
     if has_current_access and status_raw in {"active", "trialing", "past_due"}:
         user.subscription_tier = tier or user.subscription_tier
-        if status_raw == "active" and trial_meta.get("started_at") and not trial_meta.get("used_at"):
-            trial_meta["used_at"] = now.isoformat()
-            trial_meta["converted_at"] = now.isoformat()
-    elif status_raw in {"canceled", "unpaid", "incomplete_expired"} and (not cpe or cpe <= now):
+    elif status_raw in {"paused", "incomplete"} or (
+        status_raw in {"canceled", "unpaid", "incomplete_expired"} and (not cpe or cpe <= now)
+    ):
         user.subscription_tier = "free"
-        if status_raw in {"canceled", "incomplete_expired"} and trial_meta.get("started_at") and not trial_meta.get("used_at"):
-            # Trial ended/canceled without conversion but should still count as used.
-            trial_meta["used_at"] = now.isoformat()
-
-    if trial_meta:
-        prefs["trial"] = trial_meta
-        user.preferences = prefs
 
     db.add(user)
     if isinstance(plan, Plan) and status_raw in {"active", "trialing"} and has_current_access:
         await credits_service.award_monthly_allowance_for_user(db, user.id, plan.id, period_end=cpe)
+    return True
+
+
+async def _acquire_business_lock(db: AsyncSession, namespace: str, object_id: str) -> None:
+    """Serialize webhook work that targets the same Stripe business object."""
+    await db.execute(
+        select(func.pg_advisory_xact_lock(func.hashtextextended(f"{namespace}:{object_id}", 0)))
+    )
+
+
+async def _reconcile_canonical_subscription(
+    db: AsyncSession,
+    subscription_id: str,
+    *,
+    event_created_at: datetime | None,
+) -> bool:
+    await _acquire_business_lock(db, "stripe-subscription", subscription_id)
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    current = await asyncio.to_thread(stripe.Subscription.retrieve, subscription_id)
+    return await _sync_subscription_from_stripe_object(
+        db,
+        _stripe_object_as_dict(current),
+        event_created_at=event_created_at,
+        _authoritative_tie=True,
+        authoritative_snapshot=True,
+    )
 
 
 @router.get("/pricing", response_model=BillingPricingResponse)
 async def billing_pricing() -> BillingPricingResponse:
-    return BillingPricingResponse(
-        default_interval=(settings.BILLING_DEFAULT_INTERVAL or BillingInterval.annual.value),
-        plans=_pricing_plan_catalog(),
-    )
+    started = perf_counter()
+    try:
+        return BillingPricingResponse(
+            default_interval=(settings.BILLING_DEFAULT_INTERVAL or BillingInterval.annual.value),
+            plans=_pricing_plan_catalog(),
+        )
+    finally:
+        logger.info("billing_pricing total_ms=%.1f", (perf_counter() - started) * 1000)
 
 
 @router.get("/entitlements/me", response_model=EntitlementsSnapshotResponse)
@@ -446,11 +474,13 @@ async def billing_entitlements_snapshot(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> EntitlementsSnapshotResponse:
+    started = perf_counter()
     plan_slug = await entitlements_service._user_plan_slug(db, current_user)
     plan_features = await entitlements_service._plan_features(db, plan_slug)
 
     monthly_content, purchased = await credits_service._split_pool_balances(db, current_user.id, pool="content")
     monthly_regen, _ = await credits_service._split_pool_balances(db, current_user.id, pool="regen")
+    credit_snapshot = await credits_service.get_credit_accounting_snapshot(db, current_user.id, pool="content")
 
     latest_sub = await _latest_subscription_row(db, current_user.id)
     sub_status = latest_sub.status if latest_sub is not None else "free"
@@ -489,7 +519,7 @@ async def billing_entitlements_snapshot(
         regeneration=bool(action_map["regeneration"].allowed),
     )
 
-    return EntitlementsSnapshotResponse(
+    response = EntitlementsSnapshotResponse(
         plan_slug=plan_slug,
         subscription_status=sub_status,
         billing_interval=interval,
@@ -498,11 +528,37 @@ async def billing_entitlements_snapshot(
             monthly_content_credits=monthly_content,
             purchased_credits=purchased,
             monthly_regen_credits=monthly_regen,
+            available_total=credit_snapshot["available_total"],
+            plan_allocated_credits=credit_snapshot["plan"]["allocated"],
+            plan_used_credits=credit_snapshot["plan"]["used"],
+            purchased_total_credits=credit_snapshot["purchased"]["purchased_total"],
+            purchased_used_credits=credit_snapshot["purchased"]["used"],
         ),
         features=features,
         actions=action_map,
         raw_plan_features=plan_features,
     )
+    logger.info("billing_entitlements total_ms=%.1f", (perf_counter() - started) * 1000)
+    return response
+
+
+async def _local_subscription_resolution(db: AsyncSession, user_id: UUID) -> dict:
+    """Resolve the synchronized read model without making a live Stripe call."""
+    rows = (await db.execute(
+        select(UserSubscription).where(
+            UserSubscription.user_id == user_id,
+            UserSubscription.stripe_subscription_id.is_not(None),
+            UserSubscription.status.in_(tuple(_VALID_SUBSCRIPTION_STATUSES)),
+        )
+    )).scalars().all()
+    subscription_ids = {str(row.stripe_subscription_id) for row in rows if row.stripe_subscription_id}
+    if len(subscription_ids) > 1:
+        logger.error(
+            "billing_subscription_conflict",
+            extra={"user_id": str(user_id), "local_subscription_count": len(subscription_ids)},
+        )
+        return {"state": "subscription_conflict", "count": len(subscription_ids)}
+    return {"state": "active" if subscription_ids else "none", "count": len(subscription_ids)}
 
 
 @router.get("/overview")
@@ -510,29 +566,29 @@ async def billing_overview(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    """Aggregate authoritative subscription, allowance, and billing data."""
+    """Read synchronized subscription and allowance state; no live Stripe I/O."""
+    started = perf_counter()
+    db_started = perf_counter()
     now = datetime.now(timezone.utc)
     plan_slug = await entitlements_service._user_plan_slug(db, current_user)
     features = await entitlements_service._plan_features(db, plan_slug)
     subscription = await _latest_subscription_row(db, current_user.id)
-    resolution = await _resolve_stripe_subscription(db, current_user)
+    resolution = await _local_subscription_resolution(db, current_user.id)
     subscription_state = resolution["state"]
     if subscription_state == "subscription_conflict":
         subscription = None
     interval = subscription.billing_interval if subscription else None
     period_end = subscription.current_period_end if subscription else None
     paid = plan_slug != "free"
-    usage_start = (subscription.created_at if subscription and subscription.created_at else (datetime(now.year, now.month, 1, tzinfo=timezone.utc) if paid else None))
+    usage_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc) if paid else None
     usage_reset = (period_end if period_end else ((datetime(now.year + (1 if now.month == 12 else 0), 1 if now.month == 12 else now.month + 1, 1, tzinfo=timezone.utc)) if paid else None))
 
-    def usage_filters(model):
-        filters = [model.user_id == current_user.id]
-        if usage_start is not None:
-            filters.append(model.created_at >= usage_start)
-        return filters
-
-    books_used = int(await db.scalar(select(func.count(Book.id)).where(*usage_filters(Book))) or 0)
-    sets_used = int(await db.scalar(select(func.count(FlashcardSet.id)).where(*usage_filters(FlashcardSet))) or 0)
+    books_used = await consumed_quantity(
+        db, current_user.id, BOOK_UPLOADED, period_start=usage_start, include_reservations=False
+    )
+    sets_used = await consumed_quantity(
+        db, current_user.id, FLASHCARDS_GENERATED, period_start=usage_start, include_reservations=False
+    )
     monthly_content, purchased = await credits_service._split_pool_balances(db, current_user.id, pool="content")
     monthly_regen, purchased_regen = await credits_service._split_pool_balances(db, current_user.id, pool="regen")
 
@@ -542,6 +598,8 @@ async def billing_overview(
         await db.commit()
         monthly_content, purchased = await credits_service._split_pool_balances(db, current_user.id, pool="content")
         monthly_regen, purchased_regen = await credits_service._split_pool_balances(db, current_user.id, pool="regen")
+
+    credit_snapshot = await credits_service.get_credit_accounting_snapshot(db, current_user.id, pool="content")
 
     ledger_rows = (await db.execute(
         select(CreditLedger).where(CreditLedger.user_id == current_user.id)
@@ -557,43 +615,13 @@ async def billing_overview(
     if subscription_state == "subscription_conflict":
         amount_cents = 0
 
-    invoices = []
-    payment_method = None
-    if current_user.stripe_customer_id and settings.STRIPE_SECRET_KEY:
-        stripe.api_key = settings.STRIPE_SECRET_KEY
-        try:
-            invoice_list, methods = await asyncio.gather(
-                asyncio.to_thread(
-                    stripe.Invoice.list,
-                    customer=current_user.stripe_customer_id,
-                    limit=10,
-                ),
-                asyncio.to_thread(
-                    stripe.PaymentMethod.list,
-                    customer=current_user.stripe_customer_id,
-                    type="card",
-                    limit=1,
-                ),
-            )
-            for raw in getattr(invoice_list, "data", []) or []:
-                inv = _stripe_object_as_dict(raw)
-                invoices.append({
-                    "id": inv.get("id"), "created_at": _current_period_end_dt(inv.get("created")),
-                    "amount_cents": int(inv.get("amount_paid") or inv.get("amount_due") or 0),
-                    "currency": str(inv.get("currency") or "usd"), "status": inv.get("status"),
-                    "hosted_invoice_url": inv.get("hosted_invoice_url"), "invoice_pdf": inv.get("invoice_pdf"),
-                    "period_start": _current_period_end_dt(inv.get("period_start")),
-                    "period_end": _current_period_end_dt(inv.get("period_end")),
-                })
-            method_rows = getattr(methods, "data", []) or []
-            if method_rows:
-                method = _stripe_object_as_dict(method_rows[0])
-                card = method.get("card") or {}
-                payment_method = {"brand": card.get("brand"), "last4": card.get("last4"), "exp_month": card.get("exp_month"), "exp_year": card.get("exp_year")}
-        except Exception:
-            logger.warning("Stripe billing details unavailable for user %s", current_user.id, exc_info=True)
-
-    return {
+    needs_reconciliation = bool(
+        current_user.stripe_customer_id
+        and subscription_state == "none"
+        and (subscription is None or not subscription.stripe_subscription_id)
+    )
+    db_ms = (perf_counter() - db_started) * 1000
+    response = {
         "subscription": {
             "state": subscription_state, "conflict_count": resolution.get("count", 0),
             "plan_slug": None if subscription_state == "subscription_conflict" else plan_slug,
@@ -602,6 +630,7 @@ async def billing_overview(
             "current_period_start": subscription.created_at if subscription else None,
             "current_period_end": period_end, "usage_period_start": usage_start,
             "usage_resets_at": usage_reset, "cancel_at_period_end": bool(subscription and subscription.status == "canceled"),
+            "needs_reconciliation": needs_reconciliation,
         },
         "usage": [
             {"key": "books", "used": books_used, "limit": features.get("max_books"), "resets_at": usage_reset},
@@ -614,16 +643,90 @@ async def billing_overview(
             "regeneration": "included" if plan_slug == "premium_30" else ("extra_credits" if plan_slug == "standard_15" else "not_included"),
             "daily_review": "unlimited" if features.get("daily_review_limit") is None else features.get("daily_review_limit"),
         },
-        "credits": {"monthly_content": monthly_content, "purchased": purchased, "monthly_regeneration": monthly_regen, "purchased_regeneration": purchased_regen},
+        "credits": {
+            "monthly_content": monthly_content, "purchased": purchased,
+            "monthly_regeneration": monthly_regen, "purchased_regeneration": purchased_regen,
+            **credit_snapshot,
+        },
         "credit_policy": {
             "authoritative_timezone": "UTC", "consumption_priority": ["monthly_allowance", "purchased"],
             "content": {"eligible_actions": ["create_book", "create_set"], "requires_feature_allowance": True, "monthly_expires_at": usage_reset},
             "regeneration": {"eligible_actions": ["regeneration"], "requires_feature_entitlement": True},
-            "purchased": {"expires_at": period_end, "rolls_over": False},
+            "purchased": {"expires_at": None, "rolls_over": True},
         },
         "activity": [{"id": str(row.id), "amount": row.amount, "pool": row.pool, "reason": row.reason, "metadata": row.meta, "expires_at": row.expires_at, "created_at": row.created_at} for row in ledger_rows],
-        "invoices": invoices, "payment_method": payment_method,
     }
+    logger.info(
+        "billing_overview total_ms=%.1f db_ms=%.1f stripe_subscription_ms=0.0",
+        (perf_counter() - started) * 1000,
+        db_ms,
+    )
+    return response
+
+
+@router.get("/invoices")
+async def billing_invoices(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict:
+    """Return display-safe invoice history independently from billing state."""
+    started = perf_counter()
+    if not current_user.stripe_customer_id:
+        return {"invoices": []}
+    if not settings.STRIPE_SECRET_KEY:
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "BILLING_UNAVAILABLE", "Billing history is temporarily unavailable.")
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    stripe_started = perf_counter()
+    try:
+        invoice_list = await asyncio.to_thread(
+            stripe.Invoice.list, customer=current_user.stripe_customer_id, limit=10,
+        )
+    except Exception as exc:
+        logger.warning("stripe_invoice_lookup_failed", extra={"user_id": str(current_user.id), "error_type": type(exc).__name__})
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "INVOICES_UNAVAILABLE", "Billing history is temporarily unavailable.") from None
+    stripe_ms = (perf_counter() - stripe_started) * 1000
+    invoices = []
+    for raw in getattr(invoice_list, "data", []) or []:
+        inv = _stripe_object_as_dict(raw)
+        invoices.append({
+            "id": inv.get("id"), "created_at": _current_period_end_dt(inv.get("created")),
+            "amount_cents": int(inv.get("amount_paid") or inv.get("amount_due") or 0),
+            "currency": str(inv.get("currency") or "usd"), "status": inv.get("status"),
+            "hosted_invoice_url": inv.get("hosted_invoice_url"), "invoice_pdf": inv.get("invoice_pdf"),
+            "period_start": _current_period_end_dt(inv.get("period_start")),
+            "period_end": _current_period_end_dt(inv.get("period_end")),
+        })
+    logger.info("billing_invoices total_ms=%.1f stripe_ms=%.1f", (perf_counter() - started) * 1000, stripe_ms)
+    return {"invoices": invoices}
+
+
+@router.get("/payment-method")
+async def billing_payment_method(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict:
+    """Return only masked, display-safe card metadata."""
+    started = perf_counter()
+    if not current_user.stripe_customer_id:
+        return {"payment_method": None}
+    if not settings.STRIPE_SECRET_KEY:
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "BILLING_UNAVAILABLE", "Payment method is temporarily unavailable.")
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    stripe_started = perf_counter()
+    try:
+        methods = await asyncio.to_thread(
+            stripe.PaymentMethod.list, customer=current_user.stripe_customer_id, type="card", limit=1,
+        )
+    except Exception as exc:
+        logger.warning("stripe_payment_method_lookup_failed", extra={"user_id": str(current_user.id), "error_type": type(exc).__name__})
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "PAYMENT_METHOD_UNAVAILABLE", "Payment method is temporarily unavailable.") from None
+    stripe_ms = (perf_counter() - stripe_started) * 1000
+    payment_method = None
+    rows = getattr(methods, "data", []) or []
+    if rows:
+        method = _stripe_object_as_dict(rows[0])
+        card = method.get("card") or {}
+        payment_method = {"brand": card.get("brand"), "last4": card.get("last4"), "exp_month": card.get("exp_month"), "exp_year": card.get("exp_year")}
+    logger.info("billing_payment_method total_ms=%.1f stripe_ms=%.1f", (perf_counter() - started) * 1000, stripe_ms)
+    return {"payment_method": payment_method}
 
 
 @router.post("/customer-portal")
@@ -648,116 +751,6 @@ async def create_customer_portal(
     return CheckoutUrlResponse(checkout_url=session.url)
 
 
-@router.get("/trial/eligibility", response_model=TrialEligibilityResponse)
-async def trial_eligibility(
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> TrialEligibilityResponse:
-    trial_days = int(settings.TRIAL_DAYS_PREMIUM)
-    if not settings.TRIAL_ENABLED:
-        return TrialEligibilityResponse(eligible=False, reason="trial_disabled", signals={"trial_enabled": False}, trial_days=trial_days)
-
-    signals = await _trial_eligibility_signals(db, current_user)
-    if current_user.subscription_tier != "free":
-        return TrialEligibilityResponse(eligible=False, reason="already_paid", signals=signals, trial_days=trial_days)
-    if signals["trial_used"]:
-        return TrialEligibilityResponse(eligible=False, reason="trial_already_used", signals=signals, trial_days=trial_days)
-    if signals["has_prior_subscription"]:
-        return TrialEligibilityResponse(eligible=False, reason="subscription_history", signals=signals, trial_days=trial_days)
-    if signals["has_credit_purchase_history"]:
-        return TrialEligibilityResponse(eligible=False, reason="payment_history", signals=signals, trial_days=trial_days)
-    return TrialEligibilityResponse(eligible=True, reason=None, signals=signals, trial_days=trial_days)
-
-
-@router.post("/trial/start", response_model=CheckoutUrlResponse)
-async def start_trial_checkout(
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-    client: Annotated[CheckoutClient, Query(description="Client platform ('web' or 'mobile')")] = CheckoutClient.web,
-) -> CheckoutUrlResponse:
-    trial_check = await trial_eligibility(current_user=current_user, db=db)
-    if not trial_check.eligible:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code": "TRIAL_NOT_ELIGIBLE",
-                "reason": trial_check.reason,
-                "signals": trial_check.signals,
-            },
-        )
-
-    price_id = getattr(settings, "STRIPE_PRICE_ID_PREMIUM_MONTHLY", "") or settings.STRIPE_PRICE_ID_PREMIUM
-    if not settings.STRIPE_SECRET_KEY or not price_id:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Stripe billing is not configured")
-
-    stripe.api_key = settings.STRIPE_SECRET_KEY
-    r = await db.execute(select(User).where(User.id == current_user.id).with_for_update())
-    user_row = r.scalar_one()
-    if not user_row.stripe_customer_id:
-        customer = stripe.Customer.create(
-            email=user_row.email,
-            metadata={"user_id": str(user_row.id)},
-            idempotency_key=f"mindflip:user:{user_row.id}:customer",
-        )
-        user_row.stripe_customer_id = customer.id
-        await db.commit()
-        await db.refresh(user_row)
-
-    resolution = await _resolve_stripe_subscription(db, user_row)
-    if resolution["state"] == "subscription_conflict":
-        raise _billing_error(status.HTTP_409_CONFLICT, "SUBSCRIPTION_CONFLICT", "Multiple active subscriptions require support review before initiating trial checkout.")
-    if resolution["state"] == "active":
-        raise _billing_error(status.HTTP_409_CONFLICT, "ALREADY_SUBSCRIBED", "An active subscription already exists. Manage it from Billing & Usage.")
-
-    if client == CheckoutClient.mobile:
-        base_success = settings.MOBILE_CHECKOUT_SUCCESS_URL
-        base_cancel = settings.MOBILE_CHECKOUT_CANCEL_URL
-    else:
-        base_web = settings.FRONTEND_URL.rstrip("/")
-        base_success = f"{base_web}/billing/success"
-        base_cancel = f"{base_web}/billing/cancel"
-
-    if "?" in base_success:
-        success_url = f"{base_success}&session_id={{CHECKOUT_SESSION_ID}}"
-    else:
-        success_url = f"{base_success}?session_id={{CHECKOUT_SESSION_ID}}"
-    cancel_url = base_cancel
-
-    session = stripe.checkout.Session.create(
-        customer=user_row.stripe_customer_id,
-        mode="subscription",
-        line_items=[{"price": price_id, "quantity": 1}],
-        success_url=success_url,
-        cancel_url=cancel_url,
-        client_reference_id=str(user_row.id),
-        metadata={
-            "user_id": str(user_row.id),
-            "plan": BillingPlan.premium.value,
-            "plan_slug": "premium_30",
-            "interval": BillingInterval.monthly.value,
-            "is_trial": "true",
-        },
-        subscription_data={
-            "trial_period_days": int(settings.TRIAL_DAYS_PREMIUM),
-            "metadata": {"is_trial": "true", "user_id": str(user_row.id)},
-        },
-        payment_method_collection="always",
-        idempotency_key=f"mindflip:trial_checkout:{user_row.id}:{uuid.uuid4().hex}",
-    )
-    url = session.url
-    if not url:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Stripe did not return a checkout URL")
-
-    prefs = dict(user_row.preferences or {})
-    trial_meta = dict(prefs.get("trial") or {})
-    trial_meta["started_checkout_at"] = datetime.now(timezone.utc).isoformat()
-    prefs["trial"] = trial_meta
-    user_row.preferences = prefs
-    await db.commit()
-
-    return CheckoutUrlResponse(checkout_url=url)
-
-
 @router.post("/subscription/cancel", response_model=SubscriptionCancelResponse)
 async def cancel_subscription_at_period_end(
     current_user: Annotated[User, Depends(get_current_user)],
@@ -779,10 +772,22 @@ async def cancel_subscription_at_period_end(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Stripe billing is not configured")
 
     stripe.api_key = settings.STRIPE_SECRET_KEY
-    stripe.Subscription.modify(
-        latest_sub.stripe_subscription_id,
-        cancel_at_period_end=True,
-    )
+    try:
+        await asyncio.to_thread(
+            stripe.Subscription.modify,
+            latest_sub.stripe_subscription_id,
+            cancel_at_period_end=True,
+        )
+    except Exception as exc:
+        logger.warning(
+            "stripe_subscription_cancel_failed",
+            extra={"user_id": str(current_user.id), "error_type": type(exc).__name__},
+        )
+        raise _billing_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "CANCELLATION_UNAVAILABLE",
+            "Cancellation could not be confirmed. Your local subscription was not changed.",
+        ) from None
 
     latest_sub.status = "canceled"
     db.add(latest_sub)
@@ -800,14 +805,20 @@ async def sync_subscription_from_stripe(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
     """Recover subscription state when a Stripe webhook was delayed or missed."""
+    started = perf_counter()
+    stripe_started = perf_counter()
     resolution = await _resolve_stripe_subscription(db, current_user)
+    stripe_ms = (perf_counter() - stripe_started) * 1000
     if resolution["state"] == "subscription_conflict":
+        logger.info("billing_subscription_sync total_ms=%.1f stripe_ms=%.1f state=subscription_conflict", (perf_counter() - started) * 1000, stripe_ms)
         return {"synced": False, "state": "subscription_conflict"}
     subscription = resolution.get("subscription")
     if not subscription:
+        logger.info("billing_subscription_sync total_ms=%.1f stripe_ms=%.1f state=none", (perf_counter() - started) * 1000, stripe_ms)
         return {"synced": False, "state": "none"}
     await _sync_subscription_from_stripe_object(db, subscription)
     await db.commit()
+    logger.info("billing_subscription_sync total_ms=%.1f stripe_ms=%.1f state=active", (perf_counter() - started) * 1000, stripe_ms)
     return {"synced": True, "state": "active"}
 
 
@@ -828,6 +839,16 @@ def _event_id(event: object) -> str | None:
         return str(eid) if eid else None
     eid = getattr(event, "id", None)
     return str(eid) if eid else None
+
+
+def _event_created_at(event: object) -> datetime | None:
+    value = event.get("created") if isinstance(event, dict) else getattr(event, "created", None)
+    return _current_period_end_dt(value)
+
+
+def _is_stale_subscription_event(subscription: UserSubscription, event_created_at: datetime | None) -> bool:
+    last_applied = getattr(subscription, "stripe_event_created_at", None)
+    return bool(event_created_at is not None and last_applied is not None and event_created_at < last_applied)
 
 
 def _event_data_object(event: object) -> dict:
@@ -893,6 +914,9 @@ async def _resolve_stripe_subscription(db: AsyncSession, user: User) -> dict:
         raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "STRIPE_UNAVAILABLE", "Billing services are temporarily unavailable.") from None
     rows = [_stripe_object_as_dict(item) for item in (getattr(result, "data", None) or [])]
     valid = [row for row in rows if row.get("status") in _VALID_SUBSCRIPTION_STATUSES]
+    if len(valid) > 1:
+        logger.error("billing_subscription_conflict", extra={"user_id": str(user.id), "stripe_subscription_count": len(valid)})
+        return {"state": "subscription_conflict", "subscription": None, "count": len(valid)}
     if len(local_ids) == 1:
         local_id = next(iter(local_ids))
         match = next((row for row in valid if str(row.get("id")) == local_id), None)
@@ -900,9 +924,6 @@ async def _resolve_stripe_subscription(db: AsyncSession, user: User) -> dict:
             return {"state": "active", "subscription": match, "count": len(valid)}
     if not local_ids and len(valid) == 1:
         return {"state": "active", "subscription": valid[0], "count": 1}
-    if len(valid) > 1:
-        logger.error("billing_subscription_conflict", extra={"user_id": str(user.id), "stripe_subscription_count": len(valid)})
-        return {"state": "subscription_conflict", "subscription": None, "count": len(valid)}
     return {"state": "none", "subscription": None, "count": 0}
 
 
@@ -1094,12 +1115,13 @@ async def verify_checkout_session(
 
     if mode == "payment":
         # Check if credit purchase has been recorded by webhook
+        payment_status = str(session.get("payment_status") or "").lower()
         purchase_row = await db.scalar(
             select(CreditPurchase).where(CreditPurchase.stripe_session_id == session_id).limit(1)
         )
-        if purchase_row is not None and purchase_row.status == "completed":
+        if purchase_row is not None and purchase_row.status == "completed" and payment_status == "paid":
             purchase_state = "credited"
-        elif checkout_status == "complete":
+        elif checkout_status == "complete" and payment_status == "paid":
             purchase_state = "processing"
         else:
             purchase_state = "not_confirmed"
@@ -1109,9 +1131,9 @@ async def verify_checkout_session(
         curr_raw = meta.get("currency") if isinstance(meta, dict) else None
 
         try:
-            credit_quantity = int(qty_raw) if qty_raw is not None else (purchase_row.credit_quantity if purchase_row else None)
+            credit_quantity = int(qty_raw) if qty_raw is not None else (purchase_row.quantity if purchase_row else None)
         except (TypeError, ValueError):
-            credit_quantity = purchase_row.credit_quantity if purchase_row else None
+            credit_quantity = purchase_row.quantity if purchase_row else None
 
         try:
             unit_price_cents = int(price_raw) if price_raw is not None else (purchase_row.unit_price_cents if purchase_row else None)
@@ -1231,6 +1253,14 @@ async def create_credit_checkout_session(
             "unit_price_cents": str(unit_price_cents),
             "currency": _credit_currency(),
         },
+        payment_intent_data={
+            "receipt_email": user_row.email,
+            "metadata": {
+                "user_id": str(user_row.id),
+                "credit_quantity": str(quantity),
+                "currency": _credit_currency(),
+            },
+        },
         idempotency_key=f"mindflip:credits_checkout:{user_row.id}:{uuid.uuid4().hex}",
     )
     url = session.url
@@ -1242,8 +1272,7 @@ async def create_credit_checkout_session(
     return CheckoutUrlResponse(checkout_url=url)
 
 
-@router.post("/webhook")
-async def stripe_webhook(
+async def _stripe_webhook_impl(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     redis: Annotated[Redis, Depends(get_redis)],
@@ -1268,30 +1297,51 @@ async def stripe_webhook(
     except stripe.SignatureVerificationError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid signature") from None
 
-    # Replay safety: first successful verification wins; duplicates short-circuit (no DB side effects).
+    # Keep the verified event id on the request so the endpoint wrapper can record
+    # a retryable failure after rolling back partial fulfillment.
     event_id = _event_id(event)
+    setattr(request, "_stripe_event_id", event_id)
+    setattr(request, "_stripe_event_type", _event_type(event) or "unknown")
+    billing_event = None
     if event_id:
-        dedupe_key = _STRIPE_EVENT_DEDUPE_PREFIX + event_id
-        try:
-            was_set = await redis.set(dedupe_key, "1", nx=True, ex=_STRIPE_EVENT_DEDUPE_TTL_SEC)
-        except Exception:
-            was_set = True
-        if not was_set:
+        # The transaction-scoped advisory lock serializes deliveries even before
+        # a BillingEvent row exists. The unique event id remains the durable guard.
+        await db.execute(
+            select(func.pg_advisory_xact_lock(func.hashtextextended(event_id, 0)))
+        )
+        billing_event = await db.scalar(
+            select(BillingEvent)
+            .where(BillingEvent.stripe_event_id == event_id)
+            .with_for_update()
+        )
+        if billing_event is not None and billing_event.status == "succeeded":
             return {"received": True}
+        if billing_event is None:
+            billing_event = BillingEvent(
+                stripe_event_id=event_id,
+                event_type=_event_type(event) or "unknown",
+                status="processing",
+                attempts=1,
+                payload=_event_data_object(event),
+            )
+            db.add(billing_event)
+        else:
+            billing_event.status = "processing"
+            billing_event.attempts = int(billing_event.attempts or 0) + 1
+            billing_event.error = None
+            billing_event.payload = _event_data_object(event)
+        await db.flush()
 
     etype = _event_type(event)
+    event_created_at = _event_created_at(event)
     data_object = _event_data_object(event)
-    if event_id:
-        await db.execute(
-            pg_insert(BillingEvent).values(
-                stripe_event_id=event_id, event_type=etype or "unknown", status="succeeded",
-                payload=data_object, processed_at=datetime.now(timezone.utc),
-            ).on_conflict_do_nothing(index_elements=[BillingEvent.stripe_event_id])
-        )
-
-    if etype == "checkout.session.completed":
+    if etype in {
+        "checkout.session.completed",
+        "checkout.session.async_payment_succeeded",
+        "checkout.session.async_payment_failed",
+    }:
         session = data_object
-        if session.get("mode") == "subscription":
+        if etype == "checkout.session.completed" and session.get("mode") == "subscription":
             meta = session.get("metadata") or {}
             uid_str = meta.get("user_id") if isinstance(meta, dict) else None
             if not uid_str:
@@ -1306,53 +1356,62 @@ async def stripe_webhook(
                     uid = UUID(str(uid_str))
                 except ValueError:
                     uid = None
+                if uid is None:
+                    raise ValueError("Stripe Checkout Session has an invalid user id")
                 if uid is not None:
                     ur = await db.execute(select(User).where(User.id == uid))
                     user = ur.scalar_one_or_none()
+                    if user is None:
+                        raise ValueError("Stripe Checkout Session user does not exist")
                     if user is not None:
                         if customer_id and isinstance(customer_id, str) and not user.stripe_customer_id:
                             user.stripe_customer_id = customer_id
                         plan = meta.get("plan") if isinstance(meta, dict) else None
-                        user.subscription_tier = _subscription_tier_for_plan(str(plan) if plan else None)
-                        # Lightweight sync from checkout metadata; canonical plan assignment is
-                        # finalized by customer.subscription.created/updated events.
+                        # Checkout completion is only a reconciliation trigger. Retrieve and
+                        # project the canonical Stripe Subscription; never infer "active" from
+                        # the Checkout Session itself.
                         sub_id = session.get("subscription")
                         if isinstance(sub_id, dict):
                             sub_id = sub_id.get("id")
-                        if isinstance(sub_id, str):
-                            plan_slug = (
-                                str(meta.get("plan_slug"))
-                                if isinstance(meta, dict) and meta.get("plan_slug")
-                                else _plan_slug_for_metadata(str(plan) if plan else None)
+                        if not isinstance(sub_id, str):
+                            raise ValueError("Stripe Checkout Session is missing its subscription")
+                        client_ref = session.get("client_reference_id")
+                        ownership_matches = (
+                            str(uid_str) == str(user.id)
+                            and (not client_ref or str(client_ref) == str(user.id))
+                            and (not customer_id or not user.stripe_customer_id or str(customer_id) == str(user.stripe_customer_id))
+                        )
+                        if isinstance(sub_id, str) and ownership_matches:
+                            stripe.api_key = settings.STRIPE_SECRET_KEY
+                            await _acquire_business_lock(db, "stripe-subscription", sub_id)
+                            canonical = await asyncio.to_thread(stripe.Subscription.retrieve, sub_id)
+                            canonical_sub = _stripe_object_as_dict(canonical)
+                            canonical_customer = canonical_sub.get("customer")
+                            if isinstance(canonical_customer, dict):
+                                canonical_customer = canonical_customer.get("id")
+                            if not canonical_customer or str(canonical_customer) != str(customer_id):
+                                raise ValueError("Stripe subscription customer does not match Checkout Session")
+                            await _sync_subscription_from_stripe_object(
+                                db,
+                                canonical_sub,
+                                event_created_at=event_created_at,
+                                _authoritative_tie=True,
+                                authoritative_snapshot=True,
                             )
-                            plan_row = await db.scalar(select(Plan).where(Plan.slug == plan_slug).limit(1))
-                            if plan_row is not None:
-                                existing_sub = await db.scalar(
-                                    select(UserSubscription)
-                                    .where(UserSubscription.stripe_subscription_id == sub_id)
-                                    .limit(1)
-                                )
-                                if existing_sub is None:
-                                    sub_record = UserSubscription(
-                                        user_id=user.id,
-                                        plan_id=plan_row.id,
-                                        stripe_subscription_id=sub_id,
-                                        status="active",
-                                        billing_interval=(str(meta.get("interval")) if isinstance(meta, dict) and meta.get("interval") else None),
-                                    )
-                                    db.add(sub_record)
-                                    await credits_service.award_monthly_allowance_for_user(db, user.id, plan_row.id)
-                        await db.commit()
+                        elif isinstance(sub_id, str):
+                            raise ValueError("Stripe Checkout Session ownership mismatch")
+                        await db.flush()
+            else:
+                raise ValueError("Stripe Checkout Session is missing user ownership metadata")
         elif session.get("mode") == "payment":
             # One-time credit purchase
             meta = session.get("metadata") or {}
             payment_status = str(session.get("payment_status") or "").lower()
             uid_str = meta.get("user_id") if isinstance(meta, dict) else None
-            if not uid_str:
-                cref = session.get("client_reference_id")
-                if cref:
-                    uid_str = str(cref)
+            client_ref = session.get("client_reference_id")
             session_id = session.get("id")
+            if not isinstance(session_id, str) or not session_id:
+                raise ValueError("Credit Checkout Session is missing its session id")
             customer_id = session.get("customer")
             if isinstance(customer_id, dict):
                 customer_id = customer_id.get("id")
@@ -1361,19 +1420,38 @@ async def stripe_webhook(
                     uid = UUID(str(uid_str))
                 except ValueError:
                     uid = None
+                if uid is None:
+                    raise ValueError("Credit Checkout Session has an invalid metadata user id")
+                if client_ref is not None and str(client_ref) != str(uid):
+                    raise ValueError("Credit Checkout Session client reference does not match metadata user")
                 if uid is not None:
                     ur = await db.execute(select(User).where(User.id == uid))
                     user = ur.scalar_one_or_none()
+                    if user is None:
+                        raise ValueError("Credit Checkout Session user does not exist")
                     if user is not None:
+                        if str(user.id) != str(uid):
+                            raise ValueError("Credit Checkout Session belongs to another application user")
+                        if not isinstance(customer_id, str):
+                            raise ValueError("Credit Checkout Session is missing its Stripe customer")
+                        if user.stripe_customer_id and str(user.stripe_customer_id) != customer_id:
+                            raise ValueError("Credit Checkout Session customer does not match application user")
                         if customer_id and isinstance(customer_id, str) and not user.stripe_customer_id:
                             user.stripe_customer_id = customer_id
 
                         # DB-level idempotency for webhook processing (defensive even with Redis dedupe).
+                        existing_purchase = None
                         if session_id:
+                            await _acquire_business_lock(db, "stripe-credit-session", str(session_id))
                             existing_purchase = await db.scalar(
                                 select(CreditPurchase).where(CreditPurchase.stripe_session_id == str(session_id)).limit(1)
                             )
-                            if existing_purchase is not None:
+                            if existing_purchase is not None and getattr(existing_purchase, "status", "completed") == "completed":
+                                if billing_event is not None:
+                                    billing_event.status = "succeeded"
+                                    billing_event.error = None
+                                    billing_event.processed_at = datetime.now(timezone.utc)
+                                    db.add(billing_event)
                                 await db.commit()
                                 return {"received": True}
 
@@ -1403,6 +1481,7 @@ async def stripe_webhook(
                         is_valid_payment = (
                             str(session.get("mode")) == "payment"
                             and payment_status == "paid"
+                            and etype != "checkout.session.async_payment_failed"
                             and 1 <= quantity <= _CREDIT_MAX_QUANTITY
                             and amount_paid_cents == expected_amount_cents
                             and session_currency == expected_currency
@@ -1410,7 +1489,9 @@ async def stripe_webhook(
 
                         if is_valid_payment:
                             # Execute grant and CreditPurchase creation atomically within the same DB transaction
-                            await credits_service.award_onetime_credits_for_user(db, uid, quantity)
+                            await credits_service.award_onetime_credits_for_user(
+                                db, uid, quantity, stripe_session_id=str(session_id)
+                            )
 
                             payment_intent_id = session.get("payment_intent")
                             if isinstance(payment_intent_id, dict):
@@ -1420,19 +1501,18 @@ async def stripe_webhook(
                             if isinstance(invoice_id, dict):
                                 invoice_id = invoice_id.get("id")
 
-                            purchase = CreditPurchase(
-                                user_id=uid,
-                                quantity=quantity,
-                                amount_paid_cents=amount_paid_cents,
-                                currency=session_currency,
-                                unit_price_cents=unit_price_cents,
-                                stripe_event_id=event_id,
-                                stripe_session_id=session_id,
-                                stripe_payment_intent_id=payment_intent_id,
-                                stripe_customer_id=str(customer_id) if isinstance(customer_id, str) else None,
-                                stripe_invoice_id=str(invoice_id) if invoice_id else None,
-                                status="completed",
-                            )
+                            purchase = existing_purchase or CreditPurchase(user_id=uid)
+                            purchase.quantity = quantity
+                            purchase.amount_paid_cents = amount_paid_cents
+                            purchase.currency = session_currency
+                            purchase.unit_price_cents = unit_price_cents
+                            purchase.stripe_event_id = event_id
+                            purchase.stripe_session_id = session_id
+                            purchase.stripe_payment_intent_id = payment_intent_id
+                            purchase.stripe_customer_id = customer_id
+                            purchase.stripe_invoice_id = str(invoice_id) if invoice_id else None
+                            purchase.status = "completed"
+                            purchase.notes = None
                             db.add(purchase)
                             await db.flush()
 
@@ -1448,7 +1528,7 @@ async def stripe_webhook(
                                     email=user.email,
                                 )
 
-                            await db.commit()
+                            await db.flush()
                         elif quantity > 0:
                             amount_total = session.get("amount_total")
                             try:
@@ -1458,22 +1538,26 @@ async def stripe_webhook(
                             invoice_id = session.get("invoice")
                             if isinstance(invoice_id, dict):
                                 invoice_id = invoice_id.get("id")
-                            failed_purchase = CreditPurchase(
-                                user_id=uid,
-                                quantity=quantity,
-                                amount_paid_cents=amount_paid_cents,
-                                currency=str(session.get("currency") or _credit_currency()).lower(),
-                                unit_price_cents=_credit_unit_price_cents(),
-                                stripe_event_id=event_id,
-                                stripe_session_id=session_id,
-                                stripe_payment_intent_id=(session.get("payment_intent") if isinstance(session.get("payment_intent"), str) else None),
-                                stripe_customer_id=str(customer_id) if isinstance(customer_id, str) else None,
-                                stripe_invoice_id=str(invoice_id) if invoice_id else None,
-                                status="failed",
-                                notes=f"checkout.session.completed with payment_status={payment_status or 'unknown'}",
+                            purchase = existing_purchase or CreditPurchase(user_id=uid)
+                            purchase.quantity = quantity
+                            purchase.amount_paid_cents = amount_paid_cents
+                            purchase.currency = str(session.get("currency") or _credit_currency()).lower()
+                            purchase.unit_price_cents = _credit_unit_price_cents()
+                            purchase.stripe_event_id = event_id
+                            purchase.stripe_session_id = session_id
+                            purchase.stripe_payment_intent_id = session.get("payment_intent") if isinstance(session.get("payment_intent"), str) else None
+                            purchase.stripe_customer_id = customer_id
+                            purchase.stripe_invoice_id = str(invoice_id) if invoice_id else None
+                            purchase.status = (
+                                "pending"
+                                if etype == "checkout.session.completed" and payment_status != "paid"
+                                else "failed"
                             )
-                            db.add(failed_purchase)
-                            await db.commit()
+                            purchase.notes = f"{etype} with payment_status={payment_status or 'unknown'}"
+                            db.add(purchase)
+                            await db.flush()
+            else:
+                raise ValueError("Credit Checkout Session is missing metadata user id")
 
     elif etype in {
         "customer.subscription.created",
@@ -1482,14 +1566,18 @@ async def stripe_webhook(
         "customer.subscription.paused",
     }:
         sub = data_object
-        await _sync_subscription_from_stripe_object(db, sub)
-        await db.commit()
+        sub_id = sub.get("id")
+        if isinstance(sub_id, str):
+            await _reconcile_canonical_subscription(db, sub_id, event_created_at=event_created_at)
+        await db.flush()
 
     elif etype == "customer.subscription.deleted":
         sub = data_object
-        await _sync_subscription_from_stripe_object(db, sub)
+        sub_id = sub.get("id")
+        if isinstance(sub_id, str):
+            await _reconcile_canonical_subscription(db, sub_id, event_created_at=event_created_at)
         # keep paid-through access until current period end (handled by entitlement resolver)
-        await db.commit()
+        await db.flush()
 
     elif etype == "invoice.payment_failed":
         inv = data_object
@@ -1497,60 +1585,16 @@ async def stripe_webhook(
         if isinstance(sub_id, dict):
             sub_id = sub_id.get("id")
         if isinstance(sub_id, str):
-            internal_sub = await db.scalar(
-                select(UserSubscription)
-                .where(UserSubscription.stripe_subscription_id == sub_id)
-                .limit(1)
-            )
-            if internal_sub is not None:
-                internal_sub.status = "past_due"
-                db.add(internal_sub)
-                await db.commit()
+            await _reconcile_canonical_subscription(db, sub_id, event_created_at=event_created_at)
+            await db.flush()
 
     elif etype == "invoice.payment_succeeded":
         inv = data_object
         from services.stripe_reconciliation import _invoice_payment_intent, _invoice_price_id, _invoice_subscription_id
         sub_id = _invoice_subscription_id(inv)
         if isinstance(sub_id, str):
-            customer_id = inv.get("customer")
-            if isinstance(customer_id, dict):
-                customer_id = customer_id.get("id")
-
-            internal_sub = await db.scalar(
-                select(UserSubscription)
-                .where(UserSubscription.stripe_subscription_id == sub_id)
-                .limit(1)
-            )
-
-            # Recover from missing linkage by customer id + plan from invoice line.
-            if internal_sub is None and isinstance(customer_id, str):
-                user = await db.scalar(select(User).where(User.stripe_customer_id == customer_id).limit(1))
-                price_id = _invoice_price_id(inv)
-                plan_slug, _tier, interval = _plan_slug_and_tier_for_price_id(price_id)
-                if user is not None and plan_slug:
-                    plan = await db.scalar(select(Plan).where(Plan.slug == plan_slug).limit(1))
-                    if plan is not None:
-                        internal_sub = UserSubscription(
-                            user_id=user.id,
-                            plan_id=plan.id,
-                            stripe_subscription_id=sub_id,
-                            status="active",
-                            billing_interval=interval,
-                            current_period_end=_invoice_period_end_dt(inv),
-                        )
-                        db.add(internal_sub)
-
-            if internal_sub is not None:
-                internal_sub.status = "active"
-                maybe_period_end = _invoice_period_end_dt(inv)
-                if maybe_period_end is not None:
-                    internal_sub.current_period_end = maybe_period_end
-                db.add(internal_sub)
-                u_id = getattr(internal_sub, "user_id", None)
-                p_id = getattr(internal_sub, "plan_id", None)
-                if isinstance(u_id, UUID) and isinstance(p_id, UUID):
-                    await credits_service.award_monthly_allowance_for_user(db, u_id, p_id)
-                await db.commit()
+            await _reconcile_canonical_subscription(db, sub_id, event_created_at=event_created_at)
+            await db.flush()
 
         customer_id = inv.get("customer")
         if isinstance(customer_id, dict):
@@ -1578,6 +1622,61 @@ async def stripe_webhook(
                 invoice_row.paid_at = _current_period_end_dt(transitions.get("paid_at") or inv.get("created"))
                 invoice_row.period_start = _current_period_end_dt(inv.get("period_start"))
                 invoice_row.period_end = _current_period_end_dt(inv.get("period_end"))
-                await db.commit()
+                await db.flush()
 
+    if billing_event is not None:
+        billing_event.status = "succeeded"
+        billing_event.error = None
+        billing_event.processed_at = datetime.now(timezone.utc)
+        db.add(billing_event)
+    await db.commit()
+    if event_id:
+        try:
+            await redis.set(
+                _STRIPE_EVENT_DEDUPE_PREFIX + event_id,
+                "succeeded",
+                ex=_STRIPE_EVENT_DEDUPE_TTL_SEC,
+            )
+        except Exception:
+            pass
     return {"received": True}
+
+
+@router.post("/webhook")
+async def stripe_webhook(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis, Depends(get_redis)],
+) -> dict[str, bool]:
+    """Verify, atomically fulfill, and durably record one Stripe event."""
+    try:
+        return await _stripe_webhook_impl(request=request, db=db, redis=redis)
+    except Exception as exc:
+        event_id = getattr(request, "_stripe_event_id", None)
+        await db.rollback()
+        if event_id:
+            # Fulfillment was rolled back. Persist only the retryable failure fact;
+            # a later signed Stripe delivery can claim this row and retry safely.
+            await db.execute(
+                pg_insert(BillingEvent)
+                .values(
+                    stripe_event_id=event_id,
+                    event_type=getattr(request, "_stripe_event_type", "unknown"),
+                    status="failed",
+                    attempts=1,
+                    error=str(exc)[:1000],
+                    processed_at=None,
+                )
+                .on_conflict_do_update(
+                    index_elements=[BillingEvent.stripe_event_id],
+                    set_={
+                        "status": "failed",
+                        "attempts": BillingEvent.attempts + 1,
+                        "error": str(exc)[:1000],
+                        "processed_at": None,
+                    },
+                    where=BillingEvent.status != "succeeded",
+                )
+            )
+            await db.commit()
+        raise

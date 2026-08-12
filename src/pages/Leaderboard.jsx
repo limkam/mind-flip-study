@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import client from "@/api/client";
 import { useAuth } from "@/lib/AuthContext";
 import { motion } from "framer-motion";
-import { Trophy, Crown, Medal, Flame, Users, Globe, Zap, ArrowUpRight, HelpCircle } from "lucide-react";
+import { Trophy, Crown, Medal, Users, Globe, Zap } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Pagination from "@/components/pagination/Pagination";
 import { LeaderboardListSkeleton } from "@/components/skeletons";
@@ -221,7 +221,7 @@ export default function Leaderboard() {
           className="p-5 rounded-2xl bg-gradient-to-r from-primary/10 via-primary/5 to-accent/10 border border-primary/20 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
         >
           <div className="space-y-1">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Your Standing ({scope === "global" ? "Global" : "Friends"})</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Your {period === "weekly" ? "Weekly" : "All-Time"} Standing ({scope === "global" ? "Global" : "Friends"})</p>
             <div className="flex items-baseline gap-2">
               <span className="font-heading text-3xl font-extrabold text-primary">
                 {myStanding.rank ? `#${myStanding.rank}` : "Unranked"}

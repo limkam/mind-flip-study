@@ -213,6 +213,7 @@ export default function BookByIdScreen() {
     try {
       const selectedChapters = selectedChapter ? [selectedChapter] : [];
       const { data: job } = await api.post<JobEnqueueResponse>("/flashcard-sets/generate", {
+        operation_id: crypto.randomUUID(),
         book_id: book.id,
         title: book.title,
         num_cards: cardCount,
@@ -378,7 +379,7 @@ export default function BookByIdScreen() {
     const expectedUserId = userId;
     Alert.alert(
       "Delete this book?",
-      `This permanently deletes “${book.title}”, its generated flashcards, study progress, and quiz history. It also removes related references from collections and study-group materials. This cannot be undone. Running generation jobs may not be canceled.`,
+      `Deleting “${book.title}” removes it, its generated flashcards, study progress, and quiz history from your account, but it will not restore the upload allowance used to add it. This cannot be undone. Running generation jobs may not be canceled.`,
       [
         { text: "Cancel", style: "cancel", onPress: () => { confirmationOpenRef.current = false; } },
         {

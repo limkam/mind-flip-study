@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { APP_REGISTER_URL } from '@/lib/constants';
 import {
   comparisonRows,
-  planAnnualMonthlyEquivalents,
   planAnnualPrices,
   planLabels,
   planOrder,
@@ -57,8 +56,8 @@ export function PricingSection({ showIntro = true }: { showIntro?: boolean }) {
                 <p className="mt-4 text-4xl font-bold text-gray-950">{planPrices[slug]}<span className="ml-1 text-base font-medium text-gray-500">/month</span></p>
               ) : (
                 <div className="mt-4">
-                  <p className="text-4xl font-bold text-gray-950">{planAnnualMonthlyEquivalents[slug]}<span className="ml-1 text-base font-medium text-gray-500">/month</span></p>
-                  <p className="mt-1 text-sm font-semibold text-emerald-700">{planAnnualPrices[slug]} paid annually</p>
+                  <p className="text-4xl font-bold text-gray-950">{planAnnualPrices[slug]}<span className="ml-1 text-base font-medium text-gray-500">/year</span></p>
+                  <p className="mt-1 text-sm font-semibold text-emerald-700">One payment for 12 months</p>
                 </div>
               )}
               <p className="mt-4 min-h-[64px] text-sm leading-6 text-gray-600">{planTaglines[slug]}</p>

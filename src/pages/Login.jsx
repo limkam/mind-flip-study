@@ -12,7 +12,11 @@ import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/lib/AuthContext";
 import { getApiErrorMessage } from "@/lib/apiError";
 
-const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const googleOAuthEnabled = Boolean(
+    googleClientId
+    && import.meta.env.VITE_GOOGLE_OAUTH_ENABLED === "true",
+  );
 
 export default function Login() {
   const { loginWithGoogle, isAuthenticated, isLoading } = useAuth();
@@ -151,7 +155,7 @@ export default function Login() {
             ))}
           </div>
 
-          {googleClientId ? (
+          {googleOAuthEnabled ? (
             <div className="flex min-h-10 justify-center [&>div]:w-full">
               <GoogleLogin
                 width={352}

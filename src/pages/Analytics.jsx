@@ -4,9 +4,10 @@ import client from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { AnalyticsPageSkeleton } from '@/components/skeletons';
 import {
-  AnalyticsHeader, DifficultyDistribution, InsightsPanel, LearningMomentumChart,
-  MetricCard, StudyConsistency, WeakTopicsPanel, metricIcons,
+  AnalyticsHeader, InsightsPanel, MetricCard, StudyConsistency, WeakTopicsPanel, metricIcons,
 } from '@/components/analytics/AnalyticsDashboard';
+
+const AnalyticsCharts = React.lazy(() => import('@/components/analytics/AnalyticsCharts'));
 
 const RANGE_LABELS = { '7': 'last 7 days', '30': 'last 30 days', '90': 'last 90 days', all: 'all available history' };
 
@@ -57,8 +58,9 @@ export default function Analytics() {
         <MetricCard icon={metricIcons.BookOpen} label="Sets Studied" value={sets} context={sets ? `${sets} active study set${sets === 1 ? '' : 's'}` : 'Create your first study set'} tone="blue" active={sets > 0} />
       </div>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <LearningMomentumChart data={trend} hasData={hasTrend} rangeLabel={RANGE_LABELS[range]} />
-        <DifficultyDistribution data={difficulty} total={difficultyTotal} />
+        <React.Suspense fallback={<><div className="h-[390px] animate-pulse rounded-2xl bg-muted lg:col-span-8" /><div className="h-[390px] animate-pulse rounded-2xl bg-muted lg:col-span-4" /></>}>
+          <AnalyticsCharts trend={trend} hasTrend={hasTrend} rangeLabel={RANGE_LABELS[range]} difficulty={difficulty} difficultyTotal={difficultyTotal} />
+        </React.Suspense>
         <WeakTopicsPanel topics={Array.isArray(safe.weak_topics) ? safe.weak_topics : []} />
         <StudyConsistency days={Array.isArray(safe.last_14_days) ? safe.last_14_days : []} streak={Number(safe.streak_days) || 0} />
       </div>

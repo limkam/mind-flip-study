@@ -6,10 +6,11 @@ const REMEMBER_KEY = 'mindflip_remember_me';
 function readRememberMe() {
   try {
     const v = localStorage.getItem(REMEMBER_KEY);
+    if (v === null) return false;
     if (v === 'false') return false;
     return true;
   } catch {
-    return true;
+    return false;
   }
 }
 

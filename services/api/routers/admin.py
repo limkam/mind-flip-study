@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, date, datetime, timedelta, time
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, delete, func, or_, select
+from sqlalchemy import String, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from dependencies import require_role
 from models.book import Book
-from models.enums import BookStatus, UserRole, FeedbackStatus
-from models.feedback import Feedback
+from models.enums import BookStatus, UserRole, FeedbackStatus, SupportCategory, SupportConversationStatus, SupportSenderType
+from models.feedback import Feedback, SupportConversation, SupportMessage
 from models.flashcard import Flashcard, FlashcardSet, Workbook
 from models.license import License
 from models.quiz import StudyEvent
@@ -38,17 +38,27 @@ from schemas.admin import (
     TopBookMetric,
     admin_user_row_from_model,
 )
-from schemas.feedback import FeedbackAdminUpdate, FeedbackPublic
+from schemas.feedback import (FeedbackAdminUpdate, FeedbackPublic, SupportMessageCreate,
+    SupportMessagePublic, AdminConversationRow, AdminConversationPage, AdminConversationDetail,
+    AdminSupportDashboard, CategoryCount)
 
 from celery_health import inspect_celery_workers
 from routers.admin_analytics import router as admin_analytics_router
 from schemas.admin import AdminUserIpListPage, AdminUserIpRow
 from services.stripe_reconciliation import reconcile_stripe
+from routers.feedback import _apply_cursor, _encode_cursor
 
 router = APIRouter(tags=["admin"])
 router.include_router(admin_analytics_router)
 
 _ACTIVE_LICENSE_STATUSES = ("active", "paid")
+
+
+def _support_message_public(message: SupportMessage) -> SupportMessagePublic:
+    read_at = message.admin_read_at if message.sender_type == SupportSenderType.user else message.user_read_at
+    return SupportMessagePublic(id=message.id, conversation_id=message.conversation_id,
+        sender_type=message.sender_type.value, body=message.body, category=message.category, client_message_id=message.client_message_id,
+        created_at=message.created_at, read_at=read_at)
 
 
 @router.post("/billing/reconcile")
@@ -435,3 +445,111 @@ async def update_feedback_status(
     await db.commit()
     await db.refresh(feedback)
     return FeedbackPublic.model_validate(feedback)
+
+
+@router.get("/feedback/conversations", response_model=AdminConversationPage)
+async def list_support_conversations(
+    _admin: Annotated[User, Depends(require_role("admin"))], db: Annotated[AsyncSession, Depends(get_db)],
+    filter: str = Query("all", pattern="^(all|unread|read|resolved)$"), q: str = Query("", max_length=200),
+    page: int = Query(1, ge=1), size: int = Query(30, ge=1, le=100), category: SupportCategory | None = None,
+):
+    latest_body = select(SupportMessage.body).where(SupportMessage.conversation_id == SupportConversation.id).order_by(SupportMessage.created_at.desc()).limit(1).scalar_subquery()
+    latest_category = select(SupportMessage.category).where(SupportMessage.conversation_id == SupportConversation.id, SupportMessage.sender_type == SupportSenderType.user, SupportMessage.category.is_not(None)).order_by(SupportMessage.created_at.desc(), SupportMessage.id.desc()).limit(1).scalar_subquery()
+    base = select(SupportConversation, User.full_name, User.email, latest_body.label("preview"), latest_category.label("latest_category")).join(User, User.id == SupportConversation.user_id)
+    count = select(func.count(SupportConversation.id)).select_from(SupportConversation).join(User, User.id == SupportConversation.user_id)
+    conditions = []
+    if filter == "unread": conditions.append(SupportConversation.admin_unread_count > 0)
+    elif filter == "read": conditions.extend([SupportConversation.admin_unread_count == 0, SupportConversation.status == SupportConversationStatus.open])
+    elif filter == "resolved": conditions.append(SupportConversation.status == SupportConversationStatus.resolved)
+    term = q.strip()
+    if term:
+        like = f"%{term}%"
+        conditions.append(or_(User.full_name.ilike(like), User.email.ilike(like), func.cast(User.id, String).ilike(like)))
+    if category:
+        conditions.append(latest_category == category)
+    if conditions:
+        base = base.where(*conditions); count = count.where(*conditions)
+    total = int(await db.scalar(count) or 0)
+    unread = int(await db.scalar(select(func.count(SupportConversation.id)).where(SupportConversation.admin_unread_count > 0)) or 0)
+    rows = (await db.execute(base.order_by(SupportConversation.last_message_at.desc()).offset((page - 1) * size).limit(size))).all()
+    return AdminConversationPage(items=[AdminConversationRow(id=c.id, user_id=c.user_id, user_name=name,
+        user_email=email, status=c.status.value, last_message_preview=preview or "", last_message_at=c.last_message_at,
+        admin_unread_count=c.admin_unread_count, latest_user_category=latest_cat) for c, name, email, preview, latest_cat in rows], total=total, page=page, size=size, unread_conversations=unread)
+
+
+@router.get("/feedback/dashboard", response_model=AdminSupportDashboard)
+async def support_dashboard(
+    _admin: Annotated[User, Depends(require_role("admin"))], db: Annotated[AsyncSession, Depends(get_db)],
+    range: Literal["7d", "30d", "all"] = Query("7d"),
+):
+    now = datetime.now(UTC)
+    since = now - timedelta(days=7 if range == "7d" else 30) if range != "all" else None
+    open_count = int(await db.scalar(select(func.count(SupportConversation.id)).where(SupportConversation.status == SupportConversationStatus.open)) or 0)
+    unread_count = int(await db.scalar(select(func.count(SupportConversation.id)).where(SupportConversation.status == SupportConversationStatus.open, SupportConversation.admin_unread_count > 0)) or 0)
+    resolved_count = int(await db.scalar(select(func.count(SupportConversation.id)).where(SupportConversation.status == SupportConversationStatus.resolved)) or 0)
+    new_stmt = select(func.count(SupportConversation.id))
+    if since is not None: new_stmt = new_stmt.where(SupportConversation.created_at >= since)
+    new_count = int(await db.scalar(new_stmt) or 0)
+    latest_category = select(SupportMessage.category).where(SupportMessage.conversation_id == SupportConversation.id,
+        SupportMessage.sender_type == SupportSenderType.user, SupportMessage.category.is_not(None)).order_by(SupportMessage.created_at.desc(), SupportMessage.id.desc()).limit(1).scalar_subquery()
+    categorized = select(SupportConversation.id.label("conversation_id"), latest_category.label("category")).where(SupportConversation.status == SupportConversationStatus.open).subquery()
+    category_rows = (await db.execute(select(categorized.c.category, func.count(categorized.c.conversation_id)).where(categorized.c.category.is_not(None)).group_by(categorized.c.category))).all()
+    latest_body = select(SupportMessage.body).where(SupportMessage.conversation_id == SupportConversation.id).order_by(SupportMessage.created_at.desc(), SupportMessage.id.desc()).limit(1).scalar_subquery()
+    recent = (await db.execute(select(SupportConversation, User.full_name, User.email, latest_body.label("preview"), latest_category.label("latest_category")).join(User, User.id == SupportConversation.user_id).order_by(SupportConversation.last_message_at.desc()).limit(8))).all()
+    return AdminSupportDashboard(open_conversations=open_count, unread_conversations=unread_count,
+        resolved_conversations=resolved_count, new_conversations=new_count, range=range,
+        categories=[CategoryCount(category=category, count=int(count)) for category, count in category_rows],
+        recent_activity=[AdminConversationRow(id=c.id, user_id=c.user_id, user_name=name, user_email=email,
+            status=c.status.value, last_message_preview=preview or "", last_message_at=c.last_message_at,
+            admin_unread_count=c.admin_unread_count, latest_user_category=category) for c, name, email, preview, category in recent])
+
+
+@router.get("/feedback/conversations/{conversation_id}", response_model=AdminConversationDetail)
+async def get_support_conversation(conversation_id: UUID, _admin: Annotated[User, Depends(require_role("admin"))],
+    db: Annotated[AsyncSession, Depends(get_db)], before: str | None = None, limit: int = Query(50, ge=1, le=100)):
+    row = (await db.execute(select(SupportConversation, User.full_name, User.email).join(User, User.id == SupportConversation.user_id).where(SupportConversation.id == conversation_id).with_for_update())).one_or_none()
+    if not row: raise HTTPException(404, "Conversation not found")
+    conversation, name, email = row
+    now = datetime.now(UTC)
+    await db.execute(update(SupportMessage).where(SupportMessage.conversation_id == conversation_id, SupportMessage.sender_type == SupportSenderType.user, SupportMessage.admin_read_at.is_(None)).values(admin_read_at=now))
+    conversation.admin_unread_count = 0
+    stmt = select(SupportMessage).where(SupportMessage.conversation_id == conversation_id)
+    stmt = _apply_cursor(stmt, before)
+    messages = list((await db.scalars(stmt.order_by(SupportMessage.created_at.desc(), SupportMessage.id.desc()).limit(limit + 1))).all())
+    has_more = len(messages) > limit; messages = messages[:limit]; messages.reverse(); await db.commit()
+    return AdminConversationDetail(id=conversation.id, status=conversation.status.value, unread_support_messages=conversation.user_unread_count,
+        messages=[_support_message_public(m) for m in messages], next_cursor=_encode_cursor(messages[0]) if has_more else None,
+        user_id=conversation.user_id, user_name=name, user_email=email, admin_unread_count=0)
+
+
+@router.post("/feedback/conversations/{conversation_id}/messages", response_model=SupportMessagePublic)
+async def reply_support_conversation(conversation_id: UUID, body: SupportMessageCreate,
+    admin: Annotated[User, Depends(require_role("admin"))], db: Annotated[AsyncSession, Depends(get_db)]):
+    conversation = await db.scalar(select(SupportConversation).where(SupportConversation.id == conversation_id).with_for_update())
+    if not conversation: raise HTTPException(404, "Conversation not found")
+    existing = await db.scalar(select(SupportMessage).where(SupportMessage.conversation_id == conversation_id, SupportMessage.client_message_id == body.client_message_id))
+    if existing: return _support_message_public(existing)
+    now = datetime.now(UTC); message = SupportMessage(conversation_id=conversation_id, sender_type=SupportSenderType.admin,
+        sender_admin_id=admin.id, body=body.message, category=None, client_message_id=body.client_message_id, created_at=now, admin_read_at=now)
+    db.add(message); conversation.last_message_at = now; conversation.last_admin_message_at = now; conversation.user_unread_count += 1
+    await db.commit(); await db.refresh(message); return _support_message_public(message)
+
+
+async def _set_support_status(conversation_id: UUID, admin: User, db: AsyncSession, resolved: bool):
+    conversation = await db.scalar(select(SupportConversation).where(SupportConversation.id == conversation_id).with_for_update())
+    if not conversation: raise HTTPException(404, "Conversation not found")
+    conversation.status = SupportConversationStatus.resolved if resolved else SupportConversationStatus.open
+    conversation.resolved_at = datetime.now(UTC) if resolved else None
+    conversation.resolved_by_admin_id = admin.id if resolved else None
+    await db.commit()
+    return {"status": conversation.status.value}
+
+
+@router.post("/feedback/conversations/{conversation_id}/resolve")
+async def resolve_support_conversation(conversation_id: UUID, admin: Annotated[User, Depends(require_role("admin"))], db: Annotated[AsyncSession, Depends(get_db)]):
+    return await _set_support_status(conversation_id, admin, db, True)
+
+
+@router.post("/feedback/conversations/{conversation_id}/reopen")
+async def reopen_support_conversation(conversation_id: UUID, admin: Annotated[User, Depends(require_role("admin"))], db: Annotated[AsyncSession, Depends(get_db)]):
+    return await _set_support_status(conversation_id, admin, db, False)

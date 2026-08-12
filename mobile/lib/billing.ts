@@ -14,9 +14,6 @@ import type {
   CreditUsageResponse,
   PurchaseHistoryResponse,
   SubscriptionCancelResponse,
-  TrialEligibilityReason,
-  TrialEligibilityResponse,
-  TrialEligibilitySignals,
 } from "../types/api";
 import { mobileFeatures } from "./featureFlags";
 import { mobileQueryClient } from "./queryClient";
@@ -30,6 +27,11 @@ export type EntitlementsSnapshot = {
     monthly_content_credits: number;
     purchased_credits: number;
     monthly_regen_credits: number;
+    available_total: number;
+    plan_allocated_credits: number;
+    plan_used_credits: number;
+    purchased_total_credits: number;
+    purchased_used_credits: number;
   };
   features: {
     create_book: boolean;
@@ -61,75 +63,6 @@ export async function fetchEntitlementsSnapshot(): Promise<EntitlementsSnapshot>
 export async function fetchCreditUsage(): Promise<CreditUsageResponse> {
   const { data } = await api.get<unknown>("/credits/usage");
   return parseCreditUsageResponse(data);
-}
-
-const RECOGNIZED_TRIAL_REASONS: Set<TrialEligibilityReason> = new Set([
-  "trial_disabled",
-  "already_paid",
-  "trial_already_used",
-  "subscription_history",
-  "payment_history",
-]);
-
-export function parseTrialEligibilityResponse(raw: unknown): TrialEligibilityResponse {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("Invalid trial eligibility response: expected plain object");
-  }
-  const obj = raw as Record<string, unknown>;
-
-  if (typeof obj.eligible !== "boolean") {
-    throw new Error("Invalid trial eligibility response: eligible must be boolean");
-  }
-  const eligible = obj.eligible;
-
-  if (!obj.signals || typeof obj.signals !== "object" || Array.isArray(obj.signals)) {
-    throw new Error("Invalid trial eligibility response: signals must be a plain object");
-  }
-  const rawSignals = obj.signals as Record<string, unknown>;
-  const signals: TrialEligibilitySignals = {};
-
-  for (const [key, val] of Object.entries(rawSignals)) {
-    if (val !== undefined && val !== null && typeof val !== "boolean") {
-      throw new Error(`Invalid trial eligibility response: signal ${key} must be boolean`);
-    }
-  }
-
-  if (typeof rawSignals.trial_enabled === "boolean") signals.trial_enabled = rawSignals.trial_enabled;
-  if (typeof rawSignals.trial_used === "boolean") signals.trial_used = rawSignals.trial_used;
-  if (typeof rawSignals.has_prior_subscription === "boolean") signals.has_prior_subscription = rawSignals.has_prior_subscription;
-  if (typeof rawSignals.has_credit_purchase_history === "boolean") signals.has_credit_purchase_history = rawSignals.has_credit_purchase_history;
-
-  let reason: TrialEligibilityReason | null = null;
-  if (obj.reason !== null && obj.reason !== undefined) {
-    if (typeof obj.reason === "string" && RECOGNIZED_TRIAL_REASONS.has(obj.reason as TrialEligibilityReason)) {
-      reason = obj.reason as TrialEligibilityReason;
-    } else {
-      throw new Error(`Invalid trial eligibility response: unrecognized reason ${String(obj.reason)}`);
-    }
-  }
-
-  if (eligible && reason !== null) {
-    throw new Error("Inconsistent trial eligibility response: eligible=true cannot have an ineligibility reason");
-  }
-  if (!eligible && reason === null) {
-    throw new Error("Inconsistent trial eligibility response: eligible=false requires an ineligibility reason");
-  }
-
-  let trial_days = 7;
-  if (obj.trial_days !== undefined && obj.trial_days !== null) {
-    if (typeof obj.trial_days === "number" && Number.isInteger(obj.trial_days) && obj.trial_days > 0) {
-      trial_days = obj.trial_days;
-    } else {
-      throw new Error("Invalid trial eligibility response: trial_days must be a positive integer");
-    }
-  }
-
-  return { eligible, reason, signals, trial_days };
-}
-
-export async function fetchTrialEligibility(): Promise<TrialEligibilityResponse> {
-  const { data } = await api.get<unknown>("/billing/trial/eligibility");
-  return parseTrialEligibilityResponse(data);
 }
 
 export const PLAN_ORDER: BillingPlanSlug[] = [
@@ -350,18 +283,6 @@ export async function startCheckout(
 
   const { data } = await api.post<{ checkout_url?: string }>("/billing/checkout", null, {
     params: { plan: alias, interval, client: "mobile" },
-  });
-
-  await validateAndOpenCheckoutUrl(data?.checkout_url, expectedUserId);
-}
-
-export async function startTrialCheckout(expectedUserId?: string): Promise<void> {
-  if (!mobileFeatures.subscriptions) {
-    throw new Error("Subscription upgrades are disabled");
-  }
-
-  const { data } = await api.post<{ checkout_url?: string }>("/billing/trial/start", null, {
-    params: { client: "mobile" },
   });
 
   await validateAndOpenCheckoutUrl(data?.checkout_url, expectedUserId);
@@ -732,6 +653,7 @@ export function parsePurchaseHistoryResponse(raw: unknown): PurchaseHistoryRespo
       unit_price_cents: row.unit_price_cents,
       created_at: row.created_at,
       status: row.status.trim().toLowerCase(),
+      receipt_url: typeof row.receipt_url === "string" && row.receipt_url.startsWith("https://") ? row.receipt_url : null,
     });
   }
 

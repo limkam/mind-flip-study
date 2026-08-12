@@ -119,7 +119,6 @@ export default function BillingSuccessScreen() {
         if (!mountedRef.current) return;
         mobileQueryClient.setQueryData(["billing-entitlements"], entitlements);
         await mobileQueryClient.invalidateQueries({ queryKey: ["billing-entitlements"] });
-        await mobileQueryClient.invalidateQueries({ queryKey: ["billing-trial-eligibility"] });
         await mobileQueryClient.invalidateQueries({ queryKey: ["credit-usage"] });
         if (!mountedRef.current) return;
         setStatusState("activated");
@@ -174,7 +173,7 @@ export default function BillingSuccessScreen() {
         return;
       }
 
-      // Confirm the expected plan is now active or trialing
+      // Confirm the expected plan has an access-bearing Stripe status.
       const isConfirmedStatus =
         entitlements.subscription_status === "active" ||
         entitlements.subscription_status === "trialing";
@@ -185,7 +184,6 @@ export default function BillingSuccessScreen() {
         terminalSessionsRef.current.add(sessionId);
         mobileQueryClient.setQueryData(["billing-entitlements"], entitlements);
         await mobileQueryClient.invalidateQueries({ queryKey: ["billing-entitlements"] });
-        await mobileQueryClient.invalidateQueries({ queryKey: ["billing-trial-eligibility"] });
         if (!mountedRef.current) return;
         setStatusState("activated");
         return;

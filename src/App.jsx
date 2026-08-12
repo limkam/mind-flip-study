@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClientInstance } from "@/lib/query-client";
@@ -10,7 +10,6 @@ import {
   Outlet,
   useLocation,
 } from "react-router-dom";
-import PageNotFound from "./lib/PageNotFound";
 import { AuthProvider, useAuth } from "@/lib/AuthContext";
 import { GenerationJobProvider } from "@/lib/GenerationJobContext";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -21,56 +20,21 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchEntitlementsSnapshot } from "@/lib/billing";
 
 import AppLayout from "./components/layout/AppLayout";
-import Dashboard from "./pages/Dashboard";
-import Library from "./pages/Library";
-import BookDetail from "./pages/BookDetail";
-import StudySession from "./pages/StudySession";
-import FlashcardSets from "./pages/FlashcardSets";
-import QuizHistory from "./pages/QuizHistory";
-import UserManagement from "./pages/UserManagement";
-import Profile from "./pages/Profile";
-import QuizChallenges from "./pages/QuizChallenges";
-import Settings from "./pages/Settings";
-import Folders from "./pages/Folders";
-import Analytics from "./pages/Analytics";
-import Leaderboard from "./pages/Leaderboard";
-import ChallengeLeaderboard from "./pages/ChallengeLeaderboard";
-import StudyGroups from "./pages/StudyGroups";
-import StudyGroupDetail from "./pages/StudyGroupDetail";
-import DailyReview from "./pages/DailyReview";
-import Achievements from "./pages/Achievements";
-import QuizResultDetail from "./pages/QuizResultDetail";
-import Login from "./pages/Login";
-import EmailVerification from "./pages/EmailVerification";
-import Scorecards from "./pages/Scorecards";
-import BillingSuccess from "./pages/BillingSuccess";
-import BillingCancel from "./pages/BillingCancel";
-import MobileBillingSuccess from "./pages/MobileBillingSuccess";
-import MobileBillingCancel from "./pages/MobileBillingCancel";
-import MobileCreditBillingSuccess from "./pages/MobileCreditBillingSuccess";
-import MobileCreditBillingCancel from "./pages/MobileCreditBillingCancel";
-import Pricing from "./pages/Pricing";
-import BillingUsage from "./pages/BillingUsage";
-import Onboarding from "./pages/Onboarding";
-import Feedback from "./pages/Feedback";
-import UserGuide from "./pages/UserGuide";
+import AppShellSkeleton from "./components/layout/AppShellSkeleton";
+import { routeModules } from "@/lib/routeModules";
 import UpgradeLimitDialog from "@/components/billing/UpgradeLimitDialog";
 import { CelebrationProvider } from "@/lib/celebrations/CelebrationContext";
 import CelebrationTestHarness from "@/components/celebrations/CelebrationTestHarness";
+
+const pages = Object.fromEntries(Object.entries(routeModules).map(([name, loader]) => [name, lazy(loader)]));
+const PageNotFound = lazy(() => import("./lib/PageNotFound"));
 
 function RequireAuth() {
   const { isLoading, isAuthenticated } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary"></div>
-          <p className="text-sm font-medium text-muted-foreground">Loading…</p>
-        </div>
-      </div>
-    );
+    return <AppShellSkeleton />;
   }
 
   if (!isAuthenticated) {
@@ -85,11 +49,7 @@ function RequireOnboarding() {
   const location = useLocation();
 
   if (isLoading) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
-      </div>
-    );
+    return <AppShellSkeleton />;
   }
 
   if (!isAuthenticated) {
@@ -128,8 +88,18 @@ function RequireFeature({ feature, children }) {
 }
 
 function AppRoutes() {
+  const { dashboard: Dashboard, library: Library, bookDetail: BookDetail, studySession: StudySession,
+    flashcardSets: FlashcardSets, quizHistory: QuizHistory, quizResultDetail: QuizResultDetail,
+    analytics: Analytics, billingUsage: BillingUsage, settings: Settings, userManagement: UserManagement,
+    profile: Profile, quizChallenges: QuizChallenges, folders: Folders, leaderboard: Leaderboard,
+    challengeLeaderboard: ChallengeLeaderboard, studyGroups: StudyGroups, studyGroupDetail: StudyGroupDetail,
+    dailyReview: DailyReview, achievements: Achievements, scorecards: Scorecards, feedback: Feedback,
+    guide: UserGuide, pricing: Pricing, onboarding: Onboarding, login: Login,
+    emailVerification: EmailVerification, billingSuccess: BillingSuccess, creditBillingSuccess: CreditBillingSuccess, billingCancel: BillingCancel,
+    mobileBillingSuccess: MobileBillingSuccess, mobileBillingCancel: MobileBillingCancel,
+    mobileCreditBillingSuccess: MobileCreditBillingSuccess, mobileCreditBillingCancel: MobileCreditBillingCancel } = pages;
   return (
-    <Routes>
+    <Suspense fallback={<AppShellSkeleton routeOnly />}><Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/auth/email/verify" element={<EmailVerification />} />
       {import.meta.env.DEV && <Route path="/__phase4-test" element={<CelebrationTestHarness />} />}
@@ -137,7 +107,7 @@ function AppRoutes() {
       <Route path="/forgot-password" element={<Navigate to="/login" replace />} />
       <Route path="/auth/reset-password" element={<Navigate to="/login" replace />} />
       <Route path="/billing/success" element={<BillingSuccess />} />
-      <Route path="/billing/credits/success" element={<BillingSuccess />} />
+      <Route path="/billing/credits/success" element={<CreditBillingSuccess />} />
       <Route path="/billing/cancel" element={<BillingCancel />} />
       <Route path="/billing/credits/cancel" element={<BillingCancel />} />
       <Route path="/mobile/billing/success" element={<MobileBillingSuccess />} />
@@ -179,7 +149,7 @@ function AppRoutes() {
         </Route>
       </Route>
       <Route path="*" element={<PageNotFound />} />
-    </Routes>
+    </Routes></Suspense>
   );
 }
 

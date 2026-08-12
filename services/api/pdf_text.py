@@ -52,7 +52,7 @@ IMAGE_ONLY_PDF_MESSAGE = (
 )
 
 
-MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB
 
 def extract_docx_text(data: bytes, *, include_page_markers: bool = False) -> str:
     try:
