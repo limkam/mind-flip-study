@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { type ReactNode } from "react";
-import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
+import { Animated, Pressable, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
 
 import { useTheme } from "../../hooks/useTheme";
+import { usePressScale } from "../../hooks/usePressScale";
 import { hapticImpact } from "../../lib/haptics";
 import { TOKENS } from "../../theme/tokens";
 
@@ -33,6 +34,7 @@ export function IconButton({
   style,
 }: Props) {
   const { colors, isDark } = useTheme();
+  const { scale, onPressIn, onPressOut } = usePressScale();
 
   const getSizeParams = () => {
     switch (size) {
@@ -55,52 +57,55 @@ export function IconButton({
   };
 
   return (
-    <Pressable
-      onPress={handlePress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      accessibilityHint={accessibilityHint}
-      accessibilityState={{ disabled }}
-      style={({ pressed }) => {
-        let bg = "transparent";
-        let border = "transparent";
-        let defaultIconColor = color ?? colors.textPrimary;
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        onPress={handlePress}
+        onPressIn={disabled ? undefined : onPressIn}
+        onPressOut={disabled ? undefined : onPressOut}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        accessibilityHint={accessibilityHint}
+        accessibilityState={{ disabled }}
+        style={({ pressed }) => {
+          let bg = "transparent";
+          let border = "transparent";
 
-        if (variant === "filled") {
-          bg = pressed ? colors.borderStrong : colors.surfaceElevated;
-        } else if (variant === "outlined") {
-          bg = pressed ? `${colors.primary}15` : "transparent";
-          border = colors.border;
-        } else if (pressed) {
-          bg = `${colors.primary}15`;
-        }
+          if (variant === "filled") {
+            bg = pressed ? colors.borderStrong : colors.surfaceElevated;
+          } else if (variant === "outlined") {
+            bg = pressed ? `${colors.primary}15` : "transparent";
+            border = colors.border;
+          } else if (pressed) {
+            bg = `${colors.primary}15`;
+          }
 
-        return [
-          styles.base,
-          {
-            width: params.containerSize,
-            height: params.containerSize,
-            borderRadius: TOKENS.radii.md,
-            backgroundColor: bg,
-            borderColor: border,
-            borderWidth: variant === "outlined" ? 1 : 0,
-            opacity: disabled ? (isDark ? 0.4 : 0.5) : 1,
-          },
-          style,
-        ];
-      }}
-    >
-      {typeof icon === "string" ? (
-        <Ionicons
-          name={icon as keyof typeof Ionicons.glyphMap}
-          size={params.iconSize}
-          color={color ?? colors.textPrimary}
-        />
-      ) : (
-        icon
-      )}
-    </Pressable>
+          return [
+            styles.base,
+            {
+              width: params.containerSize,
+              height: params.containerSize,
+              borderRadius: TOKENS.radii.md,
+              backgroundColor: bg,
+              borderColor: border,
+              borderWidth: variant === "outlined" ? 1 : 0,
+              opacity: disabled ? (isDark ? 0.4 : 0.5) : 1,
+            },
+            style,
+          ];
+        }}
+      >
+        {typeof icon === "string" ? (
+          <Ionicons
+            name={icon as keyof typeof Ionicons.glyphMap}
+            size={params.iconSize}
+            color={color ?? colors.textPrimary}
+          />
+        ) : (
+          icon
+        )}
+      </Pressable>
+    </Animated.View>
   );
 }
 

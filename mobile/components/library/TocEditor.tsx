@@ -19,23 +19,65 @@ export type TocChapter = {
   chapter_number?: number;
   title: string;
   subtopics?: string[];
+  start_offset?: number;
+  end_offset?: number;
 };
 
 function normalizeChapters(raw: TocChapter[]): TocChapter[] {
-  return (raw || []).map((ch, i) => ({
-    chapter_number: ch.chapter_number ?? i + 1,
-    title: ch.title || "",
-    subtopics: ch.subtopics || [],
-  }));
+  return (raw || []).map((ch, i) => {
+    const chapter: TocChapter = {
+      chapter_number: ch.chapter_number ?? i + 1,
+      title: ch.title || "",
+      subtopics: ch.subtopics || [],
+    };
+    if (typeof ch.start_offset === "number" && typeof ch.end_offset === "number") {
+      chapter.start_offset = ch.start_offset;
+      chapter.end_offset = ch.end_offset;
+    }
+    return chapter;
+  });
+}
+
+function hasCoverage(chapters: TocChapter[]): boolean {
+  return (
+    chapters.length > 0 &&
+    chapters.every((ch) => typeof ch.start_offset === "number" && typeof ch.end_offset === "number")
+  );
+}
+
+/**
+ * Recompute contiguous start/end offsets from each chapter's existing span
+ * (end - start), in the current array order. Every edit (reorder, merge,
+ * split, delete) preserves the sum of spans, so this keeps the chapters
+ * covering the whole book with no gaps after any edit.
+ */
+function reflow(chapters: TocChapter[]): TocChapter[] {
+  if (!hasCoverage(chapters)) return chapters;
+  let cursor = 0;
+  return chapters.map((ch) => {
+    const span = Math.max(0, (ch.end_offset as number) - (ch.start_offset as number));
+    const start_offset = cursor;
+    const end_offset = cursor + span;
+    cursor = end_offset;
+    return { ...ch, start_offset, end_offset };
+  });
+}
+
+function coverageLabel(ch: TocChapter, totalLength?: number): string | null {
+  if (!totalLength || typeof ch.start_offset !== "number" || typeof ch.end_offset !== "number") return null;
+  const from = Math.round((ch.start_offset / totalLength) * 100);
+  const to = Math.round((ch.end_offset / totalLength) * 100);
+  return `${from}%–${to}%`;
 }
 
 type Props = {
   bookId: string;
   chapters: TocChapter[];
+  totalLength?: number;
   onSaved?: () => void;
 };
 
-export function TocEditor({ bookId, chapters: initial, onSaved }: Props) {
+export function TocEditor({ bookId, chapters: initial, totalLength, onSaved }: Props) {
   const { colors } = useTheme();
   const [chapters, setChapters] = useState(() => normalizeChapters(initial));
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
@@ -44,7 +86,8 @@ export function TocEditor({ bookId, chapters: initial, onSaved }: Props) {
   const [dirty, setDirty] = useState(false);
 
   const update = (next: TocChapter[]) => {
-    setChapters(next.map((ch, i) => ({ ...ch, chapter_number: i + 1 })));
+    const renumbered = next.map((ch, i) => ({ ...ch, chapter_number: i + 1 }));
+    setChapters(reflow(renumbered));
     setDirty(true);
   };
 
@@ -68,38 +111,66 @@ export function TocEditor({ bookId, chapters: initial, onSaved }: Props) {
       Alert.alert("Cannot delete", "At least one chapter is required.");
       return;
     }
-    update(chapters.filter((_, i) => i !== idx));
-  };
-
-  const addChapter = () => {
-    const next = [...chapters, { chapter_number: chapters.length + 1, title: "New Chapter", subtopics: [] }];
+    const next = [...chapters];
+    const removed = next[idx];
+    // A deleted chapter's span must be absorbed by a neighbor, or the book
+    // would no longer be fully covered by the remaining chapters.
+    if (typeof removed.start_offset === "number" && typeof removed.end_offset === "number") {
+      const span = removed.end_offset - removed.start_offset;
+      const neighborIdx = idx < next.length - 1 ? idx + 1 : idx - 1;
+      const neighbor = next[neighborIdx];
+      if (neighbor && typeof neighbor.start_offset === "number" && typeof neighbor.end_offset === "number") {
+        next[neighborIdx] =
+          neighborIdx === idx + 1
+            ? { ...neighbor, start_offset: neighbor.start_offset - span }
+            : { ...neighbor, end_offset: neighbor.end_offset + span };
+      }
+    }
+    next.splice(idx, 1);
     update(next);
-    setEditingIdx(chapters.length);
-    setEditTitle("New Chapter");
   };
 
   const mergeWithNext = (idx: number) => {
     if (idx >= chapters.length - 1) return;
-    const merged = `${chapters[idx].title} / ${chapters[idx + 1].title}`;
+    const a = chapters[idx];
+    const b = chapters[idx + 1];
+    const merged: TocChapter = { ...a, title: `${a.title} / ${b.title}` };
+    if (typeof a.start_offset === "number" && typeof b.end_offset === "number") {
+      merged.start_offset = a.start_offset;
+      merged.end_offset = b.end_offset;
+    }
     const next = [...chapters];
-    next[idx] = { ...next[idx], title: merged };
+    next[idx] = merged;
     next.splice(idx + 1, 1);
     update(next);
   };
 
   const splitChapter = (idx: number) => {
-    const title = chapters[idx].title;
+    const ch = chapters[idx];
+    const title = ch.title;
     let parts = title.split(/\s*\/\s*|\s+and\s+/i).filter(Boolean);
     if (parts.length < 2) {
       const half = Math.ceil(title.length / 2);
       parts = [title.slice(0, half).trim() || "Part 1", title.slice(half).trim() || "Part 2"];
     }
+    const hasSpan = typeof ch.start_offset === "number" && typeof ch.end_offset === "number";
+    const totalChars = parts.reduce((sum, p) => sum + p.length, 0) || 1;
+    let cursor = hasSpan ? (ch.start_offset as number) : 0;
+    const pieces: TocChapter[] = parts.map((t, i) => {
+      const piece: TocChapter = { chapter_number: 0, title: t.trim(), subtopics: [] };
+      if (hasSpan) {
+        const end = ch.end_offset as number;
+        const remaining = end - cursor;
+        const weight =
+          i === parts.length - 1 ? remaining : Math.round((t.length / totalChars) * (end - (ch.start_offset as number)));
+        piece.start_offset = cursor;
+        piece.end_offset = cursor + Math.min(weight, remaining);
+        cursor = piece.end_offset;
+      }
+      return piece;
+    });
     const next = [...chapters];
-    next.splice(
-      idx,
-      1,
-      ...parts.map((t) => ({ chapter_number: 0, title: t.trim(), subtopics: [] as string[] })),
-    );
+    next.splice(idx, 1, ...pieces);
     update(next);
   };
 
@@ -119,6 +190,9 @@ export function TocEditor({ bookId, chapters: initial, onSaved }: Props) {
           chapter_number: ch.chapter_number,
           title: ch.title.trim(),
           subtopics: ch.subtopics || [],
+          ...(typeof ch.start_offset === "number"
+            ? { start_offset: ch.start_offset, end_offset: ch.end_offset }
+            : {}),
         })),
       });
       setDirty(false);
@@ -132,8 +206,15 @@ export function TocEditor({ bookId, chapters: initial, onSaved }: Props) {
     }
   };
 
+  const covered = hasCoverage(chapters);
+
   return (
     <View>
+      <Text style={[styles.coverageNote, { color: covered ? "#16a34a" : colors.muted }]}>
+        {covered
+          ? "✓ These chapters cover the entire book, with no gaps."
+          : "Chapter boundaries aren't tracked for this book yet — re-extract the table of contents to enable coverage tracking."}
+      </Text>
       {chapters.map((ch, idx) => (
         <View
           key={`${idx}-${ch.title}`}
@@ -172,16 +253,23 @@ export function TocEditor({ bookId, chapters: initial, onSaved }: Props) {
                 autoFocus
               />
               <Pressable onPress={commitEdit} style={[styles.iconBtn, { backgroundColor: colors.primary }]}>
-                <Text style={styles.iconBtnText}>✓</Text>
+                <Text style={[styles.iconBtnText, { color: colors.onPrimary }]}>✓</Text>
               </Pressable>
               <Pressable onPress={() => setEditingIdx(null)} style={[styles.iconBtn, { backgroundColor: colors.border }]}>
                 <Text style={[styles.iconBtnText, { color: colors.text }]}>✕</Text>
               </Pressable>
             </View>
           ) : (
-            <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
-              {displayChapterHeading(ch.title, idx + 1)}
-            </Text>
+            <View style={styles.titleCol}>
+              <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
+                {displayChapterHeading(ch.title, idx + 1)}
+              </Text>
+              {covered && !!totalLength && (
+                <Text style={[styles.coverageLabel, { color: colors.muted }]}>
+                  {coverageLabel(ch, totalLength)}
+                </Text>
+              )}
+            </View>
           )}
           {editingIdx !== idx && (
             <View style={styles.actions}>
@@ -194,30 +282,21 @@ export function TocEditor({ bookId, chapters: initial, onSaved }: Props) {
         </View>
       ))}
 
-      <View style={styles.footer}>
-        <Pressable
-          style={[styles.addBtn, { borderColor: colors.border }]}
-          onPress={() => {
-            void hapticImpact("light");
-            addChapter();
-          }}
-        >
-          <Text style={{ color: colors.primary, fontWeight: "700" }}>+ Add Chapter</Text>
-        </Pressable>
-        {dirty && (
+      {dirty && (
+        <View style={styles.footer}>
           <Pressable
             style={[styles.saveBtn, { backgroundColor: colors.primary }]}
             onPress={() => void save()}
             disabled={saving}
           >
             {saving ? (
-              <ActivityIndicator color="#fff" size="small" />
+              <ActivityIndicator color={colors.onPrimary} size="small" />
             ) : (
-              <Text style={styles.saveBtnText}>Save TOC</Text>
+              <Text style={[styles.saveBtnText, { color: colors.onPrimary }]}>Save TOC</Text>
             )}
           </Pressable>
-        )}
-      </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -251,6 +330,7 @@ function ActionBtn({
 }
 
 const styles = StyleSheet.create({
+  coverageNote: { fontSize: 12, marginBottom: 8 },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -262,7 +342,9 @@ const styles = StyleSheet.create({
   },
   moveCol: { alignItems: "center", gap: 2 },
   num: { fontSize: 12, fontWeight: "800", width: 20 },
-  title: { flex: 1, fontSize: 14, fontWeight: "600" },
+  titleCol: { flex: 1 },
+  title: { fontSize: 14, fontWeight: "600" },
+  coverageLabel: { fontSize: 11, marginTop: 2 },
   editRow: { flex: 1, flexDirection: "row", gap: 6, alignItems: "center" },
   input: {
     flex: 1,
@@ -279,7 +361,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  iconBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  iconBtnText: { fontWeight: "700", fontSize: 14 },
   actions: { flexDirection: "row", gap: 4 },
   actionBtn: {
     width: 30,
@@ -289,12 +371,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   footer: { flexDirection: "row", gap: 10, marginTop: 4, flexWrap: "wrap" },
-  addBtn: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
   saveBtn: {
     borderRadius: 10,
     paddingHorizontal: 16,
@@ -302,5 +378,5 @@ const styles = StyleSheet.create({
     minWidth: 100,
     alignItems: "center",
   },
-  saveBtnText: { color: "#fff", fontWeight: "700" },
+  saveBtnText: { fontWeight: "700" },
 });

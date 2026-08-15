@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import PurePosixPath
 from typing import Any
 from uuid import UUID
 
@@ -10,12 +11,13 @@ from sqlalchemy import select
 
 from chapter_content import pdf_text_hash, persist_chapter_segments
 from content_map import build_content_map
+from document_thumbnail import THUMBNAIL_CONTENT_TYPE, generate_first_page_thumbnail
 from database_sync import sync_session
 from job_cache import cache_job
 from models.book import Book
 from models.enums import BookStatus
 from pdf_text import extract_document_text
-from s3_service import get_object_bytes
+from s3_service import get_object_bytes, put_object_bytes
 from tasks.celery_app import celery
 from toc_extraction import extract_toc_from_pdf_bytes
 
@@ -30,6 +32,41 @@ def _set_toc_phase(book: Book, phase: str, **extra: Any) -> None:
     proc.update(extra)
     extras["processing"] = proc
     book.extras = extras
+
+
+def _persist_first_page_thumbnail(*, book_id: UUID, s3_key: str, doc_bytes: bytes) -> bool:
+    thumbnail_key = str(PurePosixPath(s3_key).parent / "thumbnail-first-page.png")
+    try:
+        thumbnail = generate_first_page_thumbnail(doc_bytes, filename=s3_key)
+        put_object_bytes(key=thumbnail_key, data=thumbnail, content_type=THUMBNAIL_CONTENT_TYPE)
+        state = {"status": "ready", "s3_key": thumbnail_key, "content_type": THUMBNAIL_CONTENT_TYPE}
+        ready = True
+    except Exception as exc:
+        log.warning("book_thumbnail_generation_failed", extra={"book_id": str(book_id), "error": str(exc)})
+        state = {"status": "failed"}
+        ready = False
+    with sync_session() as db:
+        book = db.execute(select(Book).where(Book.id == book_id)).scalar_one_or_none()
+        if book is not None:
+            extras = dict(book.extras or {})
+            extras["thumbnail"] = state
+            book.extras = extras
+    return ready
+
+
+@celery.task(name="tasks.book_tasks.generate_book_thumbnail_task")
+def generate_book_thumbnail_task(book_id: str) -> dict[str, str]:
+    """Backfill a persistent thumbnail without rerunning TOC extraction."""
+    bid = UUID(book_id)
+    with sync_session() as db:
+        book = db.execute(select(Book).where(Book.id == bid)).scalar_one_or_none()
+        if book is None:
+            return {"status": "missing", "book_id": book_id}
+        s3_key = book.s3_key
+    ready = _persist_first_page_thumbnail(
+        book_id=bid, s3_key=s3_key, doc_bytes=get_object_bytes(s3_key)
+    )
+    return {"status": "ready" if ready else "failed", "book_id": book_id}
 
 
 @celery.task(
@@ -56,6 +93,7 @@ def extract_book_toc_task(self, book_id: str) -> dict[str, str]:
             description = (book.extras or {}).get("description")
 
         doc_bytes = get_object_bytes(s3_key)
+        _persist_first_page_thumbnail(book_id=bid, s3_key=s3_key, doc_bytes=doc_bytes)
         full_text = extract_document_text(doc_bytes, filename=s3_key)
         if not full_text.strip():
             raise ValueError("No extractable text from document")
@@ -83,23 +121,35 @@ def extract_book_toc_task(self, book_id: str) -> dict[str, str]:
             from presentation_pdf import build_slide_content_map
 
             raw_segments = build_slide_content_map(doc_bytes, chapters)
+            # Slide decks don't have meaningful char offsets into `full_text`; cover
+            # the deck by sequential slide-chapter index instead (index i occupies
+            # unit [i, i+1)), which is contiguous by construction since raw_segments
+            # is built with a gap-free running index.
             segments = [
                 ChapterSegment(
                     title=s["title"],
                     text=s["text"],
                     char_count=s["char_count"],
                     index=s["index"],
+                    start=s["index"],
+                    end=s["index"] + 1,
                 )
                 for s in raw_segments
             ]
         else:
             segments = build_content_map(full_text, toc_titles or None)
 
+        if len(segments) == len(chapters):
+            for ch, seg in zip(chapters, segments):
+                ch["start_offset"] = seg.start
+                ch["end_offset"] = seg.end
+
         with sync_session() as db:
             book = db.execute(select(Book).where(Book.id == bid)).scalar_one()
             extras = dict(book.extras or {})
             extras["table_of_contents"] = chapters
             extras["toc_extraction_method"] = toc_method
+            extras["toc_text_length"] = len(segments) if toc_method == "presentation_slides" else len(full_text)
             if toc_ai_error:
                 extras["toc_ai_error"] = toc_ai_error[:500]
             else:

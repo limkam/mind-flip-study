@@ -31,6 +31,12 @@ class Book(Base):
     s3_key: Mapped[str] = mapped_column(String(1024), nullable=False)
     s3_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    book_code: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
     status: Mapped[BookStatus] = mapped_column(
         SAEnum(BookStatus, name="book_status", native_enum=True),
         nullable=False,

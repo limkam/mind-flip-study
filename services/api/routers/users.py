@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from passwords import hash_password
 from pydantic import BaseModel
 from schemas.push import PushTokenBody, PushTokenResponse
 from schemas.user import AdminCreateUserRequest, AdminPatchUserRole, UserPublic, UserSearchHit, UserSelfPatch
+from services.admin_audit import record_admin_action
 
 router = APIRouter(tags=["users"])
 
@@ -128,6 +129,7 @@ async def admin_create_user(
     body: AdminCreateUserRequest,
     _admin: Annotated[User, Depends(require_role("admin"))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
 ) -> UserPublic:
     user = User(
         email=str(body.email).lower(),
@@ -143,6 +145,8 @@ async def admin_create_user(
         await db.rollback()
         raise HTTPException(status_code=400, detail="Email already registered") from None
     await db.refresh(user)
+    record_admin_action(db, admin=_admin, action="user.create", resource_type="user", resource_id=user.id, affected_user_id=user.id, new={"email": user.email, "role": user.role.value}, request=request)
+    await db.commit()
     return UserPublic.model_validate(user)
 
 
@@ -152,12 +156,17 @@ async def admin_patch_user(
     body: AdminPatchUserRole,
     _admin: Annotated[User, Depends(require_role("admin"))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
 ) -> UserPublic:
     r = await db.execute(select(User).where(User.id == user_id))
     user = r.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    if user.id == _admin.id and body.role.value != "admin":
+        raise HTTPException(400, "You cannot demote your own admin account")
+    previous = user.role.value
     user.role = body.role
+    record_admin_action(db, admin=_admin, action="user.role_changed", resource_type="user", resource_id=user.id, affected_user_id=user.id, previous={"role": previous}, new={"role": user.role.value}, request=request)
     await db.commit()
     await db.refresh(user)
     return UserPublic.model_validate(user)

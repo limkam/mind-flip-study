@@ -61,6 +61,7 @@ class FlashcardSetOut(BaseModel):
     scenarios: list[ScenarioOut] = Field(default_factory=list)
     chapter_summaries: list[Any] = Field(default_factory=list)
     generation_seed: int | None = None
+    last_studied_at: datetime | None = None
 
 
 class FlashcardSetUpdate(BaseModel):

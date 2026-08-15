@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import Date, and_, case, cast, func, or_, select
@@ -28,6 +29,19 @@ router = APIRouter(tags=["analytics"])
 
 def _pct_expr():
     return 100.0 * QuizResult.score / func.nullif(QuizResult.total_questions, 0)
+
+
+async def _cards_reviewed_today(db: AsyncSession, user_id: UUID, today: date) -> int:
+    """Distinct cards with a card_progress review today (UTC)."""
+    return int(
+        await db.scalar(
+            select(func.count(func.distinct(CardProgress.card_id))).where(
+                CardProgress.user_id == user_id,
+                cast(CardProgress.last_reviewed_at, Date) == today,
+            ),
+        )
+        or 0,
+    )
 
 
 def _streak_from_day_set(day_set: set[date], today: date) -> int:
@@ -171,6 +185,8 @@ async def analytics_summary(
     day_set = set(dates_result.all())
     streak_days = _streak_from_day_set(day_set, today)
 
+    cards_reviewed_today = await _cards_reviewed_today(db, uid, today)
+
     last_14_days: list[DayActivityOut] = []
     for i in range(14):
         d = today - timedelta(days=13 - i)
@@ -190,4 +206,5 @@ async def analytics_summary(
         rating_breakdown=rating_breakdown,
         streak_days=streak_days,
         last_14_days=last_14_days,
+        cards_reviewed_today=cards_reviewed_today,
     )

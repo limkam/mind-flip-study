@@ -1,10 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { api } from "../api/client";
 import { MindFlipLogoMark } from "../components/brand/MindFlipBrand";
+import { DateOfBirthField } from "../components/DateOfBirthField";
 import {
   AppBadge,
   AppButton,
@@ -16,6 +17,7 @@ import { useTheme } from "../hooks/useTheme";
 import { getApiErrorMessage } from "../lib/apiErrors";
 import { hapticError, hapticSuccess } from "../lib/haptics";
 import { safeReturnRoute } from "../lib/returnRoute";
+import { calculateAge } from "../lib/ageUtils";
 import { type User, useAuthStore } from "../store/authStore";
 import { TOKENS } from "../theme/tokens";
 
@@ -27,24 +29,49 @@ export default function OnboardingScreen() {
   const { colors } = useTheme();
   const { accessToken, user, setAuth } = useAuthStore();
   const [name, setName] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [country, setCountry] = useState("");
+  const [occupation, setOccupation] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const submitLockRef = useState(() => ({ current: false }))[0];
 
   const activeUserId = user?.id;
 
-  const submit = async (skip = false) => {
+  useEffect(() => {
+    if (activeUserId) void api.post('/activity/onboarding/start').catch(() => undefined);
+  }, [activeUserId]);
+
+  const submit = async () => {
     if (!activeUserId || busy || submitLockRef.current) return;
     submitLockRef.current = true;
 
     setBusy(true);
     setErrorMsg(null);
 
-    const fullNameToSubmit = skip ? null : (name.trim() || null);
+    const age = calculateAge(dateOfBirth);
+    if (age == null || age < 13) {
+      setErrorMsg("MindFlip is only available to users aged 13 and above.");
+      submitLockRef.current = false;
+      setBusy(false);
+      return;
+    }
+    if (!country.trim() || !occupation.trim()) {
+      setErrorMsg("Please enter your country and occupation.");
+      submitLockRef.current = false;
+      setBusy(false);
+      return;
+    }
 
     try {
       const { data } = await api.post<User>("/auth/onboarding", {
-        full_name: fullNameToSubmit,
+        full_name: name.trim() || null,
+        date_of_birth: dateOfBirth,
+        country: country.trim(),
+        custom_country: null,
+        occupation: occupation.trim(),
+        job_title: jobTitle.trim() || null,
       });
 
       // Verify user identity didn't change during request
@@ -114,23 +141,22 @@ export default function OnboardingScreen() {
           containerStyle={styles.inputContainer}
         />
 
+        <DateOfBirthField label="Date of birth" value={dateOfBirth} onChange={(value) => { setDateOfBirth(value); setErrorMsg(null); }} />
+
+        <AppTextInput label="Country" placeholder="Your country" value={country} onChangeText={setCountry} autoCapitalize="words" />
+
+        <AppTextInput label="Occupation" placeholder="e.g. Software Engineering" value={occupation} onChangeText={setOccupation} />
+
+        <AppTextInput label="Job title (optional)" placeholder="e.g. Senior Backend Engineer" value={jobTitle} onChangeText={setJobTitle} />
+
         <AppButton
           label="Continue to MindFlip"
           variant="primary"
           size="lg"
           fullWidth
           loading={busy}
-          disabled={busy}
-          onPress={() => void submit(false)}
-        />
-
-        <AppButton
-          label="Skip for now"
-          variant="ghost"
-          size="md"
-          fullWidth
-          disabled={busy}
-          onPress={() => void submit(true)}
+          disabled={busy || !dateOfBirth || !country.trim() || !occupation.trim()}
+          onPress={() => void submit()}
         />
       </AppCard>
     </AppScreen>

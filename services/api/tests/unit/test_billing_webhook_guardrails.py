@@ -270,6 +270,11 @@ async def test_delayed_credit_payment_fulfills_pending_purchase_once(monkeypatch
     db.scalar = AsyncMock(side_effect=[None, None])
     award = AsyncMock()
     monkeypatch.setattr(billing.credits_service, "award_onetime_credits_for_user", award)
+    receipt_delay = MagicMock()
+    monkeypatch.setitem(
+        sys.modules, "tasks.email_tasks",
+        types.SimpleNamespace(send_credit_purchase_receipt_task=SimpleNamespace(delay=receipt_delay)),
+    )
 
     await billing.stripe_webhook(_Req(), db=db, redis=redis)
     pending = next(row for row in added if isinstance(row, billing.CreditPurchase))
@@ -515,10 +520,240 @@ async def test_webhook_second_successful_purchase_triggers_upsell(monkeypatch):
 
     delay_mock = MagicMock()
     fake_task = SimpleNamespace(delay=delay_mock)
-    fake_module = types.SimpleNamespace(send_second_purchase_upsell_task=fake_task)
+    fake_module = types.SimpleNamespace(
+        send_second_purchase_upsell_task=fake_task,
+        send_credit_purchase_receipt_task=SimpleNamespace(delay=MagicMock()),
+    )
     monkeypatch.setitem(sys.modules, "tasks.email_tasks", fake_module)
 
     out = await billing.stripe_webhook(_Req(), db=db, redis=redis)
     assert out == {"received": True}
     award_mock.assert_called_once()
     delay_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_charge_refunded_duplicate_event_is_noop(monkeypatch):
+    db = AsyncMock()
+    db.scalar = AsyncMock(return_value=SimpleNamespace(status="succeeded"))
+    redis = AsyncMock()
+
+    monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setattr(
+        billing.stripe.Webhook, "construct_event",
+        lambda *_args: {
+            "id": "evt_refund_dup",
+            "type": "charge.refunded",
+            "data": {"object": {"id": "ch_dup", "amount": 500, "amount_refunded": 500, "payment_intent": "pi_dup"}},
+        },
+    )
+    reverse_mock = AsyncMock()
+    monkeypatch.setattr(billing.credits_service, "reverse_onetime_credits_for_user", reverse_mock)
+
+    out = await billing.stripe_webhook(_Req(), db=db, redis=redis)
+    assert out == {"received": True}
+    reverse_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_charge_refunded_full_subscription_payment_revokes_access(monkeypatch):
+    """A full refund of a subscription invoice charge revokes access now, not at period end."""
+    user = SimpleNamespace(id=uuid4(), subscription_tier="student")
+    billing_invoice = SimpleNamespace(stripe_subscription_id="sub_1")
+    internal_sub = SimpleNamespace(
+        user_id=user.id, status="active", current_period_end=None, stripe_subscription_id="sub_1",
+    )
+    db = AsyncMock()
+    db.add = MagicMock()
+    # billing-event claim, credit-purchase probe (miss), invoice->subscription
+    # lookup, UserSubscription lookup, User lookup.
+    db.scalar = AsyncMock(side_effect=[None, None, billing_invoice, internal_sub, user])
+    db.commit = AsyncMock()
+    redis = AsyncMock()
+
+    monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setattr(
+        billing.stripe.Webhook, "construct_event",
+        lambda *_args: {
+            "id": "evt_refund_full_sub",
+            "type": "charge.refunded",
+            "data": {"object": {
+                "id": "ch_1", "amount": 1500, "amount_refunded": 1500,
+                "invoice": "in_1", "payment_intent": "pi_1", "currency": "usd",
+            }},
+        },
+    )
+
+    out = await billing.stripe_webhook(_Req(), db=db, redis=redis)
+
+    assert out == {"received": True}
+    assert internal_sub.status == "canceled"
+    assert internal_sub.current_period_end is not None
+    assert user.subscription_tier == "free"
+
+
+@pytest.mark.asyncio
+async def test_charge_refunded_partial_subscription_payment_keeps_access(monkeypatch):
+    """A partial refund/adjustment on a subscription invoice does not revoke access."""
+    billing_invoice = SimpleNamespace(stripe_subscription_id="sub_2")
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.scalar = AsyncMock(side_effect=[None, None, billing_invoice])
+    db.commit = AsyncMock()
+    redis = AsyncMock()
+
+    monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setattr(
+        billing.stripe.Webhook, "construct_event",
+        lambda *_args: {
+            "id": "evt_refund_partial_sub",
+            "type": "charge.refunded",
+            "data": {"object": {
+                "id": "ch_2", "amount": 1500, "amount_refunded": 500,
+                "invoice": "in_2", "payment_intent": "pi_2", "currency": "usd",
+            }},
+        },
+    )
+
+    out = await billing.stripe_webhook(_Req(), db=db, redis=redis)
+
+    assert out == {"received": True}
+    # Only the billing-event claim, credit-purchase probe, and the
+    # invoice->subscription lookup ran; no UserSubscription/User rows were touched.
+    assert db.scalar.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_charge_refunded_full_subscription_resolves_via_customer_when_invoice_missing(monkeypatch):
+    """Some Stripe API versions omit the invoice back-reference on Charge; fall
+    back to the customer's current subscription (confirmed live against a real
+    test-mode account whose Charge objects have no `invoice` field at all)."""
+    user = SimpleNamespace(id=uuid4(), subscription_tier="student", stripe_customer_id="cus_1")
+    latest_sub_row = SimpleNamespace(stripe_subscription_id="sub_3")
+    internal_sub = SimpleNamespace(
+        user_id=user.id, status="active", current_period_end=None, stripe_subscription_id="sub_3",
+    )
+    db = AsyncMock()
+    db.add = MagicMock()
+    # billing-event claim, credit-purchase probe (miss), user-by-customer lookup,
+    # _latest_subscription_row, UserSubscription lookup by stripe_subscription_id.
+    db.scalar = AsyncMock(side_effect=[None, None, user, latest_sub_row, internal_sub])
+    db.commit = AsyncMock()
+    redis = AsyncMock()
+
+    monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setattr(
+        billing.stripe.Webhook, "construct_event",
+        lambda *_args: {
+            "id": "evt_refund_full_sub_no_invoice",
+            "type": "charge.refunded",
+            "data": {"object": {
+                "id": "ch_3", "amount": 1500, "amount_refunded": 1500,
+                "invoice": None, "payment_intent": "pi_3", "customer": "cus_1", "currency": "usd",
+            }},
+        },
+    )
+
+    out = await billing.stripe_webhook(_Req(), db=db, redis=redis)
+
+    assert out == {"received": True}
+    assert internal_sub.status == "canceled"
+    assert internal_sub.current_period_end is not None
+    assert user.subscription_tier == "free"
+
+
+@pytest.mark.asyncio
+async def test_charge_refunded_credit_purchase_partial_then_full_claws_back_incrementally(monkeypatch):
+    """Sequential partial refunds on the same charge claw back proportionally without double-counting."""
+    purchase_id = uuid4()
+    user_id = uuid4()
+    purchase = SimpleNamespace(
+        id=purchase_id, user_id=user_id, quantity=10, status="completed",
+        currency="usd", stripe_charge_id=None, notes=None,
+    )
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.commit = AsyncMock()
+    redis = AsyncMock()
+    reverse_mock = AsyncMock()
+    monkeypatch.setattr(billing.credits_service, "reverse_onetime_credits_for_user", reverse_mock)
+    monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+
+    def _event(amount_refunded, event_id):
+        return {
+            "id": event_id,
+            "type": "charge.refunded",
+            "data": {"object": {
+                "id": "ch_credit", "amount": 1000, "amount_refunded": amount_refunded,
+                "invoice": None, "payment_intent": "pi_credit", "currency": "usd",
+            }},
+        }
+
+    # First delivery: 40% refunded so far -> claw back round(10 * 0.4) = 4.
+    monkeypatch.setattr(billing.stripe.Webhook, "construct_event", lambda *_args: _event(400, "evt_refund_credit_1"))
+    db.scalar = AsyncMock(side_effect=[None, purchase, 0])
+    await billing.stripe_webhook(_Req(), db=db, redis=redis)
+    assert reverse_mock.await_args_list[0].args == (db, user_id, 4)
+    assert purchase.status == "completed"
+
+    # Second delivery: fully refunded now -> claw back the remaining round(10*1.0) - 4 = 6.
+    monkeypatch.setattr(billing.stripe.Webhook, "construct_event", lambda *_args: _event(1000, "evt_refund_credit_2"))
+    db.scalar = AsyncMock(side_effect=[None, purchase, 4])
+    await billing.stripe_webhook(_Req(), db=db, redis=redis)
+    assert reverse_mock.await_args_list[1].args == (db, user_id, 6)
+    assert purchase.status == "refunded"
+
+    assert reverse_mock.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_charge_refunded_credit_purchase_already_spent_still_claws_back_full_amount(monkeypatch):
+    """A full refund claws back the entire granted amount regardless of how much was already spent.
+
+    Every balance read in services/credits.py (get_user_balance, _split_pool_balances,
+    get_credit_accounting_snapshot) floors at zero, so an over-clawback simply caps the
+    user's effective purchased balance at zero instead of tracking a negative debt that
+    blocks spending until resolved. This test documents that decision: the handler never
+    checks current balance before writing the mirrored reversal entry.
+    """
+    purchase_id = uuid4()
+    user_id = uuid4()
+    purchase = SimpleNamespace(
+        id=purchase_id, user_id=user_id, quantity=5, status="completed",
+        currency="usd", stripe_charge_id=None, notes=None,
+    )
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.scalar = AsyncMock(side_effect=[None, purchase, 0])
+    db.commit = AsyncMock()
+    redis = AsyncMock()
+    reverse_mock = AsyncMock()
+    monkeypatch.setattr(billing.credits_service, "reverse_onetime_credits_for_user", reverse_mock)
+    monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setattr(
+        billing.stripe.Webhook, "construct_event",
+        lambda *_args: {
+            "id": "evt_refund_credit_spent",
+            "type": "charge.refunded",
+            "data": {"object": {
+                "id": "ch_spent", "amount": 500, "amount_refunded": 500,
+                "invoice": None, "payment_intent": "pi_spent", "currency": "usd",
+            }},
+        },
+    )
+
+    out = await billing.stripe_webhook(_Req(), db=db, redis=redis)
+
+    assert out == {"received": True}
+    reverse_mock.assert_awaited_once_with(
+        db, user_id, 5,
+        idempotency_key=f"stripe_refund:{purchase_id}:500",
+        metadata={
+            "credit_purchase_id": str(purchase_id),
+            "stripe_charge_id": "ch_spent",
+            "stripe_payment_intent_id": "pi_spent",
+            "amount_refunded_cents": 500,
+            "refund_fraction": 1.0,
+        },
+    )
+    assert purchase.status == "refunded"

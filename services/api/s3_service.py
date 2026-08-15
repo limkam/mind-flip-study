@@ -99,3 +99,14 @@ def get_object_bytes(key: str) -> bytes:
     """Download full object body (used by Celery workers)."""
     resp = _client().get_object(Bucket=settings.S3_BUCKET_NAME, Key=key)
     return resp["Body"].read()
+
+
+def put_object_bytes(*, key: str, data: bytes, content_type: str) -> None:
+    """Persist a generated private object beside its source document."""
+    _client().put_object(
+        Bucket=settings.S3_BUCKET_NAME,
+        Key=key,
+        Body=data,
+        ContentType=content_type,
+        CacheControl="private, max-age=86400",
+    )

@@ -33,7 +33,9 @@ def test_missing_historical_snapshot_makes_mrr_change_unavailable():
 
 
 def test_eligible_statuses_are_explicit_and_shared():
-    assert ELIGIBLE_SUBSCRIPTION_STATUSES == ("active", "trialing", "past_due")
+    # Contracted MRR excludes free trials and delinquent subscriptions; paid
+    # invoice revenue is reported independently.
+    assert ELIGIBLE_SUBSCRIPTION_STATUSES == ("active",)
 
 
 def test_duplicate_subscriptions_mark_provider_snapshot_conflicted():

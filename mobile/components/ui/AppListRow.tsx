@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { type ReactNode } from "react";
 import {
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -10,6 +11,7 @@ import {
 } from "react-native";
 
 import { useTheme } from "../../hooks/useTheme";
+import { usePressScale } from "../../hooks/usePressScale";
 import { hapticImpact } from "../../lib/haptics";
 import { TOKENS } from "../../theme/tokens";
 
@@ -44,7 +46,8 @@ export function AppListRow({
   accessibilityLabel,
   style,
 }: Props) {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
+  const { scale, onPressIn, onPressOut } = usePressScale();
 
   const handlePress = () => {
     if (disabled || !onPress) return;
@@ -81,9 +84,7 @@ export function AppListRow({
     const bgColor = active
       ? colors.primary
       : pressed
-      ? isDark
-        ? colors.surfaceElevated
-        : colors.surfaceMuted
+      ? colors.surfaceMuted
       : colors.surface;
     const textColor = active ? colors.onPrimary : colors.textPrimary;
     const subColor = active ? `${colors.onPrimary}CC` : colors.textMuted;
@@ -133,15 +134,19 @@ export function AppListRow({
 
   if (onPress) {
     return (
-      <Pressable
-        onPress={handlePress}
-        disabled={disabled}
-        accessibilityRole="button"
-        accessibilityLabel={accessibilityLabel ?? title}
-        accessibilityState={{ disabled }}
-      >
-        {({ pressed }) => rowContent(pressed)}
-      </Pressable>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Pressable
+          onPress={handlePress}
+          onPressIn={disabled ? undefined : onPressIn}
+          onPressOut={disabled ? undefined : onPressOut}
+          disabled={disabled}
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel ?? title}
+          accessibilityState={{ disabled }}
+        >
+          {({ pressed }) => rowContent(pressed)}
+        </Pressable>
+      </Animated.View>
     );
   }
 

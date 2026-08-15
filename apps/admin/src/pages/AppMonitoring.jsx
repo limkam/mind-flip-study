@@ -71,9 +71,9 @@ export default function AppMonitoring() {
       <FetchErrorBanner message={isError ? errorMessage : null} onRetry={refresh} isRetrying={isFetching} />
 
       <div className="metrics-grid">
-        <MetricCard label="DAU" value={d.dau} />
-        <MetricCard label="WAU" value={d.wau} />
-        <MetricCard label="MAU" value={d.mau} />
+        <MetricCard label="Study DAU" value={d.dau} />
+        <MetricCard label="Study WAU" value={d.wau} />
+        <MetricCard label="Study MAU" value={d.mau} />
         <MetricCard label="Avg Quiz Score (%)" value={`${d.avg_quiz_score_pct}%`} />
         <div className={`metric-card celery-status-card${celeryStatus?.status === 'ok' ? ' celery-ok' : ' celery-down'}`}>
           <div className="metric-value">{celeryStatus?.status === 'ok' ? 'Running' : 'Unavailable'}</div>
@@ -88,7 +88,7 @@ export default function AppMonitoring() {
         </div>
       </div>
 
-      <h3 className="section-title">Daily Activity (Last 30 Days)</h3>
+      <h3 className="section-title">Daily Study Activity (Last 30 Days)</h3>
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height={320}>
           <LineChart data={dailyActivity} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>

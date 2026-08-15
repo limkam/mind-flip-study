@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const watchUsePolling = process.env.VITE_DISABLE_POLLING !== '1'
+const watchUsePolling = globalThis.process?.env?.VITE_DISABLE_POLLING !== '1'
 
 export default defineConfig({
   plugins: [react()],

@@ -376,6 +376,41 @@ async def award_initial_free_credits(db: AsyncSession, user_id: UUID) -> None:
     await db.flush()
 
 
+async def reverse_onetime_credits_for_user(
+    db: AsyncSession,
+    user_id: UUID,
+    amount: int,
+    *,
+    reason: str = "credit_purchase_refund",
+    idempotency_key: str | None = None,
+    metadata: Optional[dict] | None = None,
+) -> None:
+    """Claw back previously granted purchased credits (e.g. after a Stripe refund).
+
+    Mirrors ``award_onetime_credits_for_user``: a signed ledger entry, never a
+    raw balance edit. If more credits were already spent than remain, the raw
+    ledger sum goes negative, but every balance read (``get_user_balance``,
+    ``_split_pool_balances``, ``get_credit_accounting_snapshot``) already
+    floors at zero, so the effective, user-visible balance is simply capped at
+    zero rather than tracked as a negative debt.
+    """
+    if amount <= 0:
+        return
+
+    db.add(
+        CreditLedger(
+            user_id=user_id,
+            amount=-int(amount),
+            pool="purchased",
+            reason=reason,
+            idempotency_key=idempotency_key,
+            meta=metadata or {},
+            expires_at=None,
+        )
+    )
+    await db.flush()
+
+
 async def award_onetime_credits_for_user(
     db: AsyncSession,
     user_id: UUID,

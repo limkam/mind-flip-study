@@ -36,6 +36,7 @@ export const PLAN_HIGHLIGHTS = {
     "5 flashcard sets / month",
     "Up to 20 cards per set",
     "Unlimited daily review",
+    "Challenges included",
   ],
   standard_15: [
     "5 books / month",
@@ -108,7 +109,7 @@ export const PLAN_COMPARISON_ROWS = [
     label: "Challenges",
     values: {
       free: "—",
-      quick_72: "—",
+      quick_72: "✓",
       standard_15: "✓",
       premium_30: "✓",
     },

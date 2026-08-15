@@ -287,18 +287,6 @@ def _subscription_period_end_dt(sub: dict) -> datetime | None:
     return max(ends) if ends else None
 
 
-def _invoice_period_end_dt(inv: dict) -> datetime | None:
-    """Best-effort period end extraction from invoice line items."""
-    lines = ((inv.get("lines") or {}).get("data") or [])
-    if not lines:
-        return None
-    first_line = lines[0] if isinstance(lines[0], dict) else {}
-    period = first_line.get("period") if isinstance(first_line, dict) else None
-    if not isinstance(period, dict):
-        return None
-    return _current_period_end_dt(period.get("end"))
-
-
 def _invoice_price_id(inv: dict) -> str | None:
     """Best-effort price id extraction from invoice line items."""
     lines = ((inv.get("lines") or {}).get("data") or [])
@@ -358,6 +346,13 @@ async def _sync_subscription_from_stripe_object(
 
     status_raw = str(sub.get("status") or "")
     cpe = _subscription_period_end_dt(sub)
+    period_start = _current_period_end_dt(sub.get("current_period_start"))
+    started_at = _current_period_end_dt(sub.get("start_date"))
+    cancel_at = _current_period_end_dt(sub.get("cancel_at"))
+    canceled_at = _current_period_end_dt(sub.get("canceled_at"))
+    trial_start = _current_period_end_dt(sub.get("trial_start"))
+    trial_end = _current_period_end_dt(sub.get("trial_end"))
+    pause_collection = sub.get("pause_collection") if isinstance(sub.get("pause_collection"), dict) else None
 
     internal_sub = await db.scalar(
         select(UserSubscription).where(UserSubscription.stripe_subscription_id == str(stripe_sub_id)).limit(1)
@@ -404,6 +399,14 @@ async def _sync_subscription_from_stripe_object(
     internal_sub.status = status_raw or internal_sub.status
     internal_sub.billing_interval = billing_interval or internal_sub.billing_interval
     internal_sub.current_period_end = cpe
+    internal_sub.current_period_start = period_start
+    internal_sub.subscription_started_at = started_at
+    internal_sub.cancel_at_period_end = bool(sub.get("cancel_at_period_end"))
+    internal_sub.cancel_at = cancel_at
+    internal_sub.canceled_at = canceled_at
+    internal_sub.trial_start = trial_start
+    internal_sub.trial_end = trial_end
+    internal_sub.pause_collection = pause_collection
     internal_sub.stripe_price_id = str(price_id) if price_id else None
     if event_created_at is not None:
         internal_sub.stripe_event_created_at = max(
@@ -627,9 +630,9 @@ async def billing_overview(
             "plan_slug": None if subscription_state == "subscription_conflict" else plan_slug,
             "status": "subscription_conflict" if subscription_state == "subscription_conflict" else (subscription.status if subscription else "free"),
             "billing_interval": interval, "amount_cents": amount_cents, "currency": "usd",
-            "current_period_start": subscription.created_at if subscription else None,
+            "current_period_start": subscription.current_period_start if subscription else None,
             "current_period_end": period_end, "usage_period_start": usage_start,
-            "usage_resets_at": usage_reset, "cancel_at_period_end": bool(subscription and subscription.status == "canceled"),
+            "usage_resets_at": usage_reset, "cancel_at_period_end": bool(subscription and (subscription.cancel_at_period_end or subscription.status == "canceled")),
             "needs_reconciliation": needs_reconciliation,
         },
         "usage": [
@@ -669,6 +672,8 @@ async def billing_invoices(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Return display-safe invoice history independently from billing state."""
+    from services.stripe_reconciliation import _invoice_period
+
     started = perf_counter()
     if not current_user.stripe_customer_id:
         return {"invoices": []}
@@ -687,13 +692,14 @@ async def billing_invoices(
     invoices = []
     for raw in getattr(invoice_list, "data", []) or []:
         inv = _stripe_object_as_dict(raw)
+        period_start, period_end = _invoice_period(inv)
         invoices.append({
             "id": inv.get("id"), "created_at": _current_period_end_dt(inv.get("created")),
             "amount_cents": int(inv.get("amount_paid") or inv.get("amount_due") or 0),
             "currency": str(inv.get("currency") or "usd"), "status": inv.get("status"),
             "hosted_invoice_url": inv.get("hosted_invoice_url"), "invoice_pdf": inv.get("invoice_pdf"),
-            "period_start": _current_period_end_dt(inv.get("period_start")),
-            "period_end": _current_period_end_dt(inv.get("period_end")),
+            "period_start": period_start,
+            "period_end": period_end,
         })
     logger.info("billing_invoices total_ms=%.1f stripe_ms=%.1f", (perf_counter() - started) * 1000, stripe_ms)
     return {"invoices": invoices}
@@ -793,6 +799,30 @@ async def cancel_subscription_at_period_end(
     db.add(latest_sub)
     await db.commit()
 
+    if latest_sub.current_period_end is not None:
+        from tasks.email_tasks import send_cancellation_confirmation_task
+
+        final_invoice_id = None
+        try:
+            invoices = await asyncio.to_thread(
+                stripe.Invoice.list, subscription=latest_sub.stripe_subscription_id, limit=1,
+            )
+            rows = getattr(invoices, "data", []) or []
+            if rows:
+                final_invoice_id = _stripe_object_as_dict(rows[0]).get("id")
+        except Exception as exc:
+            logger.warning(
+                "stripe_final_invoice_lookup_failed",
+                extra={"user_id": str(current_user.id), "error_type": type(exc).__name__},
+            )
+
+        send_cancellation_confirmation_task.delay(
+            email=current_user.email,
+            full_name=current_user.full_name,
+            access_end_date_iso=latest_sub.current_period_end.isoformat(),
+            invoice_id=final_invoice_id if isinstance(final_invoice_id, str) else None,
+        )
+
     return SubscriptionCancelResponse(
         canceled_at_period_end=True,
         current_period_end=latest_sub.current_period_end,
@@ -875,7 +905,13 @@ def _stripe_object_as_dict(obj: object) -> dict:
         or getattr(obj, "to_dict", None)
     )
     if callable(fn):
-        out = fn()
+        # for_json=True converts SDK-only types (e.g. Decimal on unit_amount_decimal)
+        # into JSON-safe values; without it, storing the raw payload in a JSONB
+        # column raises TypeError for events carrying a Price/Plan sub-object.
+        try:
+            out = fn(for_json=True)
+        except TypeError:
+            out = fn()
         return out if isinstance(out, dict) else {}
     return {}
 
@@ -1050,6 +1086,12 @@ async def verify_checkout_session(
             detail="Checkout session not found",
         )
 
+    # stripe.checkout.Session.retrieve returns a StripeObject, not a dict — it
+    # has no real .get() method (attribute lookups fall through to __getattr__
+    # and raise). Normalize once so every .get() below is safe; confirmed live
+    # that the unnormalized object 500s here for every real checkout session.
+    session = _stripe_object_as_dict(session)
+
     # Ownership checks (strict policy matching section 1 & 2)
     client_ref = session.get("client_reference_id") if isinstance(session, dict) else getattr(session, "client_reference_id", None)
     meta = (session.get("metadata") if isinstance(session, dict) else getattr(session, "metadata", None)) or {}
@@ -1158,8 +1200,22 @@ async def verify_checkout_session(
     resolution = await _resolve_stripe_subscription(db, current_user)
     if resolution["state"] == "subscription_conflict":
         sub_state = "conflict"
+    elif resolution["state"] == "active" and checkout_status == "complete":
+        # Checkout verification is also the recovery path when Stripe's webhook
+        # is delayed or missed. Do not report success until the canonical local
+        # entitlement projection has been updated; the pricing page reads that
+        # projection immediately after this response.
+        synchronized = await _sync_subscription_from_stripe_object(
+            db, resolution.get("subscription") or {}, authoritative_snapshot=True
+        )
+        if synchronized:
+            await db.commit()
+            sub_state = "active"
+        else:
+            await db.rollback()
+            sub_state = "processing"
     elif resolution["state"] == "active":
-        sub_state = "active"
+        sub_state = "not_confirmed"
     elif checkout_status == "complete":
         sub_state = "processing"
     else:
@@ -1261,6 +1317,7 @@ async def create_credit_checkout_session(
                 "currency": _credit_currency(),
             },
         },
+        invoice_creation={"enabled": True},
         idempotency_key=f"mindflip:credits_checkout:{user_row.id}:{uuid.uuid4().hex}",
     )
     url = session.url
@@ -1391,13 +1448,49 @@ async def _stripe_webhook_impl(
                                 canonical_customer = canonical_customer.get("id")
                             if not canonical_customer or str(canonical_customer) != str(customer_id):
                                 raise ValueError("Stripe subscription customer does not match Checkout Session")
-                            await _sync_subscription_from_stripe_object(
+                            synced = await _sync_subscription_from_stripe_object(
                                 db,
                                 canonical_sub,
                                 event_created_at=event_created_at,
                                 _authoritative_tie=True,
                                 authoritative_snapshot=True,
                             )
+                            if synced:
+                                activated_sub = await db.scalar(
+                                    select(UserSubscription)
+                                    .where(UserSubscription.stripe_subscription_id == sub_id)
+                                    .limit(1)
+                                )
+                                plan_row = (
+                                    await db.scalar(select(Plan).where(Plan.id == activated_sub.plan_id).limit(1))
+                                    if activated_sub is not None
+                                    else None
+                                )
+                                if activated_sub is not None and plan_row is not None:
+                                    sub_items = ((canonical_sub.get("items") or {}).get("data") or [])
+                                    sub_price = sub_items[0].get("price") if sub_items else {}
+                                    sub_currency = (
+                                        str(sub_price.get("currency")) if isinstance(sub_price, dict) and sub_price.get("currency") else "usd"
+                                    )
+                                    from tasks.email_tasks import send_subscription_receipt_task
+
+                                    latest_invoice_id = canonical_sub.get("latest_invoice")
+                                    if isinstance(latest_invoice_id, dict):
+                                        latest_invoice_id = latest_invoice_id.get("id")
+
+                                    send_subscription_receipt_task.delay(
+                                        email=user.email,
+                                        full_name=user.full_name,
+                                        plan_name=plan_row.name,
+                                        amount_cents=int(activated_sub.unit_amount_cents or 0),
+                                        currency=sub_currency,
+                                        next_billing_date_iso=(
+                                            activated_sub.current_period_end.isoformat()
+                                            if activated_sub.current_period_end
+                                            else None
+                                        ),
+                                        invoice_id=latest_invoice_id if isinstance(latest_invoice_id, str) else None,
+                                    )
                         elif isinstance(sub_id, str):
                             raise ValueError("Stripe Checkout Session ownership mismatch")
                         await db.flush()
@@ -1516,6 +1609,17 @@ async def _stripe_webhook_impl(
                             db.add(purchase)
                             await db.flush()
 
+                            from tasks.email_tasks import send_credit_purchase_receipt_task
+
+                            send_credit_purchase_receipt_task.delay(
+                                email=user.email,
+                                full_name=user.full_name,
+                                quantity=quantity,
+                                amount_cents=amount_paid_cents,
+                                currency=session_currency,
+                                invoice_id=purchase.stripe_invoice_id,
+                            )
+
                             # Upsell trigger after the 2nd successful purchase in the same UTC calendar month.
                             now_utc = datetime.now(timezone.utc)
                             monthly_purchase_count = await _monthly_successful_purchase_count(db, uid, now_utc)
@@ -1588,9 +1692,35 @@ async def _stripe_webhook_impl(
             await _reconcile_canonical_subscription(db, sub_id, event_created_at=event_created_at)
             await db.flush()
 
+            customer_id = inv.get("customer")
+            if isinstance(customer_id, dict):
+                customer_id = customer_id.get("id")
+            failed_user = (
+                await db.scalar(select(User).where(User.stripe_customer_id == customer_id).limit(1))
+                if customer_id
+                else None
+            )
+            if failed_user is not None:
+                failed_sub = await db.scalar(
+                    select(UserSubscription).where(UserSubscription.stripe_subscription_id == sub_id).limit(1)
+                )
+                from tasks.email_tasks import send_payment_failed_task
+
+                send_payment_failed_task.delay(
+                    email=failed_user.email,
+                    full_name=failed_user.full_name,
+                    amount_cents=int(inv.get("amount_due") or inv.get("amount_remaining") or 0),
+                    currency=str(inv.get("currency") or "usd"),
+                    access_end_date_iso=(
+                        failed_sub.current_period_end.isoformat()
+                        if failed_sub is not None and failed_sub.current_period_end
+                        else None
+                    ),
+                )
+
     elif etype == "invoice.payment_succeeded":
         inv = data_object
-        from services.stripe_reconciliation import _invoice_payment_intent, _invoice_price_id, _invoice_subscription_id
+        from services.stripe_reconciliation import _invoice_payment_intent, _invoice_period, _invoice_price_id, _invoice_subscription_id
         sub_id = _invoice_subscription_id(inv)
         if isinstance(sub_id, str):
             await _reconcile_canonical_subscription(db, sub_id, event_created_at=event_created_at)
@@ -1604,6 +1734,7 @@ async def _stripe_webhook_impl(
             invoice_user = await db.scalar(select(User).where(User.stripe_customer_id == customer_id).limit(1))
             if invoice_user is not None:
                 invoice_row = await db.scalar(select(BillingInvoice).where(BillingInvoice.stripe_invoice_id == str(invoice_id)).limit(1))
+                is_new_invoice_row = invoice_row is None
                 if invoice_row is None:
                     invoice_row = BillingInvoice(stripe_invoice_id=str(invoice_id), user_id=invoice_user.id,
                                                  stripe_customer_id=customer_id, status=str(inv.get("status") or "paid"))
@@ -1620,9 +1751,158 @@ async def _stripe_webhook_impl(
                 invoice_row.amount_paid_cents = int(inv.get("amount_paid") or 0)
                 invoice_row.amount_refunded_cents = int(inv.get("amount_refunded") or 0)
                 invoice_row.paid_at = _current_period_end_dt(transitions.get("paid_at") or inv.get("created"))
-                invoice_row.period_start = _current_period_end_dt(inv.get("period_start"))
-                invoice_row.period_end = _current_period_end_dt(inv.get("period_end"))
+                invoice_row.period_start, invoice_row.period_end = _invoice_period(inv)
                 await db.flush()
+
+                # Recurring cycle invoices renew silently by default (unlike the initial
+                # checkout.session.completed receipt) — send a renewal receipt for each
+                # one, but only the first time we see this invoice (idempotent on retry).
+                if is_new_invoice_row and inv.get("billing_reason") == "subscription_cycle":
+                    plan_row = await db.scalar(select(Plan).where(Plan.slug == plan_slug).limit(1)) if plan_slug else None
+                    if plan_row is not None:
+                        from tasks.email_tasks import send_renewal_receipt_task
+
+                        send_renewal_receipt_task.delay(
+                            email=invoice_user.email,
+                            full_name=invoice_user.full_name,
+                            plan_name=plan_row.name,
+                            amount_cents=invoice_row.amount_paid_cents,
+                            currency=invoice_row.currency,
+                            next_billing_date_iso=(
+                                invoice_row.period_end.isoformat() if invoice_row.period_end else None
+                            ),
+                            invoice_id=str(invoice_id),
+                        )
+
+    elif etype == "charge.refunded":
+        charge = data_object
+        charge_id = charge.get("id")
+        amount = int(charge.get("amount") or 0)
+        amount_refunded = int(charge.get("amount_refunded") or 0)
+        refund_fraction = min(1.0, amount_refunded / amount) if amount > 0 else 0.0
+        is_full_refund = refund_fraction >= 1.0
+
+        payment_intent_id = charge.get("payment_intent")
+        if isinstance(payment_intent_id, dict):
+            payment_intent_id = payment_intent_id.get("id")
+        invoice_id = charge.get("invoice")
+        if isinstance(invoice_id, dict):
+            invoice_id = invoice_id.get("id")
+        customer_id = charge.get("customer")
+        if isinstance(customer_id, dict):
+            customer_id = customer_id.get("id")
+
+        # A refunded charge is either a one-time credit purchase or a subscription
+        # payment, never both. Credit purchases are matched precisely by
+        # payment_intent, so check that first.
+        purchase = None
+        if payment_intent_id:
+            await _acquire_business_lock(db, "stripe-credit-payment-intent", str(payment_intent_id))
+            purchase = await db.scalar(
+                select(CreditPurchase).where(CreditPurchase.stripe_payment_intent_id == str(payment_intent_id)).limit(1)
+            )
+
+        if purchase is not None:
+            # One-time credit purchase refund: claw back the credits granted for
+            # this purchase via the same ledger mechanism used to grant them —
+            # a signed reversal entry, not a raw balance edit.
+            if purchase.status == "completed":
+                # Cumulative refunded credits already clawed back for this purchase,
+                # across any earlier (partial) charge.refunded deliveries.
+                already_clawed_back = int(
+                    await db.scalar(
+                        select(func.coalesce(func.sum(-CreditLedger.amount), 0)).where(
+                            CreditLedger.idempotency_key.like(f"stripe_refund:{purchase.id}:%")
+                        )
+                    )
+                    or 0
+                )
+                target_clawback = round(purchase.quantity * refund_fraction)
+                delta = target_clawback - already_clawed_back
+                if delta > 0:
+                    await credits_service.reverse_onetime_credits_for_user(
+                        db,
+                        purchase.user_id,
+                        delta,
+                        idempotency_key=f"stripe_refund:{purchase.id}:{amount_refunded}",
+                        metadata={
+                            "credit_purchase_id": str(purchase.id),
+                            "stripe_charge_id": str(charge_id) if charge_id else None,
+                            "stripe_payment_intent_id": str(payment_intent_id),
+                            "amount_refunded_cents": amount_refunded,
+                            "refund_fraction": round(refund_fraction, 4),
+                        },
+                    )
+                purchase.stripe_charge_id = purchase.stripe_charge_id or (str(charge_id) if charge_id else None)
+                if is_full_refund:
+                    purchase.status = "refunded"
+                purchase.notes = (
+                    f"{'Fully' if is_full_refund else 'Partially'} refunded "
+                    f"{amount_refunded} of {amount} {charge.get('currency') or purchase.currency}"
+                )
+                db.add(purchase)
+            await db.flush()
+
+        else:
+            # Not a credit purchase. Resolve the subscription this payment
+            # belongs to. Prefer the invoice linkage when the Charge exposes it;
+            # some Stripe API versions no longer include an invoice back-reference
+            # on Charge (confirmed live: `invoice` is absent on this account's
+            # API version), so fall back to the customer's current subscription —
+            # the same single-subscription-per-customer assumption
+            # _resolve_stripe_subscription already relies on elsewhere.
+            subscription_id = None
+            if invoice_id:
+                billing_invoice = await db.scalar(
+                    select(BillingInvoice).where(BillingInvoice.stripe_invoice_id == str(invoice_id)).limit(1)
+                )
+                subscription_id = billing_invoice.stripe_subscription_id if billing_invoice is not None else None
+
+            refund_user = None
+            if not subscription_id and customer_id:
+                refund_user = await db.scalar(select(User).where(User.stripe_customer_id == str(customer_id)).limit(1))
+                if refund_user is not None:
+                    latest_sub = await _latest_subscription_row(db, refund_user.id)
+                    subscription_id = latest_sub.stripe_subscription_id if latest_sub is not None else None
+
+            if subscription_id:
+                # Subscription payment refund: the money is already back with the
+                # customer, so a full refund revokes access immediately rather than
+                # waiting for the current period to end. A partial refund/adjustment
+                # (e.g. a proration credit) does not warrant losing access.
+                await _acquire_business_lock(db, "stripe-subscription", str(subscription_id))
+                if is_full_refund:
+                    internal_sub = await db.scalar(
+                        select(UserSubscription)
+                        .where(UserSubscription.stripe_subscription_id == str(subscription_id))
+                        .limit(1)
+                    )
+                    if internal_sub is not None:
+                        now = datetime.now(timezone.utc)
+                        internal_sub.status = "canceled"
+                        internal_sub.current_period_end = now
+                        db.add(internal_sub)
+                        revoke_user = refund_user or await db.scalar(
+                            select(User).where(User.id == internal_sub.user_id).limit(1)
+                        )
+                        if revoke_user is not None:
+                            # Mirrors the same tier-flip _sync_subscription_from_stripe_object
+                            # performs when access is no longer paid-through.
+                            revoke_user.subscription_tier = "free"
+                            db.add(revoke_user)
+                    else:
+                        logger.warning(
+                            "stripe_refund_subscription_not_found",
+                            extra={"subscription_id": str(subscription_id)},
+                        )
+                else:
+                    logger.info(
+                        "stripe_refund_subscription_partial_no_revoke",
+                        extra={"subscription_id": str(subscription_id), "amount": amount, "amount_refunded": amount_refunded},
+                    )
+                await db.flush()
+            else:
+                logger.warning("stripe_refund_unmatched_charge", extra={"charge_id": str(charge_id)})
 
     if billing_event is not None:
         billing_event.status = "succeeded"

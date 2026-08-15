@@ -39,7 +39,7 @@ export default function Metrics() {
         open <Link to="/admin/ai-usage">AI Usage &amp; Cost</Link>.
       </p>
       <div className="metrics-grid">
-        <MetricCard label="DAU" value={data.dau} />
+        <MetricCard label="Study DAU" value={data.dau} />
         <MetricCard label="Signups (30d)" value={data.signups_30d} />
         <MetricCard label="Total Books" value={data.total_books} />
         <MetricCard
@@ -52,7 +52,7 @@ export default function Metrics() {
         />
         <MetricCard label="Paying Users" value={data.paying_users} />
         <MetricCard
-          label="MRR (USD)"
+          label="Active Contracted MRR (USD)"
           value={`$${Number(data.mrr_usd ?? 0).toFixed(2)}`}
         />
       </div>

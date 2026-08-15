@@ -1,9 +1,11 @@
+from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from schemas.email import AppEmail
 from schemas.user import UserPublic
+from age_utils import validate_registration_date_of_birth
 
 
 class RegisterRequest(BaseModel):
@@ -12,6 +14,7 @@ class RegisterRequest(BaseModel):
     email: AppEmail
     password: str = Field(..., min_length=8)
     full_name: str = Field(..., min_length=1, max_length=255)
+    date_of_birth: date
 
     @field_validator("full_name", mode="before")
     @classmethod
@@ -19,6 +22,11 @@ class RegisterRequest(BaseModel):
         if isinstance(v, str):
             return v.strip()
         return v
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def valid_date_of_birth(cls, value: date) -> date:
+        return validate_registration_date_of_birth(value)
 
 
 class LoginRequest(BaseModel):
@@ -80,6 +88,12 @@ class EmailAuthVerifyRequest(BaseModel):
     code: str = Field(..., pattern=r"^\d{6}$")
     remember_me: bool = True
     client: str | None = Field(None, max_length=32, description="'mobile' requests native refresh token response")
+    date_of_birth: date | None = None
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def valid_signup_date_of_birth(cls, value: date | None) -> date | None:
+        return validate_registration_date_of_birth(value) if value is not None else None
 
 
 class ForgotPasswordBody(BaseModel):
@@ -107,6 +121,25 @@ class OnboardingRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     full_name: str | None = Field(None, max_length=255)
+    date_of_birth: date
+    country: str = Field(..., min_length=1, max_length=128)
+    custom_country: str | None = Field(None, max_length=128)
+    occupation: str = Field(..., min_length=1, max_length=100)
+    job_title: str | None = Field(None, max_length=100)
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def valid_date_of_birth(cls, value: date) -> date:
+        try:
+            return validate_registration_date_of_birth(value)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @model_validator(mode="after")
+    def require_custom_country_for_other(self):
+        if self.country == "Other" and not self.custom_country:
+            raise ValueError("Please enter your country")
+        return self
 
 
 class AppleLoginRequest(BaseModel):

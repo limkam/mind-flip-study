@@ -3,8 +3,12 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/lib/AuthContext';
+import { useApplyColorScheme } from '@/lib/colorScheme';
 
 export default function BillingCancel() {
+  const { user } = useAuth();
+  useApplyColorScheme(user);
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}

@@ -2,16 +2,12 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
 const nav = [
-  { to: '/users', label: 'Users' },
-  { to: '/feedback', label: 'Feedback' },
-  { to: '/content', label: 'Content' },
-  { to: '/metrics', label: 'Metrics' },
-  { to: '/admin/owner-dashboard', label: 'Owner Dashboard' },
-  { to: '/admin/platform-stats', label: 'Platform Statistics' },
-  { to: '/admin/app-monitoring', label: 'App Monitoring' },
-  { to: '/admin/demographics', label: 'Demographics' },
-  { to: '/admin/financial-analytics', label: 'Financial Analytics' },
-  { to: '/admin/ai-usage', label: 'AI Usage & Cost' },
+  { group: 'Main', items: [{ to: '/overview', label: 'Overview', icon: '◈' }, { to: '/users', label: 'Users', icon: '◎' }, { to: '/admin/demographics', label: 'Demographics', icon: '⚆' }, { to: '/content', label: 'Content', icon: '▤' }] },
+  { group: 'Business', items: [{ to: '/subscriptions', label: 'Subscriptions', icon: '◇' }, { to: '/billing', label: 'Billing', icon: '£' }, { to: '/credits', label: 'Usage & Credits', icon: '◉' }, { to: '/admin/financial-analytics', label: 'Financial Analytics', icon: '$' }] },
+  { group: 'Engagement', items: [{ to: '/analytics', label: 'Analytics', icon: '∿' }, { to: '/metrics', label: 'Metrics', icon: '▥' }, { to: '/admin/platform-stats', label: 'Platform Statistics', icon: '▦' }, { to: '/learning', label: 'Learning', icon: '△' }, { to: '/leaderboards', label: 'Leaderboards', icon: '☆' }] },
+  { group: 'Operations', items: [{ to: '/ai-usage', label: 'AI Usage', icon: '✦' }, { to: '/support', label: 'Support', icon: '▭' }, { to: '/system-health', label: 'System Health', icon: '●' }] },
+  { group: 'Administration', items: [{ to: '/security', label: 'Security', icon: '▣' }, { to: '/audit-log', label: 'Audit Log', icon: '≡' }] },
+  { group: 'Executive', items: [{ to: '/owner-dashboard', label: 'Owner Dashboard', icon: '◆' }] },
 ];
 
 export default function AdminLayout() {
@@ -20,26 +16,18 @@ export default function AdminLayout() {
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar">
-        <div className="admin-logo">MindFlip</div>
+        <div className="admin-logo"><span>MF</span><div>MindFlip<small>Control Center</small></div></div>
         <nav className="admin-nav">
-          {nav.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) => `admin-nav-link${isActive ? ' active' : ''}`}
-            >
-              {item.label}
-            </NavLink>
-          ))}
+          {nav.map((section) => <div className="admin-nav-group" key={section.group}>
+            <div className="admin-nav-heading">{section.group}</div>
+            {section.items.map((item) => <NavLink key={item.to} to={item.to} className={({ isActive }) => `admin-nav-link${isActive ? ' active' : ''}`}><span aria-hidden="true">{item.icon}</span>{item.label}</NavLink>)}
+          </div>)}
         </nav>
-        <button type="button" className="admin-logout" onClick={logout}>
-          Log out
-        </button>
+        <div className="admin-account"><div><strong>{user?.full_name || 'Administrator'}</strong><small>{user?.email}</small></div><button type="button" className="admin-logout" onClick={logout}>Log out</button></div>
       </aside>
       <div className="admin-main">
         <header className="admin-topbar">
-          <span className="admin-badge">Admin Panel</span>
-          <span className="admin-user-name">{user?.full_name}</span>
+          <span className="admin-badge"><i /> Operational console</span>
         </header>
         <main className="admin-content">
           <Outlet />

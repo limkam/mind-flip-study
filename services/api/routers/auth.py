@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
+from countries import continent_for_country
 from database import get_db
 from dependencies import enforce_auth_rate_limit, get_current_user, get_redis
 from jwt_tokens import (
@@ -197,12 +198,17 @@ async def _get_or_create_google_user(
     return user
 
 
-async def _get_or_create_email_user(db: AsyncSession, email: str) -> tuple[User, bool]:
+async def _get_or_create_email_user(db: AsyncSession, email: str, date_of_birth=None) -> tuple[User, bool]:
     normalized = email.strip().lower()
     result = await db.execute(select(User).where(User.email == normalized))
     existing = result.scalar_one_or_none()
     if existing is not None:
         return existing, False
+    if date_of_birth is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Date of birth is required to create an account. MindFlip is available to users aged 13 and above.",
+        )
 
     user = User(
         email=normalized,
@@ -212,6 +218,7 @@ async def _get_or_create_email_user(db: AsyncSession, email: str) -> tuple[User,
         auth_provider="email",
         preferences={},
         subscription_tier="free",
+        date_of_birth=date_of_birth,
     )
     db.add(user)
     try:
@@ -289,7 +296,7 @@ async def verify_email_auth(
         )
     email, claim_token = claim
     try:
-        user, created = await _get_or_create_email_user(db, email)
+        user, created = await _get_or_create_email_user(db, email, body.date_of_birth)
     except Exception:
         await release_email_challenge_claim(redis, body.challenge_id, claim_token)
         raise
@@ -476,6 +483,7 @@ async def register(body: RegisterRequest, db: Annotated[AsyncSession, Depends(ge
         full_name=body.full_name,
         preferences={},
         subscription_tier="free",
+        date_of_birth=body.date_of_birth,
     )
     db.add(user)
     try:
@@ -504,9 +512,29 @@ async def complete_onboarding(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserPublic:
+    from datetime import UTC, datetime
+    from sqlalchemy.dialects.postgresql import insert
+    from models.admin_observability import OnboardingEvent
+    now = datetime.now(UTC)
     if body.full_name and body.full_name.strip():
         current_user.full_name = body.full_name.strip()[:255]
+    current_user.date_of_birth = body.date_of_birth
+    current_user.country = body.country
+    current_user.custom_country = body.custom_country if body.country == "Other" else None
+    current_user.continent = continent_for_country(body.country, custom_country=body.custom_country)
+    current_user.occupation = body.occupation
+    current_user.job_title = body.job_title or None
+    current_user.auth_provider = current_user.auth_provider or "email"
     current_user.onboarding_completed = True
+    if current_user.onboarding_started_at is None:
+        current_user.onboarding_started_at = now
+    if current_user.onboarding_completed_at is None:
+        current_user.onboarding_completed_at = now
+    await db.execute(
+        insert(OnboardingEvent)
+        .values(user_id=current_user.id, event_type="completed", step="")
+        .on_conflict_do_nothing(constraint="uq_onboarding_user_event_step")
+    )
     await db.commit()
     await db.refresh(current_user)
     return UserPublic.model_validate(current_user)

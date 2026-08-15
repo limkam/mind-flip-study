@@ -17,6 +17,7 @@ export default function EmailVerification() {
   const { toast } = useToast();
   const { loginWithEmailCode } = useAuth();
   const email = location.state?.email;
+  const dateOfBirth = location.state?.dateOfBirth || null;
   const [challengeId, setChallengeId] = useState(location.state?.challengeId || "");
   const [code, setCode] = useState("");
   const [cooldown, setCooldown] = useState(location.state?.resendAfter || 60);
@@ -35,7 +36,7 @@ export default function EmailVerification() {
     if (!/^\d{6}$/.test(code)) return;
     setBusy(true);
     try {
-      await loginWithEmailCode(challengeId, code, true);
+      await loginWithEmailCode(challengeId, code, true, dateOfBirth);
       navigate("/", { replace: true });
     } catch (error) {
       toast({

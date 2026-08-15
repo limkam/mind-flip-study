@@ -42,6 +42,8 @@ from routers.study_groups import router as study_groups_router
 from routers.users import router as users_router
 from routers.email_webhooks import router as email_webhooks_router
 from routers.email_preferences import router as email_preferences_router
+from routers.activity import router as activity_router
+from routers.admin_control import router as admin_control_router
 
 if settings.SENTRY_DSN_API:
     sentry_sdk.init(
@@ -159,8 +161,10 @@ app.include_router(engagement_router, prefix="/engagement")
 app.include_router(scorecards_router, prefix="/scorecards")
 app.include_router(public_scorecards_router)
 app.include_router(admin_router, prefix="/admin")
+app.include_router(admin_control_router, prefix="/admin/control")
 app.include_router(admin_owner_dashboard_router, prefix="/admin/owner-dashboard")
 app.include_router(analytics_router, prefix="/analytics")
+app.include_router(activity_router, prefix="/activity")
 app.include_router(billing_router, prefix="/billing")
 app.include_router(credits_router)
 app.include_router(users_router, prefix="/users")

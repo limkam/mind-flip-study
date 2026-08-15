@@ -28,7 +28,10 @@ export default function Library() {
     queryFn: () => fetchAllBooksPages(),
     refetchInterval: (query) => {
       const list = query.state.data;
-      return Array.isArray(list) && list.some((b) => b.is_analyzing) ? 3000 : false;
+      return Array.isArray(list)
+        && list.some((b) => b.is_analyzing || b.thumbnail_status === "processing")
+        ? 3000
+        : false;
     },
   });
 

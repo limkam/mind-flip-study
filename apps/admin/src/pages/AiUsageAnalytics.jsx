@@ -88,7 +88,7 @@ export default function AiUsageAnalytics() {
 
   return (
     <div>
-      <h2 className="page-title">AI Usage &amp; Cost Analytics</h2>
+      <h2 className="page-title">AI Usage &amp; Estimated Cost</h2>
       {isLocalApi ? (
         <div
           style={{
@@ -125,7 +125,7 @@ export default function AiUsageAnalytics() {
 
       <div className="metrics-grid">
         <MetricCard
-          label="Total AI Cost (USD)"
+          label="Estimated AI Cost (USD)"
           value={fmtCost(data.total_cost_usd)}
         />
         <MetricCard

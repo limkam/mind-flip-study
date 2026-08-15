@@ -1,6 +1,7 @@
 import "react-native-gesture-handler";
 import "react-native-reanimated";
 
+import { ThemeProvider as NavigationThemeProvider } from "@react-navigation/native";
 import * as Sentry from "@sentry/react-native";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack, usePathname, useRouter } from "expo-router";
@@ -8,9 +9,9 @@ import * as SplashScreen from "expo-splash-screen";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
-  ActivityIndicator,
   Animated,
   Easing,
+  Platform,
   StyleSheet,
   Text,
   View,
@@ -19,7 +20,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
-import { setNavigationRouteBridge } from "../api/client";
+import { api, setNavigationRouteBridge } from "../api/client";
 
 import { GenerationJobPoller } from "../components/GenerationJobPoller";
 import { UpgradeLimitModal } from "../components/UpgradeLimitModal";
@@ -54,16 +55,22 @@ if (typeof sentryDsn === "string" && sentryDsn.length > 0) {
 }
 
 function RootNavigator() {
-  const { isDark, colors } = useTheme();
+  const { isDark, colors, navigationTheme } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
   const userId = useAuthStore((state) => state.user?.id);
   const accessToken = useAuthStore((state) => state.accessToken);
   const bootstrapStatus = useAuthStore((state) => state.bootstrapStatus);
+  const activityReady = useRef(false);
 
   useEffect(() => {
     setNavigationRouteBridge(pathname);
-  }, [pathname]);
+    if (bootstrapStatus === "authenticated" && accessToken && activityReady.current) {
+      const platform = Platform.OS === "ios" ? "ios" : "android";
+      void api.post("/activity/meaningful", { activity_key: "navigation", platform }).catch(() => undefined);
+    }
+    activityReady.current = bootstrapStatus === "authenticated" && Boolean(accessToken);
+  }, [accessToken, bootstrapStatus, pathname]);
 
   useEffect(() => {
     if (bootstrapStatus === "authenticated" && userId && accessToken) {
@@ -82,7 +89,7 @@ function RootNavigator() {
   }, [accessToken, bootstrapStatus, router, userId]);
 
   return (
-    <>
+    <NavigationThemeProvider value={navigationTheme}>
       <StatusBar style={isDark ? "light" : "dark"} />
       <Stack
         screenOptions={{
@@ -95,7 +102,7 @@ function RootNavigator() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="quiz-history" options={{ headerShown: true, title: "Quiz Results" }} />
         <Stack.Screen name="quiz-results/[id]" options={{ headerShown: false }} />
-        <Stack.Screen name="daily-review" options={{ headerShown: true, title: "Daily Review" }} />
+        <Stack.Screen name="daily-review" options={{ headerShown: false }} />
         <Stack.Screen name="analytics" options={{ headerShown: true, title: "Analytics" }} />
         <Stack.Screen name="scorecards" options={{ headerShown: true, title: "Scorecards" }} />
         <Stack.Screen name="pricing" options={{ headerShown: true, title: "Plans & Pricing" }} />
@@ -114,15 +121,64 @@ function RootNavigator() {
         <Stack.Screen name="games/[setId]/index" options={{ presentation: "modal", headerShown: true }} />
         <Stack.Screen name="games/[setId]/[slug]" options={{ presentation: "modal", headerShown: false }} />
       </Stack>
-    </>
+    </NavigationThemeProvider>
   );
 }
 
+function BrandPulse({ color, reduceMotion }: { color: string; reduceMotion: boolean }) {
+  const dots = useRef([0, 1, 2].map(() => new Animated.Value(0.35))).current;
+
+  useEffect(() => {
+    if (reduceMotion) {
+      dots.forEach((dot) => dot.setValue(0.6));
+      return;
+    }
+    const loops = dots.map((dot, index) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(index * 160),
+          Animated.timing(dot, {
+            toValue: 1,
+            duration: 420,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(dot, {
+            toValue: 0.35,
+            duration: 420,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+      ),
+    );
+    loops.forEach((loop) => loop.start());
+    return () => loops.forEach((loop) => loop.stop());
+  }, [dots, reduceMotion]);
+
+  return (
+    <View style={styles.pulseRow} accessibilityElementsHidden accessibilityLabel="Loading">
+      {dots.map((dot, index) => (
+        <Animated.View key={index} style={[styles.pulseDot, { backgroundColor: color, opacity: dot }]} />
+      ))}
+    </View>
+  );
+}
+
+/**
+ * How long the branded gate stays on screen once the native splash has actually
+ * been dismissed. Without a floor the gate can finish its entrance and exit while
+ * still hidden behind the native splash, so the wordmark is never seen.
+ */
+const BRAND_GATE_MIN_VISIBLE_MS = 1000;
+
 type BootstrapGateProps = {
   onReady: () => void;
+  /** True once `SplashScreen.hideAsync()` has resolved and the gate is really visible. */
+  nativeSplashHidden: boolean;
 };
 
-function BootstrapGate({ onReady }: BootstrapGateProps) {
+function BootstrapGate({ onReady, nativeSplashHidden }: BootstrapGateProps) {
   useAuthBootstrap();
   const { colors } = useTheme();
   const status = useAuthStore((state) => state.bootstrapStatus);
@@ -130,8 +186,10 @@ function BootstrapGate({ onReady }: BootstrapGateProps) {
   const retry = useAuthStore((state) => state.retryAuthBootstrap);
   const [showBrand, setShowBrand] = useState(true);
   const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
+  const [entranceDone, setEntranceDone] = useState(false);
+  const [minVisibleElapsed, setMinVisibleElapsed] = useState(false);
   const markOpacity = useRef(new Animated.Value(0)).current;
-  const markScale = useRef(new Animated.Value(0.94)).current;
+  const markScale = useRef(new Animated.Value(0.92)).current;
   const copyOpacity = useRef(new Animated.Value(0)).current;
   const gateOpacity = useRef(new Animated.Value(1)).current;
   const isBootstrapping = status === "hydrating" || status === "validating";
@@ -154,12 +212,14 @@ function BootstrapGate({ onReady }: BootstrapGateProps) {
   }, []);
 
   useEffect(() => {
-    if (reduceMotion === null || !showBrand) return;
+    if (reduceMotion === null || !showBrand || !nativeSplashHidden) return;
 
     markOpacity.setValue(0);
-    markScale.setValue(reduceMotion ? 1 : 0.94);
+    markScale.setValue(reduceMotion ? 1 : 0.92);
     copyOpacity.setValue(0);
     gateOpacity.setValue(1);
+    setEntranceDone(false);
+    setMinVisibleElapsed(false);
 
     const entrance = Animated.parallel([
       Animated.timing(markOpacity, {
@@ -174,22 +234,36 @@ function BootstrapGate({ onReady }: BootstrapGateProps) {
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-      Animated.sequence([
-        Animated.delay(reduceMotion ? 0 : 90),
-        Animated.timing(copyOpacity, {
-          toValue: 1,
-          duration: reduceMotion ? 80 : 250,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]),
+      Animated.timing(copyOpacity, {
+        toValue: 1,
+        duration: reduceMotion ? 80 : 320,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
     ]);
-    entrance.start();
-    return () => entrance.stop();
-  }, [copyOpacity, gateOpacity, markOpacity, markScale, reduceMotion, showBrand]);
+    entrance.start(({ finished }) => {
+      if (finished) setEntranceDone(true);
+    });
+
+    const hold = setTimeout(() => setMinVisibleElapsed(true), BRAND_GATE_MIN_VISIBLE_MS);
+
+    return () => {
+      entrance.stop();
+      clearTimeout(hold);
+    };
+  }, [
+    copyOpacity,
+    gateOpacity,
+    markOpacity,
+    markScale,
+    nativeSplashHidden,
+    reduceMotion,
+    showBrand,
+  ]);
 
   useEffect(() => {
     if (isBootstrapping || !showBrand || reduceMotion === null) return;
+    if (!entranceDone || !minVisibleElapsed) return;
 
     const exit = Animated.timing(gateOpacity, {
       toValue: 0,
@@ -201,10 +275,12 @@ function BootstrapGate({ onReady }: BootstrapGateProps) {
       if (finished) setShowBrand(false);
     });
     return () => exit.stop();
-  }, [gateOpacity, isBootstrapping, reduceMotion, showBrand]);
+  }, [entranceDone, gateOpacity, isBootstrapping, minVisibleElapsed, reduceMotion, showBrand]);
 
   const handleRetry = useCallback(() => {
     gateOpacity.setValue(1);
+    setEntranceDone(false);
+    setMinVisibleElapsed(false);
     setShowBrand(true);
     retry();
   }, [gateOpacity, retry]);
@@ -215,18 +291,20 @@ function BootstrapGate({ onReady }: BootstrapGateProps) {
         <AppScreen edges={[]} style={styles.splashContainer}>
           <View style={styles.splashContent}>
             <Animated.View style={{ opacity: markOpacity, transform: [{ scale: markScale }] }}>
-              <MindFlipLogoMark size={72} />
+              {/* Matches `expo-splash-screen`'s imageWidth in app.json so the mark does not
+                  jump size when the native splash hands over to this gate. */}
+              <MindFlipLogoMark size={144} />
             </Animated.View>
             <Animated.View style={[styles.splashCopy, { opacity: copyOpacity }]}>
               <Text style={[styles.splashTitle, { color: colors.textPrimary }]}>MINDFLIP</Text>
               <Text style={[styles.splashSubtitle, { color: colors.textMuted }]}>
-                Learn. Remember. Grow.
+                Study smarter, remember more.
               </Text>
             </Animated.View>
           </View>
 
           <View style={styles.splashFooter}>
-            {isBootstrapping ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+            {isBootstrapping ? <BrandPulse color={colors.primary} reduceMotion={!!reduceMotion} /> : null}
           </View>
         </AppScreen>
       </Animated.View>
@@ -256,6 +334,7 @@ function AuthenticatedServices() {
 
 export default function RootLayout() {
   const [storageReady, setStorageReady] = useState(false);
+  const [splashHidden, setSplashHidden] = useState(false);
   const nativeSplashHidden = useRef(false);
 
   useEffect(() => {
@@ -268,7 +347,9 @@ export default function RootLayout() {
   const handleBootstrapReady = useCallback(() => {
     if (nativeSplashHidden.current) return;
     nativeSplashHidden.current = true;
-    void SplashScreen.hideAsync();
+    // The brand gate only starts animating once this resolves, otherwise its
+    // entrance and exit play out underneath the native splash.
+    void SplashScreen.hideAsync().finally(() => setSplashHidden(true));
   }, []);
 
   if (!storageReady) {
@@ -281,7 +362,7 @@ export default function RootLayout() {
         <QueryClientProvider client={mobileQueryClient}>
           <CelebrationProvider>
             <AuthenticatedServices />
-            <BootstrapGate onReady={handleBootstrapReady} />
+            <BootstrapGate onReady={handleBootstrapReady} nativeSplashHidden={splashHidden} />
             <UpgradeLimitModal />
           </CelebrationProvider>
         </QueryClientProvider>
@@ -302,19 +383,28 @@ const styles = StyleSheet.create({
   },
   splashContent: {
     flex: 1,
+    // Without this the container shrink-wraps to the mark's width and the
+    // absolutely-positioned copy below it wraps mid-word.
+    alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",
-    gap: TOKENS.spacing.md,
   },
   splashTitle: {
-    fontSize: TOKENS.typography.screenTitle.fontSize,
-    fontWeight: TOKENS.typography.screenTitle.fontWeight,
+    fontSize: TOKENS.typography.heroDisplay.fontSize,
+    fontWeight: TOKENS.typography.heroDisplay.fontWeight,
     letterSpacing: 2,
   },
   splashCopy: {
+    // Floated out of flow so the mark stays on the exact screen centre the native
+    // splash uses — otherwise the copy pushes the mark up and the two ghost apart
+    // during the hand-off.
+    position: "absolute",
+    top: "50%",
+    left: 0,
+    right: 0,
+    marginTop: 96,
     alignItems: "center",
     gap: TOKENS.spacing.sm,
-    marginTop: TOKENS.spacing.sm,
   },
   splashSubtitle: {
     fontSize: TOKENS.typography.secondaryBody.fontSize,
@@ -328,5 +418,14 @@ const styles = StyleSheet.create({
     minHeight: 48,
     justifyContent: "center",
     alignItems: "center",
+  },
+  pulseRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  pulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
 });

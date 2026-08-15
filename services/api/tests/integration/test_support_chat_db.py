@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
+from starlette.requests import Request
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from models.enums import SupportCategory, SupportConversationStatus, SupportSenderType, UserRole
@@ -21,6 +22,10 @@ from routers.feedback import _send_user_message, create_feedback, get_conversati
 from schemas.feedback import FeedbackCreate, SupportMessageCreate
 
 pytestmark = pytest.mark.asyncio
+
+
+def _request() -> Request:
+    return Request({"type": "http", "method": "POST", "path": "/admin/feedback", "headers": [], "client": ("127.0.0.1", 1)})
 
 
 @pytest.fixture
@@ -116,15 +121,15 @@ async def test_read_state_is_persisted_and_recoverable_from_messages(support_db)
 async def test_resolution_reopen_and_user_auto_reopen(support_db):
     sessions, user, _, admin = support_db
     async with sessions() as db: message = await _send_user_message(db, user, "Issue", uuid.uuid4())
-    async with sessions() as db: await resolve_support_conversation(message.conversation_id, admin, db)
+    async with sessions() as db: await resolve_support_conversation(message.conversation_id, _request(), admin, db)
     async with sessions() as db:
         conversation = await db.get(SupportConversation, message.conversation_id)
         assert conversation.status == SupportConversationStatus.resolved and conversation.resolved_at and conversation.resolved_by_admin_id == admin.id
-        await reopen_support_conversation(message.conversation_id, admin, db)
+        await reopen_support_conversation(message.conversation_id, _request(), admin, db)
     async with sessions() as db:
         conversation = await db.get(SupportConversation, message.conversation_id)
         assert conversation.status == SupportConversationStatus.open and conversation.resolved_at is None and conversation.resolved_by_admin_id is None
-        await resolve_support_conversation(message.conversation_id, admin, db)
+        await resolve_support_conversation(message.conversation_id, _request(), admin, db)
     async with sessions() as db: reopened = await _send_user_message(db, user, "Still broken", uuid.uuid4())
     async with sessions() as db:
         conversation = await db.get(SupportConversation, message.conversation_id)
@@ -170,7 +175,7 @@ async def test_message_and_inbox_pagination_filters_search_and_sort(support_db):
         page_one = await list_support_conversations(admin, db, "all", "", 1, 1)
         page_two = await list_support_conversations(admin, db, "all", "", 2, 1)
         assert page_one.total == page_two.total == 2 and page_one.items[0].id != page_two.items[0].id
-        await resolve_support_conversation(other_message.conversation_id, admin, db)
+        await resolve_support_conversation(other_message.conversation_id, _request(), admin, db)
         resolved = await list_support_conversations(admin, db, "resolved", "jordan", 1, 30)
         no_longer_read = await list_support_conversations(admin, db, "read", "jordan", 1, 30)
         assert [x.id for x in resolved.items] == [other_message.conversation_id] and no_longer_read.total == 0
@@ -231,7 +236,7 @@ async def test_categories_first_followup_and_new_issue_after_resolution(support_
     async with sessions() as db:
         followup = await _send_user_message(db, user, "More detail", uuid.uuid4(), None, require_initial_category=True)
         assert followup.category is None
-        await resolve_support_conversation(first.conversation_id, admin, db)
+        await resolve_support_conversation(first.conversation_id, _request(), admin, db)
     async with sessions() as db:
         new_issue = await _send_user_message(db, user, "Please add folders", uuid.uuid4(), SupportCategory.feature_request, require_initial_category=True)
         conversation = await db.get(SupportConversation, first.conversation_id)
@@ -255,7 +260,7 @@ async def test_dashboard_aggregates_and_combined_category_filters(support_db):
     async with sessions() as db: feature = await _send_user_message(db, other, "Feature", uuid.uuid4(), SupportCategory.feature_request)
     async with sessions() as db:
         await get_support_conversation(feature.conversation_id, admin, db, None, 50)
-        await resolve_support_conversation(feature.conversation_id, admin, db)
+        await resolve_support_conversation(feature.conversation_id, _request(), admin, db)
     async with sessions() as db:
         summary = await support_dashboard(admin, db, "7d")
         assert (summary.open_conversations, summary.unread_conversations, summary.resolved_conversations, summary.new_conversations) == (1, 1, 1, 2)

@@ -619,6 +619,7 @@ async def financial_analytics(
         await db.scalar(
             select(func.count(BillingEvent.id)).where(
                 BillingEvent.event_type == "customer.subscription.deleted",
+                BillingEvent.status == "succeeded",
                 BillingEvent.received_at >= month_start,
             )
         )
@@ -665,7 +666,7 @@ async def financial_analytics(
             func.coalesce(func.sum(net_revenue), 0).label("revenue"),
         )
         .join(User, User.id == BillingInvoice.user_id)
-        .where(BillingInvoice.status == "paid")
+        .where(BillingInvoice.status == "paid", BillingInvoice.paid_at >= month_start)
         .group_by(country_rev_label)
         .order_by(func.sum(net_revenue).desc())
         .limit(10),
@@ -673,7 +674,7 @@ async def financial_analytics(
     revenue_by_country: list[RevenueByCountryRow] = []
     for row in country_rev_rows.all():
         rev = float(row.revenue or 0) / 100
-        total_revenue = lifetime_revenue_cents / 100
+        total_revenue = current_revenue
         pct = round((rev / total_revenue) * 100, 1) if total_revenue else 0.0
         revenue_by_country.append(
             RevenueByCountryRow(

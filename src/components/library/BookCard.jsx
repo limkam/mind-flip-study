@@ -1,8 +1,9 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { BookOpen, User, ChevronRight } from "lucide-react";
+import { User, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import BookThumbnail from "@/components/library/BookThumbnail";
 
 export default function BookCard({ book, index = 0 }) {
   const subjectColors = {
@@ -29,11 +30,7 @@ export default function BookCard({ book, index = 0 }) {
         className="group block bg-card rounded-2xl border border-border overflow-hidden hover:shadow-lg hover:border-primary/20 transition-all duration-300"
       >
         <div className="aspect-[4/3] bg-gradient-to-br from-primary/10 to-accent/10 flex items-center justify-center relative overflow-hidden">
-          {book.cover_url ? (
-            <img src={book.cover_url} alt={book.title} className="w-full h-full object-cover" />
-          ) : (
-            <BookOpen className="w-16 h-16 text-primary/30" />
-          )}
+          <BookThumbnail book={book} />
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
           <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">

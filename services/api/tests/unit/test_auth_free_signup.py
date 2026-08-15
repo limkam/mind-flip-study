@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from datetime import date
 import types
 import sys
 
@@ -21,6 +22,7 @@ async def test_free_signup_requires_no_payment(monkeypatch):
         email='free.user@example.com',
         password='password123',
         full_name='Free User',
+        date_of_birth=date(2000, 1, 1),
     )
 
     captured = {}

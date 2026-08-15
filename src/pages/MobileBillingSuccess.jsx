@@ -3,8 +3,12 @@ import { useSearchParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Smartphone, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/AuthContext";
+import { useApplyColorScheme } from "@/lib/colorScheme";
 
 export default function MobileBillingSuccess() {
+  const { user } = useAuth();
+  useApplyColorScheme(user);
   const [searchParams] = useSearchParams();
   const rawSessionId = searchParams.get("session_id") || "";
   const sessionId = rawSessionId.trim();

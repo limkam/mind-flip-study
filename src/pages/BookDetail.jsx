@@ -33,6 +33,7 @@ import {
   Tag,
   Trash2,
   Check,
+  Copy,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -67,6 +68,7 @@ export default function BookDetail() {
   const [cardCount, setCardCount] = useState("5");
   const [expandedChapters, setExpandedChapters] = useState({});
   const [generating, setGenerating] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [editingTags, setEditingTags] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [summaryDetailLevel, setSummaryDetailLevel] = useState("standard");
@@ -171,6 +173,16 @@ export default function BookDetail() {
       }
     },
   });
+
+  const copyBookCode = async (code) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1500);
+    } catch {
+      toast({ title: "Could not copy code", variant: "destructive" });
+    }
+  };
 
   const extractToc = async () => {
     try {
@@ -363,10 +375,24 @@ export default function BookDetail() {
             <h1 className="font-heading text-2xl lg:text-3xl font-bold mb-2">
               {book.title}
             </h1>
-            <div className="flex items-center gap-2 text-muted-foreground mb-4">
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
               <User className="w-4 h-4" />
               <span>{book.author}</span>
             </div>
+            {book.book_code && (
+              <button
+                type="button"
+                onClick={() => copyBookCode(book.book_code)}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-4"
+              >
+                <span>Code: {book.book_code}</span>
+                {codeCopied ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
+            )}
             {book.description && (
               <p className="text-muted-foreground leading-relaxed">
                 {book.description}
@@ -502,6 +528,7 @@ export default function BookDetail() {
           <TocEditor
             bookId={book.id}
             chapters={toc}
+            totalLength={book.toc_text_length}
             onSaved={() =>
               queryClient.invalidateQueries({ queryKey: ["book", id] })
             }

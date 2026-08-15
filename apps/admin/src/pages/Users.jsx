@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "../api/client";
 import DataTable from "../components/DataTable";
+import { getApiErrorMessage } from "../lib/apiError";
+import { Link } from "react-router-dom";
+import { PageHeader, StatusBadge } from "../components/AdminUI";
 
 const AGE_GROUP_OPTIONS = [
   "",
@@ -56,6 +59,11 @@ export default function Users() {
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [ageGroup, setAgeGroup] = useState("");
+  const [plan, setPlan] = useState("");
+  const [country, setCountry] = useState("");
+  const [continent, setContinent] = useState("");
+  const [occupation, setOccupation] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [sort, setSort] = useState("-created_at");
   const [page, setPage] = useState(1);
   const [confirm, setConfirm] = useState(null);
@@ -68,13 +76,27 @@ export default function Users() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["admin-users", debouncedQ, ageGroup, sort, page],
+  const { data: filterOptions } = useQuery({
+    queryKey: ["admin-users-filter-options"],
+    queryFn: async () => {
+      const { data: res } = await client.get("/admin/users/filter-options");
+      return res;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+    queryKey: ["admin-users", debouncedQ, ageGroup, plan, country, continent, occupation, statusFilter, sort, page],
     queryFn: async () => {
       const { data: res } = await client.get("/admin/users", {
         params: {
           q: debouncedQ,
           age_group: ageGroup || undefined,
+          plan: plan || undefined,
+          country: country || undefined,
+          continent: continent || undefined,
+          occupation: occupation || undefined,
+          status: statusFilter || undefined,
           sort,
           page,
           size: 20,
@@ -82,7 +104,14 @@ export default function Users() {
       });
       return res;
     },
+    retry: 1,
+    refetchOnWindowFocus: true,
   });
+
+  const resetPage = (setter) => (e) => {
+    setter(e.target.value);
+    setPage(1);
+  };
 
   const patchUser = useMutation({
     mutationFn: ({ id, body }) => client.patch(`/admin/users/${id}`, body),
@@ -126,10 +155,14 @@ export default function Users() {
   );
 
   const columns = [
-    { key: "full_name", label: "Full Name" },
+    { key: "full_name", label: "User", render: (row) => <Link to={`/users/${row.id}`}>{row.full_name}</Link> },
     { key: "email", label: "Email" },
-    { key: "plan", label: "Plan" },
-    { key: "role", label: "Role" },
+    { key: "plan", label: "Plan", render: (row) => <StatusBadge value={row.plan} /> },
+    { key: "is_banned", label: "Status", render: (row) => <StatusBadge value={row.is_banned ? "Banned" : "Active"} /> },
+    { key: "created_at", label: "Joined", render: (row) => formatDate(row.created_at) },
+    { key: "last_active_at", label: "Last active", render: (row) => formatDate(row.last_active_at) },
+    { key: "onboarding_completed", label: "Onboarding", render: (row) => row.onboarding_completed ? "Complete" : "Incomplete" },
+    { key: "role", label: "Role", render: (row) => <StatusBadge value={row.role} /> },
     {
       key: "date_of_birth",
       label: "Date of Birth",
@@ -166,20 +199,15 @@ export default function Users() {
       render: (row) => row.occupation || "—",
     },
     {
-      key: "created_at",
-      label: "Joined Date",
-      render: (row) => formatDate(row.created_at),
-    },
-    {
-      key: "is_banned",
-      label: "Status",
-      render: (row) => (row.is_banned ? "Banned" : "Active"),
+      key: "job_title",
+      label: "Job Title",
+      render: (row) => row.job_title || "—",
     },
   ];
 
   return (
     <div>
-      <h2 className="page-title">Users</h2>
+      <PageHeader title="Users" description="Search and manage MindFlip accounts." />
       <div className="filters-row">
         <input
           className="search-input"
@@ -191,15 +219,52 @@ export default function Users() {
         <select
           className="filter-select"
           value={ageGroup}
-          onChange={(e) => {
-            setAgeGroup(e.target.value);
-            setPage(1);
-          }}
+          onChange={resetPage(setAgeGroup)}
         >
           <option value="">All age groups</option>
           {AGE_GROUP_OPTIONS.filter(Boolean).map((g) => (
             <option key={g} value={g}>
               {g}
+            </option>
+          ))}
+        </select>
+        <select className="filter-select" value={plan} onChange={resetPage(setPlan)}>
+          <option value="">All plans</option>
+          {(filterOptions?.plans ?? []).map((p) => (
+            <option key={p.slug} value={p.slug}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <select className="filter-select" value={statusFilter} onChange={resetPage(setStatusFilter)}>
+          <option value="">All statuses</option>
+          {(filterOptions?.statuses ?? []).map((s) => (
+            <option key={s} value={s}>
+              {s === "banned" ? "Banned" : "Active"}
+            </option>
+          ))}
+        </select>
+        <select className="filter-select" value={continent} onChange={resetPage(setContinent)}>
+          <option value="">All continents</option>
+          {(filterOptions?.continents ?? []).map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <select className="filter-select" value={country} onChange={resetPage(setCountry)}>
+          <option value="">All countries</option>
+          {(filterOptions?.countries ?? []).map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <select className="filter-select" value={occupation} onChange={resetPage(setOccupation)}>
+          <option value="">All occupations</option>
+          {(filterOptions?.occupations ?? []).map((o) => (
+            <option key={o} value={o}>
+              {o}
             </option>
           ))}
         </select>
@@ -218,8 +283,40 @@ export default function Users() {
           ))}
         </select>
       </div>
+      <div className="filters-row">
+        <button type="button" className="btn-secondary" onClick={() => refetch()} disabled={isFetching}>
+          {isFetching ? "Refreshing…" : "Refresh users"}
+        </button>
+        {(ageGroup || plan || statusFilter || continent || country || occupation || q) && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setQ("");
+              setDebouncedQ("");
+              setAgeGroup("");
+              setPlan("");
+              setCountry("");
+              setContinent("");
+              setOccupation("");
+              setStatusFilter("");
+              setPage(1);
+            }}
+          >
+            Clear filters
+          </button>
+        )}
+        {!isLoading && !isError && (
+          <span>{data?.total ?? 0} users found</span>
+        )}
+      </div>
       {isLoading ? (
         <p>Loading…</p>
+      ) : isError ? (
+        <div className="fetch-error-banner" role="alert">
+          <strong>Users could not be loaded.</strong>{" "}
+          {getApiErrorMessage(error, "Check that the admin app and API are using the same environment.")}
+        </div>
       ) : (
         <DataTable
           columns={columns}

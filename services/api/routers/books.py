@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import uuid
 from pathlib import PurePosixPath
 from typing import Annotated
 from uuid import UUID
 
 from botocore.exceptions import ClientError
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,9 +69,30 @@ _IN_PROGRESS_TOC_PHASES = frozenset({
     "extracting_toc",
 })
 
+_BOOK_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_BOOK_CODE_LENGTH = 8
+
 
 def _book_processing(book: Book) -> dict:
     return dict((book.extras or {}).get("processing") or {})
+
+
+def _new_book_code() -> str:
+    return "MF-" + "".join(
+        secrets.choice(_BOOK_CODE_ALPHABET) for _ in range(_BOOK_CODE_LENGTH)
+    )
+
+
+async def _unique_book_code(db: AsyncSession) -> str:
+    """Generate a book_code guaranteed unique by the DB constraint; this loop only
+    avoids an unnecessary round-trip to that constraint on the (astronomically rare) collision."""
+    code = _new_book_code()
+    for _ in range(5):
+        exists = await db.execute(select(Book.id).where(Book.book_code == code))
+        if exists.scalar_one_or_none() is None:
+            return code
+        code = _new_book_code()
+    return code
 
 
 def _enqueue_toc_extraction_for_book(book: Book, *, allow_retry: bool = False) -> str:
@@ -398,12 +420,14 @@ async def create_book(
         s3_key=body.s3_key,
         s3_url=build_s3_https_url(body.s3_key),
         file_size_bytes=body.file_size_bytes,
+        book_code=await _unique_book_code(db),
         status=BookStatus.ready,
         extras=body.extras if body.extras is not None else {},
     )
     if book.extras is not None:
         merged = dict(book.extras)
         merged.setdefault("table_of_contents", [])
+        merged["thumbnail"] = {"status": "processing"}
         merged[PDF_SHA256_EXTRAS_KEY] = content_hash
         book.extras = merged
     db.add(book)
@@ -482,6 +506,34 @@ async def get_book(
     return BookOut.model_validate(book).model_copy(update={"chapter_card_counts": counts})
 
 
+@router.get("/{book_id}/thumbnail")
+async def get_book_thumbnail(
+    book_id: UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Return a private cached preview only to the document owner."""
+    book = await db.scalar(
+        select(Book).where(Book.id == book_id, Book.user_id == current_user.id)
+    )
+    if book is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+    thumbnail = (book.extras or {}).get("thumbnail") or {}
+    key = thumbnail.get("s3_key") if thumbnail.get("status") == "ready" else None
+    if not key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thumbnail not available")
+    try:
+        content = get_object_bytes(str(key))
+    except Exception:
+        logger.warning("book_thumbnail_fetch_failed", extra={"book_id": str(book.id)})
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thumbnail not available") from None
+    return Response(
+        content=content,
+        media_type=str(thumbnail.get("content_type") or "image/png"),
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
 @router.post("/{book_id}/extract-toc", response_model=JobEnqueueResponse, status_code=status.HTTP_202_ACCEPTED)
 async def extract_toc_for_book(
     book_id: UUID,
@@ -516,14 +568,14 @@ async def update_book_toc(
     if book is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
 
+    extras = dict(book.extras or {})
     raw = [ch.model_dump() for ch in body.chapters]
     chapters = normalize_toc_chapters(raw)
     try:
-        validate_toc_chapters(chapters)
+        validate_toc_chapters(chapters, total_length=extras.get("toc_text_length") or None)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    extras = dict(book.extras or {})
     extras["table_of_contents"] = chapters
     extras["toc_edited"] = True
     extras["toc_extraction_method"] = extras.get("toc_extraction_method") or "user_edited"

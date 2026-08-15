@@ -21,7 +21,7 @@ _ONBOARDING_EXEMPT_PREFIXES = (
     "/redoc",
     "/openapi.json",
 )
-_ONBOARDING_EXEMPT_EXACT = frozenset({"/billing/webhook"})
+_ONBOARDING_EXEMPT_EXACT = frozenset({"/billing/webhook", "/activity/onboarding/start"})
 
 
 def _is_onboarding_exempt(path: str) -> bool:

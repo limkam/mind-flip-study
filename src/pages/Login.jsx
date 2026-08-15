@@ -24,6 +24,8 @@ export default function Login() {
   const { toast } = useToast();
   const [authMode, setAuthMode] = useState("signin");
   const [email, setEmail] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -34,6 +36,17 @@ export default function Login() {
 
   const continueWithEmail = async (event) => {
     event.preventDefault();
+    setFormError("");
+    if (authMode === "signup") {
+      const dob = new Date(`${dateOfBirth}T00:00:00`);
+      const today = new Date();
+      let age = today.getFullYear() - dob.getFullYear();
+      if (today.getMonth() < dob.getMonth() || (today.getMonth() === dob.getMonth() && today.getDate() < dob.getDate())) age -= 1;
+      if (!dateOfBirth || Number.isNaN(dob.getTime()) || age < 13) {
+        setFormError("MindFlip is only available to users aged 13 and above.");
+        return;
+      }
+    }
     setBusy(true);
     try {
       const normalizedEmail = email.trim().toLowerCase();
@@ -45,6 +58,7 @@ export default function Login() {
           email: normalizedEmail,
           challengeId: data.challenge_id,
           resendAfter: data.resend_after,
+          dateOfBirth: authMode === "signup" ? dateOfBirth : null,
         },
       });
     } catch (error) {
@@ -195,6 +209,22 @@ export default function Login() {
                 />
               </div>
             </div>
+            {authMode === "signup" ? (
+              <div className="space-y-2">
+                <Label htmlFor="signup-date-of-birth">Date of birth</Label>
+                <Input
+                  id="signup-date-of-birth"
+                  type="date"
+                  value={dateOfBirth}
+                  onChange={(event) => { setDateOfBirth(event.target.value); setFormError(""); }}
+                  max={new Date().toISOString().slice(0, 10)}
+                  required
+                  className="h-12 rounded-lg border-slate-200 bg-slate-50/70"
+                />
+                <p className="text-xs text-muted-foreground">You must be at least 13 years old to create an account.</p>
+              </div>
+            ) : null}
+            {formError ? <p className="text-sm text-destructive" role="alert">{formError}</p> : null}
             <Button type="submit" className="h-12 w-full rounded-lg font-semibold shadow-sm" disabled={busy}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
               Continue with Email

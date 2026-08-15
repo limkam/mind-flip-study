@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import client from '../api/client';
 import DataTable from '../components/DataTable';
+import MetricCard from '../components/MetricCard';
+import { PageHeader, StatusBadge } from '../components/AdminUI';
 
 const TABS = [
   { id: 'all', label: 'All' },
@@ -18,81 +21,51 @@ function formatDate(iso) {
   });
 }
 
-function ConfirmDialog({ open, title, message, onConfirm, onCancel }) {
-  if (!open) return null;
-  return (
-    <div className="modal-backdrop" role="presentation" onClick={onCancel}>
-      <div className="modal" role="dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>{title}</h3>
-        <p>{message}</p>
-        <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="btn-danger" onClick={onConfirm}>
-            Confirm
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function Content() {
-  const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [tab, setTab] = useState('all');
   const [page, setPage] = useState(1);
-  const [confirm, setConfirm] = useState(null);
+  const [search, setSearch] = useState('');
 
-  const params = { page, size: 20 };
+  const params = { page, size: 20, q: search || undefined };
   if (tab === 'flagged') params.flagged = true;
   if (tab === 'processing') params.status = 'processing';
   if (tab === 'error') params.status = 'error';
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-books', tab, page],
+    queryKey: ['admin-books', tab, page, search],
     queryFn: async () => {
       const { data: res } = await client.get('/admin/books', { params });
       return res;
     },
   });
-
-  const flagBook = useMutation({
-    mutationFn: (id) => client.post(`/admin/books/${id}/flag`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-books'] });
-      setConfirm(null);
-    },
-  });
-
-  const deleteBook = useMutation({
-    mutationFn: (id) => client.delete(`/admin/books/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-books'] });
-      setConfirm(null);
-    },
-  });
+  const stats = useQuery({ queryKey: ['admin-content-stats'], queryFn: async () => (await client.get('/admin/control/content-stats')).data });
 
   const columns = [
     { key: 'title', label: 'Title' },
     { key: 'author', label: 'Author' },
+    { key: 'book_code', label: 'Code' },
     { key: 'uploader_name', label: 'Uploaded By' },
     {
       key: 'created_at',
       label: 'Upload Date',
       render: (row) => formatDate(row.created_at),
     },
-    { key: 'status', label: 'Status' },
+    { key: 'status', label: 'Status', render: (row) => <StatusBadge value={row.status} /> },
     {
       key: 'is_flagged',
       label: 'Flagged',
-      render: (row) => (row.is_flagged ? 'Yes' : 'No'),
+      render: (row) => row.is_flagged ? <StatusBadge value="Flagged" tone="critical" /> : '—',
     },
   ];
 
   return (
     <div>
-      <h2 className="page-title">Content</h2>
+      <PageHeader title="Content" description="Review uploaded material, processing state, and moderation signals." />
+      <div className="metrics-grid">
+        {stats.data && [['Total Books','total_books'],['Flashcard Sets','total_sets'],['Flashcards','total_flashcards'],['Uploads Today','uploads_today'],['Uploads 7d','uploads_7d'],['Uploads 30d','uploads_30d'],['Flagged','flagged']].map(([label,key]) => <MetricCard key={key} label={label} value={stats.data[key]} />)}
+      </div>
+      <div className="filters-row"><input type="search" value={search} placeholder="Search title, author, code, or uploader…" onChange={(event) => { setSearch(event.target.value); setPage(1); }} /></div>
       <div className="tabs">
         {TABS.map((t) => (
           <button
@@ -118,44 +91,9 @@ export default function Content() {
           total={data?.total ?? 0}
           size={20}
           onPageChange={setPage}
-          renderActions={(row) => (
-            <select
-              className="action-select"
-              defaultValue=""
-              onChange={(e) => {
-                const v = e.target.value;
-                e.target.value = '';
-                if (v === 'flag') {
-                  setConfirm({
-                    title: 'Flag content',
-                    message: `Flag "${row.title}" for review?`,
-                    onConfirm: () => flagBook.mutate(row.id),
-                  });
-                }
-                if (v === 'delete') {
-                  setConfirm({
-                    title: 'Delete book',
-                    message:
-                      'This will permanently delete the book and all associated flashcard sets.',
-                    onConfirm: () => deleteBook.mutate(row.id),
-                  });
-                }
-              }}
-            >
-              <option value="">Actions…</option>
-              {!row.is_flagged && <option value="flag">Flag Content</option>}
-              <option value="delete">Delete Book</option>
-            </select>
-          )}
+          onRowClick={(row) => navigate(`/content/${row.id}`)}
         />
       )}
-      <ConfirmDialog
-        open={!!confirm}
-        title={confirm?.title}
-        message={confirm?.message}
-        onConfirm={confirm?.onConfirm}
-        onCancel={() => setConfirm(null)}
-      />
     </div>
   );
 }

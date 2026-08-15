@@ -1,5 +1,4 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -13,20 +12,22 @@ import {
 import Animated, {
   FadeIn,
 } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FlashCard } from "../../components/FlashCard";
 import { GameSelector } from "../../components/games";
 import { Screen } from "../../components/Screen";
-import { ChapterSummaryView } from "../../components/study/ChapterSummaryView";
 import { StudySessionSummary } from "../../components/study/StudySessionSummary";
 import { RecallRatingBar } from "../../components/study/RecallRatingBar";
 import { StudyProgressHeader } from "../../components/study/StudyProgressHeader";
 import { StudySetHeader } from "../../components/study/StudySetHeader";
 import { ScenarioView } from "../../components/study/ScenarioView";
 import { EmptyState } from "../../components/EmptyState";
+import { IconButton, Segmented, type SegmentedOption } from "../../components/ui";
 import { StudySkeleton } from "../../components/skeletons/StudySkeleton";
 import { api } from "../../api/client";
 import { useTheme } from "../../hooks/useTheme";
+import { TOKENS } from "../../theme/tokens";
 import { useCelebration } from "../../context/CelebrationContext";
 import { MIN_GAME_CARDS } from "../../lib/gameUtils";
 import { fetchEntitlementsSnapshot } from "../../lib/billing";
@@ -46,6 +47,13 @@ import type { GameSlug } from "../../components/games/types";
 
 type StudyMode = "study" | "summary" | "scenarios" | "games";
 
+const STUDY_MODES: SegmentedOption<StudyMode>[] = [
+  { value: "study", label: "Study" },
+  { value: "summary", label: "Summary" },
+  { value: "scenarios", label: "Scenarios" },
+  { value: "games", label: "Games" },
+];
+
 type StudyCard = {
   id: string;
   front: string;
@@ -58,6 +66,7 @@ export default function StudyByIdScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
   const studySettings = user?.preferences?.settings as { auto_advance_cards?: boolean; auto_advance_delay_ms?: number } | undefined;
@@ -245,24 +254,29 @@ export default function StudyByIdScreen() {
   );
 
   const rateAndAdvance = useCallback(
-    async (quality: number) => {
+    (quality: number) => {
       if (sessionComplete || !card || ratingInFlight.current) return;
       ratingInFlight.current = true;
       setSubmittingQuality(quality);
       const ratedCard = card;
       const expectedSessionVersion = sessionVersionRef.current;
       const expectedUserId = user?.id;
-      const result = await submitProgress(ratedCard.id, quality);
-      if (
-        expectedSessionVersion !== sessionVersionRef.current
-        || expectedUserId !== useAuthStore.getState().user?.id
-      ) return;
-      if (result.status === "rejected" || result.status === "authentication") {
-        ratingInFlight.current = false;
-        setSubmittingQuality(null);
-        Alert.alert("Progress not saved", result.reason);
-        return;
-      }
+
+      // Advance the UI immediately; submitProgress (network + invalidation)
+      // runs in the background so the rating never blocks the next card.
+      void submitProgress(ratedCard.id, quality).then((result) => {
+        if (
+          expectedSessionVersion !== sessionVersionRef.current
+          || expectedUserId !== useAuthStore.getState().user?.id
+        ) return;
+        if (result.status === "rejected" || result.status === "authentication") {
+          ratingInFlight.current = false;
+          setRatedCardId((current) => (current === ratedCard.id ? null : current));
+          setSubmittingQuality(null);
+          Alert.alert("Progress not saved", result.reason);
+        }
+      });
+
       setRatings((prev) => ({ ...prev, [ratedCard.id]: quality }));
 
       void hapticImpact("light");
@@ -312,37 +326,25 @@ export default function StudyByIdScreen() {
       />
 
       <View style={styles.headerRow}>
-        <Pressable
-          style={[styles.iconBtn, { backgroundColor: colors.surface }]}
-          onPress={() => {
-            void hapticImpact("light");
-            router.back();
-          }}
-          hitSlop={8}
-        >
-          <Ionicons name="chevron-back" size={22} color={colors.text} />
-        </Pressable>
+        <View style={styles.headerSpacer} />
         <Text style={[styles.headerTitle, { color: colors.text }]}>
           {sessionComplete ? "Summary" : `Card ${Math.min(idx + 1, total || 1)} of ${total || 0}`}
         </Text>
-        <Pressable
-          style={[styles.iconBtn, { backgroundColor: colors.surface }]}
-          onPress={() => {
-            void hapticImpact("light");
-            router.back();
-          }}
-          hitSlop={8}
-        >
-          <Ionicons name="close" size={22} color={colors.text} />
-        </Pressable>
+        <IconButton
+          icon="close"
+          accessibilityLabel="Close study session"
+          onPress={() => router.back()}
+          variant="filled"
+        />
       </View>
 
-      <View style={[styles.tabRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <TabButton label="Study" active={mode === "study"} onPress={() => setMode("study")} colors={colors} />
-        <TabButton label="Summary" active={mode === "summary"} onPress={() => setMode("summary")} colors={colors} />
-        <TabButton label="Scenarios" active={mode === "scenarios"} onPress={() => setMode("scenarios")} colors={colors} />
-        <TabButton label="Games" active={mode === "games"} onPress={() => setMode("games")} colors={colors} />
-      </View>
+      <Segmented
+        options={STUDY_MODES}
+        value={mode}
+        onChange={setMode}
+        accessibilityLabel="Study mode"
+        style={styles.modeSwitcher}
+      />
 
       {data && mode !== "study" ? (
         <StudySetHeader
@@ -372,14 +374,17 @@ export default function StudyByIdScreen() {
         <StudySkeleton />
       ) : isError ? (
         <EmptyState
-          icon="⚠️"
+          icon="alert-circle-outline"
           title="Could not load"
           message="Check your connection or try again."
           actionLabel="Retry"
           onAction={() => refetch()}
         />
       ) : mode === "summary" ? (
-        <ScrollView contentContainerStyle={styles.tabScroll} showsVerticalScrollIndicator>
+        <ScrollView
+          contentContainerStyle={[styles.tabScroll, { paddingBottom: TOKENS.spacing.xxl + insets.bottom }]}
+          showsVerticalScrollIndicator
+        >
           {data?.summary ? (
             <View style={[styles.summaryBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <Text style={[styles.summaryTitle, { color: colors.text }]}>Study Summary</Text>
@@ -395,14 +400,12 @@ export default function StudyByIdScreen() {
               <Text style={[styles.summaryBody, { color: colors.muted }]}>{ch.summary}</Text>
             </View>
           ))}
-          <ChapterSummaryView
-            cards={allCards}
-            bookTitle={data?.bookTitle}
-            selectedChapters={data?.selectedChapters}
-          />
         </ScrollView>
       ) : mode === "scenarios" ? (
-        <ScrollView contentContainerStyle={styles.tabScroll} showsVerticalScrollIndicator>
+        <ScrollView
+          contentContainerStyle={[styles.tabScroll, { paddingBottom: TOKENS.spacing.xxl + insets.bottom }]}
+          showsVerticalScrollIndicator
+        >
           <ScenarioView
             scenarios={scenarios}
             setId={id as string}
@@ -410,10 +413,13 @@ export default function StudyByIdScreen() {
           />
         </ScrollView>
       ) : mode === "games" ? (
-        <ScrollView contentContainerStyle={styles.tabScroll} showsVerticalScrollIndicator>
+        <ScrollView
+          contentContainerStyle={[styles.tabScroll, { paddingBottom: TOKENS.spacing.xxl + insets.bottom }]}
+          showsVerticalScrollIndicator
+        >
           {allCards.length < MIN_GAME_CARDS ? (
             <EmptyState
-              icon="🎮"
+              icon="game-controller-outline"
               title="Not enough cards"
               message={`Games need at least ${MIN_GAME_CARDS} cards. This set has ${allCards.length}.`}
             />
@@ -427,37 +433,45 @@ export default function StudyByIdScreen() {
         </ScrollView>
       ) : !total ? (
         <EmptyState
-          icon="🎉"
+          icon="checkmark-done-outline"
           title="All caught up!"
           message="No cards are due for review in this set right now."
           actionLabel="View summaries"
           onAction={() => setMode("summary")}
         />
       ) : sessionComplete ? (
-        <Animated.View entering={FadeIn}>
-          <StudySessionSummary
-            stats={sessionSummaryStats}
-            mode="study"
-            onReviewHard={
-              sessionSummaryStats.hard > 0
-                ? () => {
-                    setHardReviewMode(true);
-                    setSessionComplete(false);
-                    setIdx(0);
-                    setFlipped(false);
-                  }
-                : null
-            }
-            onContinue={() => {
-              setSessionComplete(false);
-              setHardReviewMode(false);
-              setIdx(0);
-              setFlipped(false);
-            }}
-          />
-        </Animated.View>
+        <ScrollView
+          contentContainerStyle={[styles.summaryScroll, { paddingBottom: TOKENS.spacing.xxl + insets.bottom }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <Animated.View entering={FadeIn}>
+            <StudySessionSummary
+              stats={sessionSummaryStats}
+              mode="study"
+              onReviewHard={
+                sessionSummaryStats.hard > 0
+                  ? () => {
+                      setHardReviewMode(true);
+                      setSessionComplete(false);
+                      setIdx(0);
+                      setFlipped(false);
+                    }
+                  : null
+              }
+              onContinue={() => {
+                setSessionComplete(false);
+                setHardReviewMode(false);
+                setIdx(0);
+                setFlipped(false);
+              }}
+            />
+          </Animated.View>
+        </ScrollView>
       ) : (
-        <>
+        <ScrollView
+          contentContainerStyle={[styles.studyScroll, { paddingBottom: TOKENS.spacing.lg + insets.bottom }]}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.cardArea}>
             <FlashCard
               key={card.id}
@@ -472,7 +486,7 @@ export default function StudyByIdScreen() {
           {flipped ? (
             <Animated.View entering={FadeIn} style={styles.ratingRow}>
               <RecallRatingBar
-                onRate={(quality) => void rateAndAdvance(quality)}
+                onRate={rateAndAdvance}
                 qualities={[1, 2, 4, 5]}
                 submittingQuality={submittingQuality}
                 disabled={ratedCardId === card.id}
@@ -498,33 +512,9 @@ export default function StudyByIdScreen() {
               </Pressable>
             </View>
           ) : null}
-        </>
+        </ScrollView>
       )}
     </Screen>
-  );
-}
-
-function TabButton({
-  label,
-  active,
-  onPress,
-  colors,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-  colors: { primary: string; text: string; muted: string; border: string };
-}) {
-  return (
-    <Pressable
-      style={[styles.tabBtn, active && { borderBottomColor: colors.primary }]}
-      onPress={() => {
-        void hapticImpact("light");
-        onPress();
-      }}
-    >
-      <Text style={[styles.tabBtnText, { color: active ? colors.primary : colors.muted }]}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -538,24 +528,11 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   headerTitle: { fontSize: 16, fontWeight: "700", flex: 1, textAlign: "center" },
-  tabRow: {
-    flexDirection: "row",
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  tabBtn: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
-  },
-  tabBtnText: { fontSize: 14, fontWeight: "700" },
+  headerSpacer: { width: TOKENS.layout.minTouchTarget },
+  modeSwitcher: { marginHorizontal: 16, marginBottom: 8 },
   tabScroll: { paddingHorizontal: 16, paddingBottom: 32 },
+  summaryScroll: { flexGrow: 1, justifyContent: "center" },
+  studyScroll: { flexGrow: 1 },
   summaryBox: {
     borderRadius: 16,
     borderWidth: 1,
@@ -564,13 +541,6 @@ const styles = StyleSheet.create({
   },
   summaryTitle: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
   summaryBody: { fontSize: 14, lineHeight: 21 },
-  iconBtn: {
-    minWidth: 44,
-    minHeight: 44,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   offlineBanner: {
     marginHorizontal: 16,
     marginBottom: 8,

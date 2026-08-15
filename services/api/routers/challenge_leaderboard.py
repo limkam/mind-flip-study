@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,8 +21,14 @@ from schemas.pagination import total_pages
 from services.connected_users import connected_user_ids
 from services.achievement_sync import sync_user_achievements
 from user_identity import resolve_display_name
+from services.entitlements import Action, can_user_do
 
 router = APIRouter(tags=["challenge-leaderboard"])
+
+
+async def _require_challenge_access(db: AsyncSession, user: User) -> None:
+    if not (await can_user_do(db, user, Action.SEND_CHALLENGE)).get("allowed"):
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail={"code": "UPGRADE_REQUIRED"})
 
 ChallengeTab = Literal["overall", "by_content"]
 
@@ -95,6 +101,7 @@ async def challenge_leaderboard_overall(
     size: int = Query(50, ge=1, le=100),
 ) -> ChallengeLeaderboardPage:
     """Challenge ranking among users you have challenged or study with."""
+    await _require_challenge_access(db, current_user)
     size = max(1, min(size, 100))
     offset = (page - 1) * size
     allowed_ids = await connected_user_ids(db, current_user.id)
@@ -193,12 +200,14 @@ async def challenge_leaderboard_overall(
 
 @router.get("/by-content", response_model=list[ContentLeaderboardItem])
 async def challenge_leaderboard_by_content(
+    current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     book_title: str | None = Query(None),
     set_id: str | None = Query(None),
     limit: int = Query(20, ge=1, le=50),
 ) -> list[ContentLeaderboardItem]:
     """Per-book or per-flashcard-set rankings."""
+    await _require_challenge_access(db, current_user)
     pct = _avg_score_expr()
     stmt = (
         select(
@@ -276,6 +285,7 @@ async def my_challenge_badges(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[BadgeOut]:
+    await _require_challenge_access(db, current_user)
     await sync_user_achievements(db, current_user.id)
     r = await db.execute(
         select(Achievement)

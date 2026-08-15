@@ -100,6 +100,7 @@ export type AnalyticsSummaryOut = {
   cards_mastered_easy_band?: number;
   score_trend?: ScoreTrendDayOut[];
   rating_breakdown?: RatingBreakdownOut;
+  cards_reviewed_today?: number;
 };
 
 export type QuizResultInput = {
@@ -199,11 +200,19 @@ export type BookOut = {
   author: string;
   status: string;
   file_size_bytes: number;
+  book_code: string;
   created_at: string;
   subject?: string;
   tags?: unknown[];
   description?: string;
-  table_of_contents?: { title?: string; chapter_number?: number; subtopics?: string[] }[];
+  table_of_contents?: {
+    title?: string;
+    chapter_number?: number;
+    subtopics?: string[];
+    start_offset?: number;
+    end_offset?: number;
+  }[];
+  toc_text_length?: number;
   is_analyzing?: boolean;
   processing_phase?: string;
   toc_job_id?: string;
@@ -347,6 +356,7 @@ export type FlashcardSetOut = {
   chapter_summaries?: ChapterSummaryOut[];
   generation_seed?: number | null;
   selected_chapters?: string[];
+  last_studied_at?: string | null;
 };
 
 export type FlashcardSetUpdateInput = {

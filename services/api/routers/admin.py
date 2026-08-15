@@ -7,8 +7,8 @@ from datetime import UTC, date, datetime, timedelta, time
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import String, case, delete, func, or_, select, update
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import String, and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -21,9 +21,10 @@ from models.license import License
 from models.quiz import StudyEvent
 from models.token_usage import TokenUsage
 from models.user_subscription import UserSubscription
+from models.plan import Plan
 from models.user import User
 from services import entitlements as entitlements_service
-from services.plan_catalog import plan_label_from_slug
+from services.plan_catalog import PLAN_LABELS, plan_label_from_slug
 from services.book_deletion import cascade_delete_book
 from age_utils import AGE_GROUP_LABELS, dob_range_for_age_group
 from schemas.admin import (
@@ -46,12 +47,14 @@ from celery_health import inspect_celery_workers
 from routers.admin_analytics import router as admin_analytics_router
 from schemas.admin import AdminUserIpListPage, AdminUserIpRow
 from services.stripe_reconciliation import reconcile_stripe
+from services.admin_audit import record_admin_action
 from routers.feedback import _apply_cursor, _encode_cursor
 
 router = APIRouter(tags=["admin"])
 router.include_router(admin_analytics_router)
 
 _ACTIVE_LICENSE_STATUSES = ("active", "paid")
+_ENTITLED_SUBSCRIPTION_STATUSES = ("active", "trialing", "past_due", "canceled")
 
 
 def _support_message_public(message: SupportMessage) -> SupportMessagePublic:
@@ -63,9 +66,14 @@ def _support_message_public(message: SupportMessage) -> SupportMessagePublic:
 
 @router.post("/billing/reconcile")
 async def reconcile_billing_now(
+    request: Request,
     _admin: Annotated[User, Depends(require_role("admin"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, int]:
-    return await asyncio.to_thread(reconcile_stripe)
+    result = await asyncio.to_thread(reconcile_stripe)
+    record_admin_action(db, admin=_admin, action="billing.reconcile", resource_type="billing", new=result, request=request)
+    await db.commit()
+    return result
 
 
 @router.get("/celery-status")
@@ -79,10 +87,15 @@ async def admin_celery_status(
 async def list_user_ips(
     _admin: Annotated[User, Depends(require_role("admin"))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    page: int = Query(1, ge=1),
+    size: int = Query(50, ge=1, le=100),
 ) -> AdminUserIpListPage:
+    total = int(await db.scalar(select(func.count(User.id))) or 0)
     result = await db.execute(
         select(User.id, User.full_name, User.email, User.last_ip, User.ip_history, User.last_active_at)
-        .order_by(User.last_active_at.desc().nullslast(), User.full_name.asc()),
+        .order_by(User.last_active_at.desc().nullslast(), User.full_name.asc())
+        .offset((page - 1) * size)
+        .limit(size),
     )
     items = [
         AdminUserIpRow(
@@ -95,7 +108,28 @@ async def list_user_ips(
         )
         for row in result.all()
     ]
-    return AdminUserIpListPage(items=items)
+    return AdminUserIpListPage(items=items, total=total, page=page, size=size)
+
+
+@router.get("/users/filter-options")
+async def user_filter_options(
+    _admin: Annotated[User, Depends(require_role("admin"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    async def distinct(column):
+        rows = await db.scalars(
+            select(column).where(column.is_not(None)).distinct().order_by(column)
+        )
+        return [v for v in rows.all() if v]
+
+    return {
+        "plans": [{"slug": slug, "label": label} for slug, label in PLAN_LABELS.items()],
+        "countries": await distinct(User.country),
+        "continents": await distinct(User.continent),
+        "occupations": await distinct(User.occupation),
+        "age_groups": list(AGE_GROUP_LABELS),
+        "statuses": ["active", "banned"],
+    }
 
 
 @router.get("/users", response_model=AdminUserListPage)
@@ -104,6 +138,11 @@ async def list_users(
     db: Annotated[AsyncSession, Depends(get_db)],
     q: str = Query(default="", max_length=100),
     age_group: str | None = Query(default=None, max_length=16),
+    plan: str | None = Query(default=None, max_length=32),
+    country: str | None = Query(default=None, max_length=128),
+    continent: str | None = Query(default=None, max_length=64),
+    occupation: str | None = Query(default=None, max_length=100),
+    status_filter: str | None = Query(default=None, max_length=16, alias="status"),
     sort: str = Query(default="-created_at", max_length=32),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
@@ -128,13 +167,64 @@ async def list_users(
         filters.append(User.date_of_birth.is_not(None))
         filters.append(User.date_of_birth >= min_dob)
         filters.append(User.date_of_birth <= max_dob)
+    if country:
+        filters.append(User.country == country)
+    if continent:
+        filters.append(User.continent == continent)
+    if occupation:
+        filters.append(User.occupation == occupation)
+    if status_filter:
+        if status_filter not in ("active", "banned"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid status. Use 'active' or 'banned'.",
+            )
+        filters.append(User.is_banned == (status_filter == "banned"))
+    if plan is not None and plan.strip().lower() not in PLAN_LABELS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid plan. Use one of: {', '.join(PLAN_LABELS)}",
+        )
 
-    count_stmt = select(func.count(User.id))
-    list_stmt = select(User)
+    now = datetime.now(UTC)
+    # Same canonical-subscription-resolution rule used elsewhere (latest current_period_end,
+    # then latest created_at) so a user with several UserSubscription rows contributes at
+    # most one row to this join, and so plan filtering matches what the Plan column displays.
+    canonical_rn = (
+        func.row_number()
+        .over(
+            partition_by=UserSubscription.user_id,
+            order_by=(
+                UserSubscription.current_period_end.desc().nullslast(),
+                UserSubscription.created_at.desc(),
+            ),
+        )
+        .label("rn")
+    )
+    canonical = (
+        select(UserSubscription.user_id, Plan.slug.label("plan_slug"), canonical_rn)
+        .join(Plan, Plan.id == UserSubscription.plan_id)
+        .where(
+            UserSubscription.status.in_(_ENTITLED_SUBSCRIPTION_STATUSES),
+            UserSubscription.current_period_end.is_not(None),
+            UserSubscription.current_period_end > now,
+        )
+        .subquery()
+    )
+    resolved_plan_slug = func.coalesce(canonical.c.plan_slug, "free")
+
+    base = select(User).outerjoin(
+        canonical, and_(canonical.c.user_id == User.id, canonical.c.rn == 1)
+    )
     if filters:
-        count_stmt = count_stmt.where(*filters)
-        list_stmt = list_stmt.where(*filters)
-    total = int(await db.scalar(count_stmt) or 0)
+        base = base.where(*filters)
+    if plan:
+        base = base.where(resolved_plan_slug == plan.strip().lower())
+
+    total = int(
+        await db.scalar(select(func.count()).select_from(base.order_by(None).subquery()))
+        or 0
+    )
     offset = (page - 1) * size
 
     if sort == "age":
@@ -147,13 +237,22 @@ async def list_users(
         order_clause = User.created_at.desc()
 
     result = await db.execute(
-        list_stmt.order_by(order_clause).offset(offset).limit(size),
+        base.order_by(order_clause).offset(offset).limit(size),
     )
     users = result.scalars().all()
-    items = []
-    for user in users:
-        plan_slug = await entitlements_service._user_plan_slug(db, user)
-        items.append(admin_user_row_from_model(user, plan=plan_label_from_slug(plan_slug)))
+    user_ids = [user.id for user in users]
+    sub_rows = (await db.execute(
+        select(UserSubscription.user_id, UserSubscription.status, UserSubscription.current_period_end, Plan.slug)
+        .join(Plan, Plan.id == UserSubscription.plan_id)
+        .where(UserSubscription.user_id.in_(user_ids))
+        .order_by(UserSubscription.user_id, UserSubscription.current_period_end.desc().nullslast(), UserSubscription.created_at.desc())
+    )).all() if user_ids else []
+    plan_by_user = {}
+    for row in sub_rows:
+        if row.user_id not in plan_by_user:
+            entitled = row.status in _ENTITLED_SUBSCRIPTION_STATUSES and row.current_period_end is not None and row.current_period_end > now
+            plan_by_user[row.user_id] = row.slug if entitled else "free"
+    items = [admin_user_row_from_model(user, plan=plan_label_from_slug(plan_by_user.get(user.id, "free"))) for user in users]
     return AdminUserListPage(items=items, total=total, page=page, size=size)
 
 
@@ -163,6 +262,7 @@ async def update_user(
     body: AdminUserUpdate,
     admin: Annotated[User, Depends(require_role("admin"))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
 ) -> AdminUserRow:
     if body.role is None and body.is_banned is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
@@ -184,10 +284,16 @@ async def update_user(
                 detail="You cannot demote your own admin account",
             )
 
+    previous = {"role": user.role.value, "is_banned": user.is_banned}
     if body.role is not None:
         user.role = UserRole(body.role)
     if body.is_banned is not None:
         user.is_banned = body.is_banned
+
+    action_parts = []
+    if body.role is not None: action_parts.append("role_changed")
+    if body.is_banned is not None: action_parts.append("banned" if body.is_banned else "unbanned")
+    record_admin_action(db, admin=admin, action="user." + "+".join(action_parts), resource_type="user", resource_id=user.id, affected_user_id=user.id, previous=previous, new={"role": user.role.value, "is_banned": user.is_banned}, reason=body.reason, request=request)
 
     await db.commit()
     await db.refresh(user)
@@ -208,6 +314,7 @@ async def list_all_books(
             Book.id,
             Book.title,
             Book.author,
+            Book.book_code,
             Book.status,
             Book.created_at,
             Book.is_flagged,
@@ -236,6 +343,7 @@ async def list_all_books(
             id=row.id,
             title=row.title,
             author=row.author,
+            book_code=row.book_code,
             uploader_name=row.uploader_name,
             uploader_email=row.uploader_email,
             status=row.status,
@@ -252,6 +360,8 @@ async def flag_book(
     book_id: UUID,
     _admin: Annotated[User, Depends(require_role("admin"))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
+    reason: str = Query(..., min_length=3, max_length=500),
 ) -> AdminBookRow:
     result = await db.execute(
         select(Book, User.full_name, User.email)
@@ -262,13 +372,16 @@ async def flag_book(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
     book, uploader_name, uploader_email = row
+    was_flagged = bool(book.is_flagged)
     book.is_flagged = True
+    record_admin_action(db, admin=_admin, action="content.flag", resource_type="book", resource_id=book.id, affected_user_id=book.user_id, previous={"is_flagged": was_flagged}, new={"is_flagged": True}, reason=reason, request=request)
     await db.commit()
     await db.refresh(book)
     return AdminBookRow(
         id=book.id,
         title=book.title,
         author=book.author,
+        book_code=book.book_code,
         uploader_name=uploader_name,
         uploader_email=uploader_email,
         status=book.status,
@@ -282,13 +395,18 @@ async def delete_book_admin(
     book_id: UUID,
     _admin: Annotated[User, Depends(require_role("admin"))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
+    reason: str = Query(..., min_length=3, max_length=500),
 ) -> None:
     result = await db.execute(select(Book).where(Book.id == book_id))
     book = result.scalar_one_or_none()
     if book is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
 
-    await cascade_delete_book(db, book)
+    snapshot = {"title": book.title, "author": book.author, "status": book.status.value, "is_flagged": book.is_flagged}
+    record_admin_action(db, admin=_admin, action="content.delete", resource_type="book", resource_id=book.id, affected_user_id=book.user_id, previous=snapshot, reason=reason, request=request)
+    await cascade_delete_book(db, book, commit=False)
+    await db.commit()
 
 
 @router.get("/metrics", response_model=AdminMetricsOut)
@@ -321,16 +439,8 @@ async def get_platform_metrics(
         or 0,
     )
     total_books = int(await db.scalar(select(func.count(Book.id))) or 0)
-    ai_generations_30d = int(
-        await db.scalar(
-            select(func.count(StudyEvent.id)).where(
-                StudyEvent.event_type == "ai_generation",
-                StudyEvent.created_at >= thirty_days_ago_dt,
-            ),
-        )
-        or 0,
-    )
-    active_subscription_statuses = ("active", "trialing", "past_due")
+    ai_generations_30d = int(await db.scalar(select(func.count(TokenUsage.id)).where(TokenUsage.created_at >= thirty_days_ago_dt)) or 0)
+    active_subscription_statuses = ("active",)
     monthly_cents = func.coalesce(func.sum(
         case(
             (UserSubscription.billing_interval == "year", UserSubscription.unit_amount_cents / func.nullif(UserSubscription.interval_count * 12, 0)),
@@ -432,8 +542,9 @@ async def list_feedback(
 async def update_feedback_status(
     feedback_id: UUID,
     body: FeedbackAdminUpdate,
-    _admin: Annotated[User, Depends(require_role("admin"))],
+    admin: Annotated[User, Depends(require_role("admin"))],
     db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
 ) -> FeedbackPublic:
     """Mark feedback as reviewed or resolved."""
     result = await db.execute(select(Feedback).where(Feedback.id == feedback_id))
@@ -441,7 +552,19 @@ async def update_feedback_status(
     if not feedback:
         raise HTTPException(status_code=404, detail="Feedback not found")
 
+    previous = feedback.status
     feedback.status = body.status
+    record_admin_action(
+        db,
+        admin=admin,
+        action="feedback.status_changed",
+        resource_type="feedback",
+        resource_id=feedback.id,
+        affected_user_id=feedback.user_id,
+        previous={"status": previous},
+        new={"status": feedback.status},
+        request=request,
+    )
     await db.commit()
     await db.refresh(feedback)
     return FeedbackPublic.model_validate(feedback)
@@ -535,21 +658,22 @@ async def reply_support_conversation(conversation_id: UUID, body: SupportMessage
     await db.commit(); await db.refresh(message); return _support_message_public(message)
 
 
-async def _set_support_status(conversation_id: UUID, admin: User, db: AsyncSession, resolved: bool):
+async def _set_support_status(conversation_id: UUID, admin: User, db: AsyncSession, resolved: bool, request: Request):
     conversation = await db.scalar(select(SupportConversation).where(SupportConversation.id == conversation_id).with_for_update())
     if not conversation: raise HTTPException(404, "Conversation not found")
     conversation.status = SupportConversationStatus.resolved if resolved else SupportConversationStatus.open
     conversation.resolved_at = datetime.now(UTC) if resolved else None
     conversation.resolved_by_admin_id = admin.id if resolved else None
+    record_admin_action(db, admin=admin, action="support.resolve" if resolved else "support.reopen", resource_type="support_conversation", resource_id=conversation.id, affected_user_id=conversation.user_id, previous={"status": "open" if resolved else "resolved"}, new={"status": "resolved" if resolved else "open"}, request=request)
     await db.commit()
     return {"status": conversation.status.value}
 
 
 @router.post("/feedback/conversations/{conversation_id}/resolve")
-async def resolve_support_conversation(conversation_id: UUID, admin: Annotated[User, Depends(require_role("admin"))], db: Annotated[AsyncSession, Depends(get_db)]):
-    return await _set_support_status(conversation_id, admin, db, True)
+async def resolve_support_conversation(conversation_id: UUID, request: Request, admin: Annotated[User, Depends(require_role("admin"))], db: Annotated[AsyncSession, Depends(get_db)]):
+    return await _set_support_status(conversation_id, admin, db, True, request)
 
 
 @router.post("/feedback/conversations/{conversation_id}/reopen")
-async def reopen_support_conversation(conversation_id: UUID, admin: Annotated[User, Depends(require_role("admin"))], db: Annotated[AsyncSession, Depends(get_db)]):
-    return await _set_support_status(conversation_id, admin, db, False)
+async def reopen_support_conversation(conversation_id: UUID, request: Request, admin: Annotated[User, Depends(require_role("admin"))], db: Annotated[AsyncSession, Depends(get_db)]):
+    return await _set_support_status(conversation_id, admin, db, False, request)

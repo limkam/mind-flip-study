@@ -1,3 +1,4 @@
+import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -72,7 +73,7 @@ async def test_entitlements_snapshot_contains_raw_fields(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cancel_at_period_end_does_not_create_charge(monkeypatch):
-    user = SimpleNamespace(id=uuid4())
+    user = SimpleNamespace(id=uuid4(), email='a@b.com', full_name='User')
     sub = SimpleNamespace(
         stripe_subscription_id='sub_1',
         status='active',
@@ -89,12 +90,26 @@ async def test_cancel_at_period_end_does_not_create_charge(monkeypatch):
     }))
     modify_mock = AsyncMock()
     monkeypatch.setattr(billing.asyncio, 'to_thread', modify_mock)
+    cancel_email_mock = SimpleNamespace(delay=MagicMock())
+    monkeypatch.setitem(
+        sys.modules, 'tasks.email_tasks',
+        SimpleNamespace(send_cancellation_confirmation_task=cancel_email_mock),
+    )
 
     out = await billing.cancel_subscription_at_period_end(current_user=user, db=db)
     assert out.canceled_at_period_end is True
-    assert modify_mock.await_args.args[1:] == ('sub_1',)
-    assert modify_mock.await_args.kwargs == {'cancel_at_period_end': True}
+    # cancellation also looks up the subscription's final invoice (for the
+    # confirmation email's optional PDF attachment) via the same asyncio.to_thread
+    # mock, so find the Subscription.modify call specifically rather than assuming
+    # it's the last one.
+    modify_calls = [
+        call for call in modify_mock.await_args_list
+        if call.kwargs == {'cancel_at_period_end': True}
+    ]
+    assert len(modify_calls) == 1
+    assert modify_calls[0].args[1:] == ('sub_1',)
     assert sub.status == 'canceled'
+    cancel_email_mock.delay.assert_called_once()
 
 
 # --- PAR-032: Checkout client URL selection ---
@@ -206,6 +221,55 @@ async def test_checkout_default_client_is_web(monkeypatch):
 
 # --- PAR-032: Session verification ---
 
+class _FakeStripeObject:
+    """Mimics the real stripe.StripeObject shape: attribute access works but
+    there is no real dict-like .get() method. Every other test in this file
+    mocks Session.retrieve with a plain dict, which masked a live bug where
+    verify_checkout_session called session.get(...) directly on the real SDK
+    return value and 500'd on every real checkout (confirmed via live test)."""
+
+    def __init__(self, data):
+        self._data = data
+
+    def __getattr__(self, name):
+        try:
+            return self._data[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+    def to_dict_recursive(self, for_json=False):
+        return dict(self._data)
+
+
+@pytest.mark.asyncio
+async def test_verify_session_handles_real_stripe_object_not_dict(monkeypatch):
+    """verify_checkout_session must work against the real (non-dict) SDK return type."""
+    uid = uuid4()
+    user = SimpleNamespace(id=uid, stripe_customer_id='cus_1')
+
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(
+        billing.stripe.checkout.Session, 'retrieve',
+        lambda sid: _FakeStripeObject({
+            'status': 'complete', 'mode': 'subscription', 'client_reference_id': str(uid), 'customer': 'cus_1',
+            'metadata': {'user_id': str(uid), 'plan_slug': 'standard_15', 'interval': 'monthly'},
+        }),
+    )
+
+    db = AsyncMock()
+    monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
+        'state': 'active', 'subscription': {'id': 'sub_1'}, 'count': 1,
+    }))
+    monkeypatch.setattr(billing, '_sync_subscription_from_stripe_object', AsyncMock(return_value=True))
+
+    result = await billing.verify_checkout_session(
+        session_id='cs_test_real_object', current_user=user, db=db,
+    )
+    assert result.checkout_status == 'complete'
+    assert result.subscription_state == 'active'
+    assert result.plan_slug == 'standard_15'
+
+
 @pytest.mark.asyncio
 async def test_verify_session_valid_completed_active(monkeypatch):
     """Completed session owned by current user with active subscription → active."""
@@ -222,6 +286,8 @@ async def test_verify_session_valid_completed_active(monkeypatch):
     monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
         'state': 'active', 'subscription': {'id': 'sub_1'}, 'count': 1,
     }))
+    sync = AsyncMock(return_value=True)
+    monkeypatch.setattr(billing, '_sync_subscription_from_stripe_object', sync)
 
     result = await billing.verify_checkout_session(
         session_id='cs_test_valid', current_user=user, db=db,
@@ -231,6 +297,8 @@ async def test_verify_session_valid_completed_active(monkeypatch):
     assert result.subscription_state == 'active'
     assert result.plan_slug == 'standard_15'
     assert result.interval == 'monthly'
+    sync.assert_awaited_once_with(db, {'id': 'sub_1'}, authoritative_snapshot=True)
+    db.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -419,6 +487,7 @@ async def test_verify_session_legacy_only_client_ref_present(monkeypatch):
     monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
         'state': 'active', 'subscription': {'id': 'sub_1'}, 'count': 1,
     }))
+    monkeypatch.setattr(billing, '_sync_subscription_from_stripe_object', AsyncMock(return_value=True))
 
     result = await billing.verify_checkout_session(session_id='cs_test_legacy_ref', current_user=user, db=db)
     assert result.subscription_state == 'active'
@@ -438,6 +507,7 @@ async def test_verify_session_legacy_only_metadata_user_present(monkeypatch):
     monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
         'state': 'active', 'subscription': {'id': 'sub_1'}, 'count': 1,
     }))
+    monkeypatch.setattr(billing, '_sync_subscription_from_stripe_object', AsyncMock(return_value=True))
 
     result = await billing.verify_checkout_session(session_id='cs_test_legacy_meta', current_user=user, db=db)
     assert result.subscription_state == 'active'
@@ -493,9 +563,34 @@ async def test_verify_session_customer_present_first_time_user_without_customer_
     monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
         'state': 'active', 'subscription': {'id': 'sub_1'}, 'count': 1,
     }))
+    monkeypatch.setattr(billing, '_sync_subscription_from_stripe_object', AsyncMock(return_value=True))
 
     result = await billing.verify_checkout_session(session_id='cs_test_first_time', current_user=user, db=db)
     assert result.subscription_state == 'active'
+
+
+@pytest.mark.asyncio
+async def test_verify_session_waits_when_local_subscription_sync_fails(monkeypatch):
+    """Never show activation success while the pricing-page projection is still stale."""
+    uid = uuid4()
+    user = SimpleNamespace(id=uid, stripe_customer_id='cus_1')
+
+    monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
+    monkeypatch.setattr(billing.stripe.checkout.Session, 'retrieve', lambda sid: {
+        'status': 'complete', 'client_reference_id': str(uid),
+        'metadata': {'user_id': str(uid), 'plan_slug': 'premium_30', 'interval': 'monthly'},
+    })
+    db = AsyncMock()
+    monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
+        'state': 'active', 'subscription': {'id': 'sub_1'}, 'count': 1,
+    }))
+    monkeypatch.setattr(billing, '_sync_subscription_from_stripe_object', AsyncMock(return_value=False))
+
+    result = await billing.verify_checkout_session('cs_test_sync_pending', user, db)
+
+    assert result.subscription_state == 'processing'
+    db.commit.assert_not_awaited()
+    db.rollback.assert_awaited_once()
 
 
 @pytest.mark.asyncio

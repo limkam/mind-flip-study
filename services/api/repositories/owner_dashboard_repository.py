@@ -3,8 +3,9 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from models.billing_analytics import BillingEvent, BillingInvoice
 from models.book import Book
@@ -14,6 +15,30 @@ from models.user import User
 from models.user_subscription import UserSubscription
 
 ACTIVE_STATUSES = ("active", "trialing", "past_due")
+
+
+def _canonical_subscription():
+    """One row per user: same tie-break as admin_control._subscription_rows/_resolved
+    (latest current_period_end, then latest created_at), so a user with several
+    UserSubscription rows never fans a join out into duplicate result rows."""
+    rn = (
+        func.row_number()
+        .over(
+            partition_by=UserSubscription.user_id,
+            order_by=(
+                UserSubscription.current_period_end.desc().nullslast(),
+                UserSubscription.created_at.desc(),
+            ),
+        )
+        .label("rn")
+    )
+    subq = (
+        select(UserSubscription)
+        .add_columns(rn)
+        .where(UserSubscription.status.in_(ACTIVE_STATUSES))
+        .subquery()
+    )
+    return aliased(UserSubscription, subq), subq
 
 
 class OwnerDashboardRepository:
@@ -222,16 +247,20 @@ class OwnerDashboardRepository:
         period_seconds = func.extract(
             "epoch", BillingInvoice.period_end - BillingInvoice.period_start
         )
+        net_cents = func.greatest(
+            BillingInvoice.amount_paid_cents - BillingInvoice.amount_refunded_cents, 0
+        )
+        # Mirrors recognized_cents()'s zero-length-period fallback: when an
+        # invoice has no real billing period, recognize its full net amount
+        # in the month it was paid instead of prorating it to $0.
+        paid_in_range = and_(
+            BillingInvoice.paid_at.isnot(None),
+            BillingInvoice.paid_at >= start,
+            BillingInvoice.paid_at < end,
+        )
         recognized = case(
-            (
-                period_seconds > 0,
-                (
-                    BillingInvoice.amount_paid_cents
-                    - BillingInvoice.amount_refunded_cents
-                )
-                * overlap_seconds
-                / period_seconds,
-            ),
+            (period_seconds > 0, net_cents * overlap_seconds / period_seconds),
+            (paid_in_range, net_cents),
             else_=0,
         )
         revenue = (
@@ -242,8 +271,14 @@ class OwnerDashboardRepository:
             )
             .where(
                 BillingInvoice.status.in_(("paid", "partially_refunded", "refunded")),
-                BillingInvoice.period_start < end,
-                BillingInvoice.period_end > start,
+                or_(
+                    and_(
+                        BillingInvoice.period_start < end,
+                        BillingInvoice.period_end > start,
+                        period_seconds > 0,
+                    ),
+                    paid_in_range,
+                ),
             )
             .group_by(BillingInvoice.user_id)
             .subquery()
@@ -271,6 +306,7 @@ class OwnerDashboardRepository:
                 + func.coalesce(revenue.c.payments, 0) * 0.30
             )
         )
+        CanonicalSub, canonical_subq = _canonical_subscription()
         stmt = (
             select(
                 User.id,
@@ -278,20 +314,20 @@ class OwnerDashboardRepository:
                 User.email,
                 User.last_active_at,
                 Plan.name.label("plan"),
-                UserSubscription.billing_interval,
-                UserSubscription.status,
+                CanonicalSub.billing_interval,
+                CanonicalSub.status,
                 func.coalesce(revenue.c.revenue, 0).label("revenue_cents"),
                 func.coalesce(ai.c.ai_cost, 0).label("ai_cost"),
                 func.coalesce(revenue.c.payments, 0).label("payments"),
                 func.coalesce(books.c.documents, 0).label("documents"),
                 margin.label("margin"),
             )
-            .join(UserSubscription, UserSubscription.user_id == User.id)
-            .join(Plan, Plan.id == UserSubscription.plan_id)
+            .join(CanonicalSub, CanonicalSub.user_id == User.id)
+            .join(Plan, Plan.id == CanonicalSub.plan_id)
             .outerjoin(revenue, revenue.c.uid == User.id)
             .outerjoin(ai, ai.c.uid == User.id)
             .outerjoin(books, books.c.uid == User.id)
-            .where(UserSubscription.status.in_(ACTIVE_STATUSES))
+            .where(canonical_subq.c.rn == 1)
         )
         if search:
             term = f"%{search.strip()}%"
@@ -303,7 +339,7 @@ class OwnerDashboardRepository:
                 )
             )
         if status:
-            stmt = stmt.where(UserSubscription.status == status)
+            stmt = stmt.where(CanonicalSub.status == status)
         if segment == "negative_margin":
             stmt = stmt.where(margin < 0)
         elif segment == "inactive":
@@ -317,9 +353,9 @@ class OwnerDashboardRepository:
         elif segment == "enterprise":
             stmt = stmt.where(Plan.name.ilike("%enterprise%"))
         elif segment == "annual":
-            stmt = stmt.where(UserSubscription.billing_interval == "year")
+            stmt = stmt.where(CanonicalSub.billing_interval == "year")
         elif segment == "monthly":
-            stmt = stmt.where(UserSubscription.billing_interval == "month")
+            stmt = stmt.where(CanonicalSub.billing_interval == "month")
         count = await self.db.scalar(
             select(func.count()).select_from(stmt.order_by(None).subquery())
         )

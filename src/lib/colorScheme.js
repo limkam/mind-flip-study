@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 const VALID_SCHEMES = new Set(["light", "dark", "system"]);
 
 export function normalizeColorScheme(value) {
@@ -27,4 +29,12 @@ export function applyColorScheme(preference) {
 export function persistColorScheme(userId, preference) {
   if (!userId || typeof window === "undefined") return;
   localStorage.setItem(colorSchemeStorageKey(userId), normalizeColorScheme(preference));
+}
+
+// For standalone routes outside AppLayout (e.g. public billing pages) that
+// still need to render in the user's actual theme rather than the default.
+export function useApplyColorScheme(user) {
+  useEffect(() => {
+    applyColorScheme(readColorScheme(user));
+  }, [user?.id, user?.preferences?.color_scheme]);
 }

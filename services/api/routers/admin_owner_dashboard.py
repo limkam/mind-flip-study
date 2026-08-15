@@ -6,9 +6,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
 from database import get_db
 from dependencies import require_role
 from models.user import User
+from models.billing_analytics import BillingEvent
+from models.token_usage import TokenUsage
 from repositories.owner_dashboard_repository import OwnerDashboardRepository
 from schemas.owner_dashboard import (
     AlertsOut,
@@ -133,23 +136,26 @@ async def system_health(
         await request.app.state.redis.ping()
     except Exception:
         redis_status = "critical"
-    stripe = "warning" if fresh["stale"] else "healthy"
+    recent_webhook_failures = int(await db.scalar(select(func.count(BillingEvent.id)).where(BillingEvent.status == "failed")) or 0)
+    recent_ai_failures = int(await db.scalar(select(func.count(TokenUsage.id)).where(TokenUsage.status == "failed")) or 0)
+    stripe = "failing" if recent_webhook_failures else ("no_activity" if fresh.get("stripe_sync_time") is None else "healthy")
+    ai = "degraded" if recent_ai_failures else ("no_activity" if fresh.get("ai_sync_time") is None else "healthy")
     return {
         "status": "degraded" if alert_data["items"] else "healthy",
-        "stripe_sync": "stale" if fresh["stale"] else "healthy",
-        "ai_telemetry": "stale" if fresh["stale"] else "healthy",
+        "stripe_sync": stripe,
+        "ai_telemetry": ai,
         "database": "healthy",
         "alerts": len(alert_data["items"]),
         "indicators": [
             {
                 "name": "Stripe Webhooks",
                 "status": stripe,
-                "detail": "Based on canonical event freshness",
+                "detail": f"{recent_webhook_failures} failed durable webhook event(s)" if recent_webhook_failures else "No failed durable webhook events",
             },
             {
                 "name": "Stripe Synchronization",
-                "status": stripe,
-                "detail": "24-hour freshness threshold",
+                "status": "unknown" if fresh.get("stripe_sync_time") is None else "healthy",
+                "detail": "No recent activity is not treated as failure",
             },
             {"name": "Redis", "status": redis_status, "detail": "Live ping"},
             {
@@ -159,8 +165,8 @@ async def system_health(
             },
             {
                 "name": "AI Providers",
-                "status": "warning" if fresh["stale"] else "healthy",
-                "detail": "Based on telemetry freshness",
+                "status": ai,
+                "detail": f"{recent_ai_failures} failed AI call(s) recorded" if recent_ai_failures else "No failed AI calls recorded",
             },
             {
                 "name": "Background Jobs",

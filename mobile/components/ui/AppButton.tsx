@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -12,6 +13,7 @@ import {
 } from "react-native";
 
 import { useTheme } from "../../hooks/useTheme";
+import { usePressScale } from "../../hooks/usePressScale";
 import { hapticImpact } from "../../lib/haptics";
 import { TOKENS } from "../../theme/tokens";
 
@@ -50,6 +52,7 @@ export function AppButton({
   accessibilityHint,
 }: Props) {
   const { colors, isDark } = useTheme();
+  const { scale, onPressIn, onPressOut } = usePressScale();
 
   const handlePress = () => {
     if (disabled || loading) return;
@@ -121,80 +124,84 @@ export function AppButton({
   const sizeStyle = getSizeStyles();
 
   return (
-    <Pressable
-      onPress={handlePress}
-      disabled={disabled || loading}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityHint={accessibilityHint}
-      accessibilityState={{ disabled: disabled || loading }}
-      style={({ pressed }) => {
-        const vStyle = getVariantStyles(pressed);
-        return [
-          styles.base,
-          {
-            minHeight: sizeStyle.minHeight,
-            paddingHorizontal: sizeStyle.paddingHorizontal,
-            backgroundColor: vStyle.backgroundColor,
-            borderColor: vStyle.borderColor,
-            borderWidth: variant === "secondary" ? 1 : 0,
-            opacity: disabled ? (isDark ? 0.4 : 0.5) : 1,
-          },
-          fullWidth && styles.fullWidth,
-          style,
-        ];
-      }}
-    >
-      {({ pressed }) => {
-        const vStyle = getVariantStyles(pressed);
+    <Animated.View style={[fullWidth && styles.fullWidth, { transform: [{ scale }] }]}>
+      <Pressable
+        onPress={handlePress}
+        onPressIn={disabled || loading ? undefined : onPressIn}
+        onPressOut={disabled || loading ? undefined : onPressOut}
+        disabled={disabled || loading}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? label}
+        accessibilityHint={accessibilityHint}
+        accessibilityState={{ disabled: disabled || loading }}
+        style={({ pressed }) => {
+          const vStyle = getVariantStyles(pressed);
+          return [
+            styles.base,
+            {
+              minHeight: sizeStyle.minHeight,
+              paddingHorizontal: sizeStyle.paddingHorizontal,
+              backgroundColor: vStyle.backgroundColor,
+              borderColor: vStyle.borderColor,
+              borderWidth: variant === "secondary" ? 1 : 0,
+              opacity: disabled ? (isDark ? 0.4 : 0.5) : 1,
+            },
+            fullWidth && styles.fullWidth,
+            style,
+          ];
+        }}
+      >
+        {({ pressed }) => {
+          const vStyle = getVariantStyles(pressed);
 
-        const renderIcon = () => {
-          if (!icon) return null;
-          if (typeof icon === "string") {
-            return (
-              <Ionicons
-                name={icon as keyof typeof Ionicons.glyphMap}
-                size={sizeStyle.iconSize}
-                color={vStyle.textColor}
-              />
-            );
-          }
-          return icon;
-        };
+          const renderIcon = () => {
+            if (!icon) return null;
+            if (typeof icon === "string") {
+              return (
+                <Ionicons
+                  name={icon as keyof typeof Ionicons.glyphMap}
+                  size={sizeStyle.iconSize}
+                  color={vStyle.textColor}
+                />
+              );
+            }
+            return icon;
+          };
 
-        return (
-          <View style={styles.contentRow}>
-            {loading ? (
-              <ActivityIndicator
-                size="small"
-                color={vStyle.spinnerColor}
-                style={styles.spinner}
-              />
-            ) : icon && iconPosition === "left" ? (
-              <View style={styles.iconLeft}>{renderIcon()}</View>
-            ) : null}
+          return (
+            <View style={styles.contentRow}>
+              {loading ? (
+                <ActivityIndicator
+                  size="small"
+                  color={vStyle.spinnerColor}
+                  style={styles.spinner}
+                />
+              ) : icon && iconPosition === "left" ? (
+                <View style={styles.iconLeft}>{renderIcon()}</View>
+              ) : null}
 
-            <Text
-              style={[
-                styles.label,
-                {
-                  color: vStyle.textColor,
-                  fontSize: sizeStyle.fontSize,
-                },
-                labelStyle,
-              ]}
-              numberOfLines={2}
-            >
-              {label}
-            </Text>
+              <Text
+                style={[
+                  styles.label,
+                  {
+                    color: vStyle.textColor,
+                    fontSize: sizeStyle.fontSize,
+                  },
+                  labelStyle,
+                ]}
+                numberOfLines={2}
+              >
+                {label}
+              </Text>
 
-            {!loading && icon && iconPosition === "right" ? (
-              <View style={styles.iconRight}>{renderIcon()}</View>
-            ) : null}
-          </View>
-        );
-      }}
-    </Pressable>
+              {!loading && icon && iconPosition === "right" ? (
+                <View style={styles.iconRight}>{renderIcon()}</View>
+              ) : null}
+            </View>
+          );
+        }}
+      </Pressable>
+    </Animated.View>
   );
 }
 

@@ -72,6 +72,14 @@ def _subscription_fields(raw) -> dict:
         "billing_interval": recurring.get("interval"),
         "interval_count": int(recurring.get("interval_count") or 1),
         "current_period_end": _dt(sub.get("current_period_end") or item.get("current_period_end")),
+        "current_period_start": _dt(sub.get("current_period_start") or item.get("current_period_start")),
+        "subscription_started_at": _dt(sub.get("start_date")),
+        "cancel_at_period_end": bool(sub.get("cancel_at_period_end")),
+        "cancel_at": _dt(sub.get("cancel_at")),
+        "canceled_at": _dt(sub.get("canceled_at")),
+        "trial_start": _dt(sub.get("trial_start")),
+        "trial_end": _dt(sub.get("trial_end")),
+        "pause_collection": _dict(sub.get("pause_collection")) or None,
         "created_at": _dt(sub.get("created")),
     }
 
@@ -94,6 +102,35 @@ def _invoice_price_id(inv: dict) -> str | None:
         return str(price["id"])
     details = _dict(_dict(line.get("pricing")).get("price_details"))
     return str(details.get("price")) if details.get("price") else None
+
+
+def _invoice_period(inv: dict) -> tuple[datetime | None, datetime | None]:
+    """The real billing period this invoice covers, from its line items.
+
+    invoice.period_start/period_end (top level) mark when line items were
+    *added* to the invoice, not the subscription period being billed for —
+    for invoices generated immediately at checkout that collapses to a single
+    instant. Each line item's own `period.start`/`period.end` reflects the
+    actual billing cycle it covers.
+
+    An invoice can carry multiple line items with different periods (e.g. a
+    proration credit/charge alongside the regular cycle charge on a plan
+    change). We span min(start) to max(end) across all of them so the
+    invoice's full net amount is recognized across everything it billed for,
+    rather than truncating to just one line item's window.
+    """
+    lines = _dict(inv.get("lines")).get("data") or []
+    starts, ends = [], []
+    for raw_line in lines:
+        period = _dict(_dict(raw_line).get("period"))
+        start, end = _dt(period.get("start")), _dt(period.get("end"))
+        if start is not None:
+            starts.append(start)
+        if end is not None:
+            ends.append(end)
+    if not starts or not ends:
+        return None, None
+    return min(starts), max(ends)
 
 
 def _invoice_payment_intent(inv: dict) -> str | None:
@@ -250,6 +287,14 @@ def reconcile_stripe(*, limit: int = 100) -> dict[str, int]:
             row.unit_amount_cents = fields["unit_amount_cents"]
             row.interval_count = fields["interval_count"]
             row.current_period_end = fields["current_period_end"]
+            row.current_period_start = fields["current_period_start"]
+            row.subscription_started_at = fields["subscription_started_at"]
+            row.cancel_at_period_end = fields["cancel_at_period_end"]
+            row.cancel_at = fields["cancel_at"]
+            row.canceled_at = fields["canceled_at"]
+            row.trial_start = fields["trial_start"]
+            row.trial_end = fields["trial_end"]
+            row.pause_collection = fields["pause_collection"]
             counts["subscriptions_upserted"] += 1
 
         for raw in invoices:
@@ -275,8 +320,7 @@ def reconcile_stripe(*, limit: int = 100) -> dict[str, int]:
             row.amount_paid_cents = int(inv.get("amount_paid") or 0)
             row.amount_refunded_cents = int(inv.get("amount_refunded") or 0)
             row.paid_at = _dt(transitions.get("paid_at") or (inv.get("created") if row.status == "paid" else None))
-            row.period_start = _dt(inv.get("period_start"))
-            row.period_end = _dt(inv.get("period_end"))
+            row.period_start, row.period_end = _invoice_period(inv)
             counts["invoices_upserted"] += 1
 
         for raw in events:

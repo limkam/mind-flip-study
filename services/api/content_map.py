@@ -17,6 +17,8 @@ class ChapterSegment:
     text: str
     char_count: int
     index: int
+    start: int = 0
+    end: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -60,23 +62,44 @@ def _split_pseudo_chapters(full_text: str, count: int = DEFAULT_PSEUDO_CHAPTERS)
     if not text:
         return []
     count = max(1, min(count, 8))
-    chunk_size = max(500, len(text) // count)
+    chunk_size = max(1, len(text) // count)
     segments: list[ChapterSegment] = []
     for i in range(count):
         start = i * chunk_size
         end = len(text) if i == count - 1 else min(len(text), (i + 1) * chunk_size)
         excerpt = text[start:end][:CHAPTER_TEXT_MAX].strip()
-        if not excerpt:
-            continue
         segments.append(
             ChapterSegment(
                 title=f"Section {i + 1}",
                 text=excerpt,
-                char_count=len(excerpt),
+                char_count=end - start,
                 index=i,
+                start=start,
+                end=end,
             ),
         )
     return segments
+
+
+def _resolve_contiguous_starts(positions: list[int | None], text_len: int) -> list[int]:
+    """
+    Force full-document coverage: the first chapter always starts at 0, and any
+    chapter whose title couldn't be located inherits the previous chapter's
+    boundary (making it a zero-length chapter rather than leaving a gap).
+    Matched positions are already non-decreasing by construction (see the
+    forward-only cursor search in build_content_map), so this stays monotonic.
+    """
+    starts = list(positions)
+    if starts:
+        starts[0] = 0
+    last = 0
+    for i, pos in enumerate(starts):
+        if pos is None:
+            starts[i] = last
+        else:
+            last = min(text_len, pos)
+            starts[i] = last
+    return [s if s is not None else 0 for s in starts]
 
 
 def build_content_map(
@@ -86,7 +109,10 @@ def build_content_map(
     selected: list[str] | None = None,
 ) -> list[ChapterSegment]:
     """
-    Segment document text by TOC chapter titles.
+    Segment document text by TOC chapter titles, guaranteeing the segments
+    collectively cover the entire document with no gaps or overlaps: the
+    first segment starts at 0, each segment ends where the next begins, and
+    the last segment ends at len(full_text).
     Falls back to equal-length pseudo-sections when titles cannot be aligned.
     """
     text = full_text.strip()
@@ -98,34 +124,41 @@ def build_content_map(
         return _split_pseudo_chapters(text)
 
     text_lower = text.lower()
-    positions: list[tuple[int, str]] = []
+    raw_positions: list[int | None] = []
     cursor = 0
     for title in titles:
         pos = _find_title_pos(text_lower, title, cursor)
         if pos == -1:
+            raw_positions.append(None)
             continue
-        positions.append((pos, title))
+        raw_positions.append(pos)
         cursor = pos + max(3, len(title) // 2)
 
-    if len(positions) < max(1, len(titles) // 2):
+    found_count = sum(1 for p in raw_positions if p is not None)
+    if found_count < max(1, len(titles) // 2):
         # Too few matches — weighted pseudo split using requested titles as labels
         pseudo = _split_pseudo_chapters(text, len(titles))
         return [
-            ChapterSegment(title=titles[i] if i < len(titles) else seg.title, text=seg.text, char_count=seg.char_count, index=i)
+            ChapterSegment(
+                title=titles[i] if i < len(titles) else seg.title,
+                text=seg.text,
+                char_count=seg.char_count,
+                index=i,
+                start=seg.start,
+                end=seg.end,
+            )
             for i, seg in enumerate(pseudo)
         ]
 
-    positions.sort(key=lambda x: x[0])
+    starts = _resolve_contiguous_starts(raw_positions, len(text))
     segments: list[ChapterSegment] = []
-    for i, (start, title) in enumerate(positions):
-        end = positions[i + 1][0] if i + 1 < len(positions) else len(text)
+    for i, title in enumerate(titles):
+        start = starts[i]
+        end = starts[i + 1] if i + 1 < len(starts) else len(text)
         excerpt = text[start:end][:CHAPTER_TEXT_MAX].strip()
-        if len(excerpt) < 80:
-            continue
-        segments.append(ChapterSegment(title=title, text=excerpt, char_count=len(excerpt), index=i))
-
-    if not segments:
-        return _split_pseudo_chapters(text, len(titles))
+        segments.append(
+            ChapterSegment(title=title, text=excerpt, char_count=end - start, index=i, start=start, end=end),
+        )
 
     return segments
 

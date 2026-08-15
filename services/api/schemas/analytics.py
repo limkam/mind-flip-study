@@ -47,3 +47,4 @@ class AnalyticsSummaryOut(BaseModel):
     rating_breakdown: RatingBreakdownOut = Field(default_factory=RatingBreakdownOut)
     streak_days: int = Field(0, ge=0)
     last_14_days: list[DayActivityOut] = Field(default_factory=list)
+    cards_reviewed_today: int = Field(0, ge=0, description="Distinct cards with a card_progress review today (UTC)")

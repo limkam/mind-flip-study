@@ -24,6 +24,7 @@ def _book(*, extras: dict | None = None) -> Book:
         s3_key=f"books/{uuid4()}/file.pdf",
         s3_url="https://example.com/file.pdf",
         file_size_bytes=100,
+        book_code=f"MF-{uuid4().hex[:8].upper()}",
         status=BookStatus.ready,
         extras=extras or {"table_of_contents": []},
         created_at=now,

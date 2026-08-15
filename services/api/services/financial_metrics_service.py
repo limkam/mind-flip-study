@@ -1,13 +1,14 @@
 """Canonical subscription-normalized recurring revenue metrics."""
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.user_subscription import UserSubscription
 
-ELIGIBLE_SUBSCRIPTION_STATUSES = ("active", "trialing", "past_due")
+ELIGIBLE_SUBSCRIPTION_STATUSES = ("active",)
 
 
 def calculate_mrr(amounts: list[tuple[int | None, str | None, int]]) -> float:
@@ -55,6 +56,7 @@ class FinancialMetricsService:
         self.db = db
 
     async def current_snapshot(self) -> FinancialSnapshot:
+        now = datetime.now(UTC)
         count = func.nullif(UserSubscription.interval_count, 0)
         monthly_cents = func.coalesce(
             func.sum(
@@ -68,23 +70,30 @@ class FinancialMetricsService:
             ),
             0,
         )
-        eligible = UserSubscription.status.in_(ELIGIBLE_SUBSCRIPTION_STATUSES)
+        eligible = (
+            UserSubscription.status.in_(ELIGIBLE_SUBSCRIPTION_STATUSES),
+            UserSubscription.current_period_end.is_not(None),
+            UserSubscription.current_period_end > now,
+        )
+        conflicted_users = (
+            select(UserSubscription.user_id)
+            .where(*eligible)
+            .group_by(UserSubscription.user_id)
+            .having(func.count(UserSubscription.id) > 1)
+        )
         row = (
             await self.db.execute(
                 select(
                     monthly_cents.label("mrr_cents"),
                     func.count(func.distinct(UserSubscription.user_id)).label("users"),
                     func.count(UserSubscription.id).label("subscriptions"),
-                ).where(eligible)
+                ).where(*eligible, UserSubscription.user_id.not_in(conflicted_users))
             )
         ).one()
         conflicts = int(
             await self.db.scalar(
                 select(func.count()).select_from(
-                    select(UserSubscription.user_id)
-                    .where(eligible)
-                    .group_by(UserSubscription.user_id)
-                    .having(func.count(UserSubscription.id) > 1)
+                    conflicted_users
                     .subquery()
                 )
             )

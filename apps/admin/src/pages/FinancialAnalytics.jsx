@@ -50,7 +50,7 @@ export default function FinancialAnalytics() {
     { key: 'users', label: 'Users' },
     {
       key: 'monthly_revenue_usd',
-      label: 'Monthly Revenue',
+      label: 'Current-Month Revenue',
       render: (row) => `$${row.monthly_revenue_usd.toFixed(2)}`,
     },
     {
@@ -87,7 +87,7 @@ export default function FinancialAnalytics() {
       <FetchErrorBanner message={isError ? errorMessage : null} onRetry={refresh} isRetrying={isFetching} />
 
       <div className="metrics-grid">
-        <MetricCard label="MRR" value={`$${d.mrr_usd.toFixed(2)}`} />
+        <MetricCard label="Active Contracted MRR" value={`$${d.mrr_usd.toFixed(2)}`} />
         <MetricCard label="ARR" value={`$${d.arr_usd.toFixed(2)}`} />
         <MetricCard label="Paying Users" value={d.paying_users} />
         <MetricCard label="Active Subscriptions" value={d.active_subscriptions} />

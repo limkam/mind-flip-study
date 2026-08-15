@@ -87,7 +87,7 @@ DEFAULT_PLAN_FEATURES = {
         "daily_review_limit": None,
         "max_cards_per_set": 20,
         "games_limit": 3,
-        "can_send_challenges": False,
+        "can_send_challenges": True,
         "can_create_study_group": False,
         "can_join_study_group": True,
         "priority_processing": False,

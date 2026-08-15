@@ -6,6 +6,7 @@ export default function DataTable({
   size,
   onPageChange,
   renderActions,
+  onRowClick,
 }) {
   const paginated = typeof onPageChange === 'function' && size > 0;
   const totalPages = paginated ? Math.max(1, Math.ceil(total / size)) : 1;
@@ -30,7 +31,7 @@ export default function DataTable({
             </tr>
           ) : (
             rows.map((row) => (
-              <tr key={row.id}>
+              <tr key={row.id} onClick={onRowClick ? () => onRowClick(row) : undefined} onKeyDown={onRowClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') onRowClick(row); } : undefined} tabIndex={onRowClick ? 0 : undefined} className={onRowClick ? 'clickable-row' : undefined}>
                 {columns.map((col) => (
                   <td key={col.key}>
                     {col.render ? col.render(row) : row[col.key]}

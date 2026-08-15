@@ -21,7 +21,8 @@ class _Rows:
 
 
 @pytest.mark.asyncio
-async def test_list_challenges_batches_relationship_lookups():
+async def test_list_challenges_batches_relationship_lookups(monkeypatch):
+    monkeypatch.setattr("routers.quiz_challenges.can_user_do", AsyncMock(return_value={"allowed": True}))
     current_user = SimpleNamespace(id=uuid4())
     opponent = SimpleNamespace(id=uuid4(), email="opponent@example.test", full_name="Opponent")
     current_user.email = "learner@example.test"

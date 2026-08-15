@@ -89,6 +89,8 @@ class TocChapter(BaseModel):
     chapter_number: int = Field(..., ge=1)
     title: str = Field(..., min_length=1, max_length=512)
     subtopics: list[str] = Field(default_factory=list)
+    start_offset: int | None = Field(None, ge=0)
+    end_offset: int | None = Field(None, ge=0)
 
 
 class TocUpdateRequest(BaseModel):
@@ -109,6 +111,7 @@ class BookPublic(BaseModel):
     s3_key: str
     s3_url: str
     file_size_bytes: int
+    book_code: str
     status: BookStatus
     extras: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
@@ -126,15 +129,19 @@ class BookOut(BaseModel):
     s3_key: str
     s3_url: str
     file_size_bytes: int
+    book_code: str
     status: BookStatus
     created_at: datetime
     extras: dict[str, Any] = Field(default_factory=dict)
     file_url: str | None = None
     table_of_contents: list[Any] = Field(default_factory=list)
+    toc_text_length: int = 0
     tags: list[Any] = Field(default_factory=list)
     description: str = ""
     subject: str = ""
     cover_url: str | None = None
+    thumbnail_url: str | None = None
+    thumbnail_status: str = "missing"
     processing_phase: str = ""
     is_analyzing: bool = False
     toc_extraction_method: str = ""
@@ -166,15 +173,19 @@ class BookOut(BaseModel):
                 "s3_key": data.s3_key,
                 "s3_url": data.s3_url,
                 "file_size_bytes": data.file_size_bytes,
+                "book_code": data.book_code,
                 "status": data.status,
                 "created_at": data.created_at,
                 "extras": ex,
                 "file_url": data.s3_url,
                 "table_of_contents": ex.get("table_of_contents") or [],
+                "toc_text_length": int(ex.get("toc_text_length") or 0),
                 "tags": ex.get("tags") or [],
                 "description": ex.get("description") or "",
                 "subject": ex.get("subject") or "",
                 "cover_url": ex.get("cover_url"),
+                "thumbnail_url": f"/books/{data.id}/thumbnail" if (ex.get("thumbnail") or {}).get("status") == "ready" else None,
+                "thumbnail_status": str((ex.get("thumbnail") or {}).get("status") or "missing"),
                 "processing_phase": phase,
                 "is_analyzing": analyzing,
                 "toc_extraction_method": ex.get("toc_extraction_method") or "",

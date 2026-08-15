@@ -28,7 +28,7 @@ async def test_persisted_weekly_monthly_and_independent_course_scorecards_refres
         user = User(email=f"scorecard-{uuid.uuid4()}@example.test", hashed_password=None, role=UserRole.student, full_name="Scorecard Test", auth_provider="email", preferences={}, subscription_tier="free")
         db.add(user)
         await db.flush()
-        books = [Book(user_id=user.id, title=title, author="Test", s3_key=f"{title}.pdf", s3_url=f"https://example.test/{title}", file_size_bytes=1, status=BookStatus.ready, extras={}) for title in ("Biology", "Chemistry")]
+        books = [Book(user_id=user.id, title=title, author="Test", s3_key=f"{title}.pdf", s3_url=f"https://example.test/{title}", file_size_bytes=1, book_code=f"MF-{uuid.uuid4().hex[:8].upper()}", status=BookStatus.ready, extras={}) for title in ("Biology", "Chemistry")]
         db.add_all(books)
         await db.flush()
         sets = [FlashcardSet(user_id=user.id, book_id=book.id, title=book.title, description="", tags=[]) for book in books]

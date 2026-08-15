@@ -23,6 +23,15 @@ from services.entitlements import Action, can_user_do
 router = APIRouter(tags=["quiz-challenges"])
 
 
+async def _require_challenge_access(db: AsyncSession, user: User) -> None:
+    decision = await can_user_do(db, user, Action.SEND_CHALLENGE)
+    if not decision.get("allowed"):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={"code": "UPGRADE_REQUIRED", "message": "Quiz challenges require a Quick 7, Standard 15, or Premium 30 plan."},
+        )
+
+
 def _serialize_challenge(
     ch: QuizChallenge,
     challenger: User,
@@ -74,6 +83,7 @@ async def list_challenges(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[dict[str, Any]]:
+    await _require_challenge_access(db, current_user)
     r = await db.execute(
         select(QuizChallenge).where(
             (QuizChallenge.challenger_id == current_user.id) | (QuizChallenge.challengee_id == current_user.id),
@@ -107,12 +117,7 @@ async def create_challenge(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, Any]:
-    decision = await can_user_do(db, current_user, Action.SEND_CHALLENGE)
-    if not decision.get("allowed"):
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail={"code": "UPGRADE_REQUIRED", "message": "Challenges are available on Standard 15 and Premium 30."},
-        )
+    await _require_challenge_access(db, current_user)
     er = await db.execute(select(User).where(User.email == body.opponent_email.strip().lower()))
     challengee = er.scalar_one_or_none()
     if challengee is None or challengee.id == current_user.id:
@@ -204,12 +209,7 @@ async def patch_challenge(
     if ch.challenger_id != current_user.id and ch.challengee_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    decision = await can_user_do(db, current_user, Action.SEND_CHALLENGE)
-    if not decision.get("allowed"):
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail={"code": "UPGRADE_REQUIRED", "message": "Quiz challenges require a Standard 15 or Premium 30 plan upgrade."},
-        )
+    await _require_challenge_access(db, current_user)
 
     rd = dict(ch.result_data or {})
     patch = dict(body)

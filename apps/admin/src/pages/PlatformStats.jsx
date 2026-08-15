@@ -15,6 +15,8 @@ import EmptyState from '../components/EmptyState';
 import FetchErrorBanner from '../components/FetchErrorBanner';
 import MetricCard from '../components/MetricCard';
 import { useAdminDashboard } from '../hooks/useAdminDashboard';
+import { useQuery } from '@tanstack/react-query';
+import client from '../api/client';
 import { EMPTY_PLATFORM_STATS } from '../lib/analyticsDefaults';
 import { CHART } from '../lib/chartColors';
 
@@ -28,6 +30,7 @@ function formatDate(iso) {
 }
 
 export default function PlatformStats() {
+  const rankings = useQuery({ queryKey: ['admin-plan-rankings'], queryFn: async () => (await client.get('/admin/control/plan-rankings')).data });
   const {
     data,
     isLoading,
@@ -97,6 +100,24 @@ export default function PlatformStats() {
         <MetricCard label="Assignments Completed" value={d.assignments_completed} />
         <MetricCard label="Perfect Quiz Scores" value={d.perfect_quiz_scores} />
         <MetricCard label="Avg Cards per Set" value={d.avg_cards_per_set} />
+      </div>
+
+      <h3 className="section-title">Current Customer Plan Distribution</h3>
+      <p className="text-muted">{rankings.data?.population_definition || 'Loading canonical entitlement distribution…'}</p>
+      {rankings.data?.distribution?.length ? (
+        <DataTable
+          columns={[
+            { key: 'plan', label: 'Plan' },
+            { key: 'users', label: 'Users' },
+            { key: 'percentage', label: '% of Total', render: (row) => `${row.percentage}%` },
+          ]}
+          rows={rankings.data.distribution.map((row, i) => ({ id: `${row.plan}-${i}`, ...row }))}
+        />
+      ) : (
+        <EmptyState message="Plan distribution not available." />
+      )}
+      <div className="metrics-grid">
+        <MetricCard label="Billing Conflicts Excluded" value={rankings.data?.billing_conflicts ?? 0} />
       </div>
 
       <h3 className="section-title">Content Created Over Time</h3>

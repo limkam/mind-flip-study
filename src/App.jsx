@@ -56,7 +56,7 @@ function RequireOnboarding() {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  if (user && user.onboarding_completed === false && location.pathname !== "/") {
+  if (user && user.onboarding_completed === false) {
     return <Navigate to="/onboarding" replace state={{ from: location }} />;
   }
 

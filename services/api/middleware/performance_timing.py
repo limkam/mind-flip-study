@@ -28,6 +28,7 @@ _IMPORTANT_PREFIXES = (
     "/users/me", "/auth/refresh", "/books", "/flashcard-sets",
     "/analytics", "/quiz-results", "/billing/entitlements",
     "/quiz-challenges", "/leaderboard", "/challenge-leaderboard",
+    "/admin",
 )
 
 
@@ -40,6 +41,8 @@ class PerformanceTimingMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             status_code = response.status_code
+            response.headers["X-Request-ID"] = timing.request_id
+            response.headers["Server-Timing"] = f'db;dur={timing.sql_ms:.1f}, app;dur={(time.perf_counter() - started) * 1000:.1f}'
             return response
         finally:
             total_ms = (time.perf_counter() - started) * 1000

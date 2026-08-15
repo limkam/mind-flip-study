@@ -14,6 +14,16 @@ class _Req:
         return b'{}'
 
 
+@pytest.fixture(autouse=True)
+def _isolate_stripe_reconciliation(monkeypatch):
+    """These unit tests must never perform provider I/O."""
+    monkeypatch.setattr(
+        billing,
+        '_reconcile_canonical_subscription',
+        AsyncMock(return_value=None),
+    )
+
+
 @pytest.mark.asyncio
 async def test_paid_to_free_downgrade_never_deletes_content(monkeypatch):
     event = {

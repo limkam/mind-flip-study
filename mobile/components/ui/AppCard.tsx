@@ -1,7 +1,8 @@
 import { type ReactNode } from "react";
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { Animated, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 
 import { useTheme } from "../../hooks/useTheme";
+import { usePressScale } from "../../hooks/usePressScale";
 import { hapticImpact } from "../../lib/haptics";
 import { TOKENS } from "../../theme/tokens";
 
@@ -24,24 +25,21 @@ export function AppCard({
   accessibilityHint,
   style,
 }: Props) {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
+  const { scale, onPressIn, onPressOut } = usePressScale();
 
   const getVariantStyles = (pressed: boolean) => {
     switch (variant) {
       case "elevated":
         return {
-          backgroundColor: isDark ? colors.surfaceElevated : colors.surface,
+          backgroundColor: colors.surfaceElevated,
           borderColor: colors.border,
           borderWidth: 1,
           ...TOKENS.elevation.raised,
         };
       case "interactive":
         return {
-          backgroundColor: pressed
-            ? isDark
-              ? colors.surfaceElevated
-              : colors.surfaceMuted
-            : colors.surface,
+          backgroundColor: pressed ? colors.surfaceMuted : colors.surface,
           borderColor: pressed ? colors.primaryMuted : colors.border,
           borderWidth: 1,
           ...(pressed ? TOKENS.elevation.raised : TOKENS.elevation.flat),
@@ -74,12 +72,24 @@ export function AppCard({
     return (
       <Pressable
         onPress={handlePress}
+        onPressIn={onPress ? onPressIn : undefined}
+        onPressOut={onPress ? onPressOut : undefined}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={accessibilityHint}
-        style={({ pressed }) => [styles.card, getVariantStyles(pressed), style]}
       >
-        {children}
+        {({ pressed }) => (
+          <Animated.View
+            style={[
+              styles.card,
+              getVariantStyles(pressed),
+              onPress ? { transform: [{ scale }] } : null,
+              style,
+            ]}
+          >
+            {children}
+          </Animated.View>
+        )}
       </Pressable>
     );
   }

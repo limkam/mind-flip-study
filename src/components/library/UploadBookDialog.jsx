@@ -306,6 +306,10 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
                 disabled={!!phase}
               />
             </div>
+            <p className="text-xs text-muted-foreground">
+              By uploading, you confirm you have the right to use this material for personal study. Only upload
+              content you own or are permitted to use.
+            </p>
           </div>
 
           {titleHint && (

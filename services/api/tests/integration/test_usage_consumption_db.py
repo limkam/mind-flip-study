@@ -56,6 +56,7 @@ def _book(user_id) -> Book:
         s3_key=f"test/{token}.pdf",
         s3_url=f"https://example.test/{token}.pdf",
         file_size_bytes=1,
+        book_code=f"MF-{token[:8].upper()}",
         status=BookStatus.ready,
         extras={},
     )

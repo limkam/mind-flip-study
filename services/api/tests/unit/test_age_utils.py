@@ -11,6 +11,7 @@ from age_utils import (
     calculate_age,
     dob_range_for_age_group,
     validate_date_of_birth,
+    validate_registration_date_of_birth,
 )
 
 
@@ -24,6 +25,17 @@ def test_calculate_age_after_birthday_this_year() -> None:
 
 def test_calculate_age_on_birthday() -> None:
     assert calculate_age(date(2000, 6, 8), on_date=date(2026, 6, 8)) == 26
+
+
+def test_registration_allows_exactly_thirteen_and_older() -> None:
+    on = date(2026, 8, 15)
+    assert validate_registration_date_of_birth(date(2013, 8, 15), on_date=on)
+    assert validate_registration_date_of_birth(date(2000, 1, 1), on_date=on)
+
+
+def test_registration_rejects_before_thirteenth_birthday() -> None:
+    with pytest.raises(ValueError, match="13 and above"):
+        validate_registration_date_of_birth(date(2013, 8, 16), on_date=date(2026, 8, 15))
 
 
 def test_age_group_labels() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -17,7 +18,7 @@ from generation_prompts import GENERATION_PIPELINE_VERSION
 from models.book import Book
 from models.enums import QuizChallengeStatus
 from models.flashcard import Flashcard, FlashcardSet
-from models.quiz import QuizChallenge
+from models.quiz import CardProgress, QuizChallenge
 from models.user import User
 from models.usage_event import UsageEvent, UsageReservation
 from scenario_regeneration import regenerate_all_scenarios_sync, replace_set_scenarios_in_description
@@ -87,6 +88,32 @@ async def _card_counts_map(db: AsyncSession, set_ids: list[UUID]) -> dict[UUID, 
     return {row.set_id: int(row.count) for row in r.all()}
 
 
+async def _last_studied_map(
+    db: AsyncSession,
+    set_ids: list[UUID],
+    user_id: UUID,
+) -> dict[UUID, datetime]:
+    """Most recent card_progress.last_reviewed_at per set, for this user."""
+    if not set_ids:
+        return {}
+    r = await db.execute(
+        select(Flashcard.set_id, func.max(CardProgress.last_reviewed_at))
+        .join(CardProgress, CardProgress.card_id == Flashcard.id)
+        .where(
+            Flashcard.set_id.in_(set_ids),
+            CardProgress.user_id == user_id,
+            CardProgress.last_reviewed_at.is_not(None),
+        )
+        .group_by(Flashcard.set_id),
+    )
+    return {row[0]: row[1] for row in r.all() if row[1] is not None}
+
+
+async def _last_studied_at(db: AsyncSession, set_id: UUID, user_id: UUID) -> datetime | None:
+    m = await _last_studied_map(db, [set_id], user_id)
+    return m.get(set_id)
+
+
 async def _serialize_set(
     db: AsyncSession,
     s: FlashcardSet,
@@ -94,6 +121,7 @@ async def _serialize_set(
     include_cards: bool = True,
     book_title: str | None = None,
     card_count: int | None = None,
+    last_studied_at: datetime | None,
 ) -> FlashcardSetOut:
     bt = book_title if book_title is not None else await _book_title(db, s.book_id)
     meta = flashcard_set_meta_from_description(s.description)
@@ -153,6 +181,7 @@ async def _serialize_set(
         scenarios=scenario_rows,
         chapter_summaries=list(meta.get("chapter_summaries") or []),
         generation_seed=meta.get("generation_seed"),
+        last_studied_at=last_studied_at,
     )
 
 
@@ -186,7 +215,11 @@ async def create_flashcard_set(
         if prior is not None:
             existing_set = await db.get(FlashcardSet, prior.resource_id)
             if existing_set is not None and existing_set.user_id == current_user.id:
-                return await _serialize_set(db, existing_set)
+                return await _serialize_set(
+                    db,
+                    existing_set,
+                    last_studied_at=await _last_studied_at(db, existing_set.id, current_user.id),
+                )
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="This generation operation was already completed and its usage remains consumed.",
@@ -227,7 +260,8 @@ async def create_flashcard_set(
     )
     await db.commit()
     await db.refresh(s)
-    return await _serialize_set(db, s)
+    # Freshly created set: no card_progress rows can exist for it yet.
+    return await _serialize_set(db, s, last_studied_at=None)
 
 
 @router.post("/generate", response_model=JobEnqueueResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -397,6 +431,7 @@ async def list_flashcard_sets(
     book_ids = {s.book_id for s in rows if s.book_id is not None}
     counts_map = await _card_counts_map(db, set_ids)
     titles_map = await _book_titles_map(db, book_ids)
+    last_studied_map = await _last_studied_map(db, set_ids, current_user.id)
     out: list[FlashcardSetOut] = []
     for s in rows:
         out.append(
@@ -406,6 +441,7 @@ async def list_flashcard_sets(
                 include_cards=include_cards,
                 book_title=titles_map.get(s.book_id) if s.book_id else None,
                 card_count=counts_map.get(s.id, 0) if not include_cards else None,
+                last_studied_at=last_studied_map.get(s.id),
             ),
         )
     return out
@@ -422,7 +458,9 @@ async def get_flashcard_set(
     )
     s = r.scalar_one_or_none()
     if s is not None:
-        return await _serialize_set(db, s)
+        return await _serialize_set(
+            db, s, last_studied_at=await _last_studied_at(db, s.id, current_user.id),
+        )
     # Opponent may read the challenger's deck while a challenge is pending/active.
     ch_r = await db.execute(
         select(QuizChallenge).where(
@@ -437,7 +475,9 @@ async def get_flashcard_set(
         # Deck must belong to the challenger who created the challenge (no arbitrary set_id reads).
         if s2 is None or s2.user_id != ch.challenger_id:
             raise HTTPException(status_code=404, detail="Set not found")
-        return await _serialize_set(db, s2)
+        return await _serialize_set(
+            db, s2, last_studied_at=await _last_studied_at(db, s2.id, current_user.id),
+        )
     raise HTTPException(status_code=404, detail="Set not found")
 
 
@@ -462,7 +502,9 @@ async def update_flashcard_set(
         s.tags = body.tags
     await db.commit()
     await db.refresh(s)
-    return await _serialize_set(db, s)
+    return await _serialize_set(
+        db, s, last_studied_at=await _last_studied_at(db, s.id, current_user.id),
+    )
 
 
 @router.delete("/{set_id}", status_code=status.HTTP_204_NO_CONTENT)

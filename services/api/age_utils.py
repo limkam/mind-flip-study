@@ -14,6 +14,8 @@ AGE_GROUP_LABELS: tuple[str, ...] = (
     "55-64",
     "65+",
 )
+MINIMUM_REGISTRATION_AGE = 13
+UNDERAGE_MESSAGE = "MindFlip is only available to users aged 13 and above"
 
 
 def subtract_years(from_date: date, years: int) -> date:
@@ -64,6 +66,14 @@ def validate_date_of_birth(date_of_birth: date, *, on_date: date | None = None) 
     if date_of_birth < oldest:
         raise ValueError("Date of birth is too far in the past")
     return date_of_birth
+
+
+def validate_registration_date_of_birth(date_of_birth: date, *, on_date: date | None = None) -> date:
+    """Validate a DOB collected while creating/completing a new account."""
+    valid = validate_date_of_birth(date_of_birth, on_date=on_date)
+    if calculate_age(valid, on_date=on_date) < MINIMUM_REGISTRATION_AGE:
+        raise ValueError(UNDERAGE_MESSAGE)
+    return valid
 
 
 def dob_range_for_age_group(group: str, *, on_date: date | None = None) -> tuple[date, date]:

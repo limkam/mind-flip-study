@@ -3,8 +3,12 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Smartphone, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/AuthContext";
+import { useApplyColorScheme } from "@/lib/colorScheme";
 
 export default function MobileBillingCancel() {
+  const { user } = useAuth();
+  useApplyColorScheme(user);
   const deepLink = "mindflip://billing/cancel";
 
   useEffect(() => {

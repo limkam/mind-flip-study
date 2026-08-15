@@ -29,6 +29,7 @@ from models.email import EmailContact, EmailDeliveryLog, EmailJob, EmailProvider
 from models.automation import EngagementAutomationRun, EngagementAutomationSchedule
 from models.native_session import NativeRefreshSession
 from models.xp import XPTransaction
+from models.admin_observability import AdminAuditLog, OnboardingEvent, UserActivityEvent
 
 __all__ = [
     "Achievement",
@@ -81,4 +82,7 @@ __all__ = [
     "Workbook",
     "WorkbookStatus",
     "XPTransaction",
+    "AdminAuditLog",
+    "OnboardingEvent",
+    "UserActivityEvent",
 ]

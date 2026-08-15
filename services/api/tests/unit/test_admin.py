@@ -48,6 +48,56 @@ async def test_student_cannot_access_admin_users():
         app.dependency_overrides.pop(get_current_user, None)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", [
+    "/admin/control/plan-rankings",
+    "/admin/control/subscriptions",
+    "/admin/control/audit-log",
+    "/admin/control/onboarding-analytics",
+    "/admin/control/activity-analytics",
+    "/admin/control/billing-operations",
+    "/admin/control/security",
+    "/admin/control/credits",
+    "/admin/control/content-stats",
+    "/admin/control/support-analytics",
+    "/admin/control/leaderboards",
+    "/admin/control/learning",
+])
+async def test_student_cannot_access_control_center(path):
+    student = _user(role=UserRole.student)
+    async def _student_user(): return student
+    app.dependency_overrides[get_current_user] = _student_user
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get(path)
+        assert response.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_control_center_contract_is_registered_with_canonical_methods():
+    paths = app.openapi()["paths"]
+    expected = {
+        "/admin/control/subscriptions": "get",
+        "/admin/control/billing-operations": "get",
+        "/admin/control/plan-rankings": "get",
+        "/admin/control/users/{user_id}": "get",
+        "/admin/control/audit-log": "get",
+        "/admin/control/onboarding-analytics": "get",
+        "/admin/control/activity-analytics": "get",
+        "/admin/control/credits": "get",
+        "/admin/control/content-stats": "get",
+        "/admin/control/content/{book_id}": "get",
+        "/admin/control/support-analytics": "get",
+        "/admin/control/leaderboards": "get",
+        "/admin/control/security": "get",
+        "/admin/control/learning": "get",
+    }
+    assert {path: method in paths.get(path, {}) for path, method in expected.items()} == {
+        path: True for path in expected
+    }
+
+
 def test_admin_user_update_schema_rejects_invalid_role():
     from pydantic import ValidationError
 

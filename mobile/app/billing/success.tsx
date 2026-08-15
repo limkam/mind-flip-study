@@ -1,19 +1,36 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Screen } from "../../components/Screen";
 import { useTheme } from "../../hooks/useTheme";
-import { fetchEntitlementsSnapshot, subscriptionsEnabled, verifyCheckoutSession } from "../../lib/billing";
+import {
+  fetchBillingPricing,
+  fetchEntitlementsSnapshot,
+  formatUsd,
+  getPlanIntervalPriceDetails,
+  PLAN_LABELS,
+  subscriptionsEnabled,
+  verifyCheckoutSession,
+} from "../../lib/billing";
 import { mobileQueryClient } from "../../lib/queryClient";
 import { useAuthStore } from "../../store/authStore";
-import type { CheckoutVerificationResponse } from "../../types/api";
+import { TOKENS } from "../../theme/tokens";
+import type { BillingInterval, BillingPlanSlug, CheckoutVerificationResponse } from "../../types/api";
 
 /** Bounded reconciliation: poll entitlements at this interval. */
 const RECONCILE_INTERVAL_MS = 2_000;
 /** Maximum bounded reconciliation attempts before showing "still processing". */
 const MAX_RECONCILE_ATTEMPTS = 5;
+/** Seconds shown on the auto-redirect countdown once activation is confirmed. */
+const REDIRECT_SECONDS = 3;
+
+type ActivationDetails = {
+  planLabel: string;
+  amountCents: number | null;
+  nextBillingDateIso: string | null;
+};
 
 type ScreenStatus =
   | "verifying"
@@ -46,6 +63,8 @@ export default function BillingSuccessScreen() {
   const sessionId = parseSessionId(params.session_id) || "";
   const [statusState, setStatusState] = useState<ScreenStatus>("verifying");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [details, setDetails] = useState<ActivationDetails | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(REDIRECT_SECONDS);
 
   const verificationRef = useRef<CheckoutVerificationResponse | null>(null);
   const attemptsRef = useRef(0);
@@ -54,6 +73,7 @@ export default function BillingSuccessScreen() {
   const terminalSessionsRef = useRef<Set<string>>(new Set());
   /** Prevent overlapping verification/reconciliation sequences. */
   const verifyLockRef = useRef(false);
+  const revealAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -61,6 +81,47 @@ export default function BillingSuccessScreen() {
       mountedRef.current = false;
     };
   }, []);
+
+  /** Display-only lookup of what changed; never influences the verification state machine above. */
+  const loadActivationDetails = useCallback(
+    async (planSlug: BillingPlanSlug | null, interval: BillingInterval | null, renewalDateIso: string | null) => {
+      if (!mountedRef.current) return;
+      const planLabel = (planSlug && PLAN_LABELS[planSlug]) || "your plan";
+      let amountCents: number | null = null;
+      try {
+        const pricing = await fetchBillingPricing();
+        if (planSlug && interval) {
+          amountCents = getPlanIntervalPriceDetails(pricing.plans[planSlug], interval).amountCents;
+        }
+      } catch {
+        amountCents = null;
+      }
+      if (!mountedRef.current) return;
+      setDetails({ planLabel, amountCents, nextBillingDateIso: renewalDateIso });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (statusState !== "activated") return undefined;
+    revealAnim.setValue(0);
+    Animated.timing(revealAnim, {
+      toValue: 1,
+      duration: TOKENS.motion.duration.celebration,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+
+    setSecondsLeft(REDIRECT_SECONDS);
+    const tick = setInterval(() => {
+      setSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    const redirect = setTimeout(() => router.replace("/(tabs)"), REDIRECT_SECONDS * 1000);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(redirect);
+    };
+  }, [statusState, revealAnim, router]);
 
   const runFullVerification = useCallback(async () => {
     if (!sessionId) {
@@ -122,6 +183,7 @@ export default function BillingSuccessScreen() {
         await mobileQueryClient.invalidateQueries({ queryKey: ["credit-usage"] });
         if (!mountedRef.current) return;
         setStatusState("activated");
+        void loadActivationDetails(verifyRes.plan_slug, verifyRes.interval, entitlements.renewal_or_end_date);
         return;
       }
 
@@ -146,7 +208,7 @@ export default function BillingSuccessScreen() {
     } finally {
       verifyLockRef.current = false;
     }
-  }, [sessionId]);
+  }, [sessionId, loadActivationDetails]);
 
   const reconcileEntitlements = async (
     expectedUserId: string,
@@ -186,6 +248,11 @@ export default function BillingSuccessScreen() {
         await mobileQueryClient.invalidateQueries({ queryKey: ["billing-entitlements"] });
         if (!mountedRef.current) return;
         setStatusState("activated");
+        void loadActivationDetails(
+          (entitlements.plan_slug as BillingPlanSlug) ?? null,
+          verificationRef.current?.interval ?? null,
+          entitlements.renewal_or_end_date,
+        );
         return;
       }
 
@@ -233,29 +300,61 @@ export default function BillingSuccessScreen() {
 
           {/* Activated */}
           {statusState === "activated" && (
-            <>
+            <Animated.View
+              style={{
+                opacity: revealAnim,
+                transform: [
+                  { translateY: revealAnim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) },
+                  { scale: revealAnim.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) },
+                ],
+                alignItems: "center",
+              }}
+            >
               <View style={[styles.iconWrapper, { backgroundColor: colors.success + "20" }]}>
                 <Ionicons name="checkmark-circle" size={48} color={colors.success} />
               </View>
-              <Text style={[styles.title, { color: colors.text }]}>Subscription activated!</Text>
-              <Text style={[styles.sub, { color: colors.muted }]}>
-                Your payment was successfully confirmed. Full plan features and credits are now available.
+              <Text style={[styles.title, { color: colors.text }]}>
+                {details ? `You're on the ${details.planLabel} plan!` : "Subscription activated!"}
               </Text>
+              <Text style={[styles.sub, { color: colors.muted }]}>
+                Full plan features and credits are now available.
+              </Text>
+              {details && (details.amountCents != null || details.nextBillingDateIso) && (
+                <View style={[styles.detailsCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                  {details.amountCents != null && formatUsd(details.amountCents) && (
+                    <Text style={[styles.detailsText, { color: colors.text }]}>
+                      Charged <Text style={{ fontWeight: "800" }}>{formatUsd(details.amountCents)}</Text>
+                    </Text>
+                  )}
+                  {details.nextBillingDateIso && (
+                    <Text style={[styles.detailsText, { color: colors.text }]}>
+                      Renews{" "}
+                      <Text style={{ fontWeight: "800" }}>
+                        {new Date(details.nextBillingDateIso).toLocaleDateString(undefined, {
+                          year: "numeric", month: "long", day: "numeric",
+                        })}
+                      </Text>
+                    </Text>
+                  )}
+                </View>
+              )}
               <View style={styles.actions}>
                 <Pressable
                   style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
-                  onPress={() => router.replace("/billing")}
+                  onPress={() => router.replace("/(tabs)")}
                 >
-                  <Text style={styles.primaryBtnText}>View Billing & Credits</Text>
+                  <Text style={styles.primaryBtnText}>
+                    Continue{secondsLeft > 0 ? ` (${secondsLeft})` : ""}
+                  </Text>
                 </Pressable>
                 <Pressable
                   style={[styles.secondaryBtn, { borderColor: colors.border }]}
-                  onPress={() => router.replace("/(tabs)")}
+                  onPress={() => router.replace("/billing")}
                 >
-                  <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Return Home</Text>
+                  <Text style={[styles.secondaryBtnText, { color: colors.text }]}>View Billing & Credits</Text>
                 </Pressable>
               </View>
-            </>
+            </Animated.View>
           )}
 
           {/* Still processing */}
@@ -359,6 +458,8 @@ const styles = StyleSheet.create({
   iconWrapper: { width: 72, height: 72, borderRadius: 36, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 22, fontWeight: "800", textAlign: "center" },
   sub: { fontSize: 15, textAlign: "center", lineHeight: 22 },
+  detailsCard: { width: "100%", borderWidth: 1, borderRadius: 14, padding: 14, gap: 6, marginTop: 4 },
+  detailsText: { fontSize: 14, textAlign: "center" },
   actions: { width: "100%", gap: 10, marginTop: 12 },
   primaryBtn: { paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12, alignItems: "center" },
   primaryBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },

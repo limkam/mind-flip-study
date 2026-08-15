@@ -14,6 +14,7 @@ from models.user import User
 class AdminUserUpdate(BaseModel):
     role: Literal["admin", "student"] | None = None
     is_banned: bool | None = None
+    reason: str | None = Field(None, min_length=3, max_length=500)
 
 
 class AdminUserRow(BaseModel):
@@ -23,6 +24,8 @@ class AdminUserRow(BaseModel):
     plan: str = "Free"
     role: UserRole
     created_at: datetime
+    last_active_at: datetime | None = None
+    onboarding_completed: bool = False
     is_banned: bool
     date_of_birth: date | None = None
     age: int | None = None
@@ -43,6 +46,8 @@ def admin_user_row_from_model(user: User, *, plan: str = "Free") -> AdminUserRow
         plan=plan,
         role=user.role,
         created_at=user.created_at,
+        last_active_at=user.last_active_at,
+        onboarding_completed=user.onboarding_completed,
         is_banned=user.is_banned,
         date_of_birth=user.date_of_birth,
         age=age,
@@ -66,6 +71,7 @@ class AdminBookRow(BaseModel):
     id: UUID
     title: str
     author: str
+    book_code: str
     uploader_name: str
     uploader_email: str
     status: BookStatus
@@ -96,6 +102,9 @@ class AdminUserIpRow(BaseModel):
 
 class AdminUserIpListPage(BaseModel):
     items: list[AdminUserIpRow]
+    total: int = 0
+    page: int = 1
+    size: int = 50
 
 
 class AdminMetricsOut(BaseModel):

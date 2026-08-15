@@ -14,7 +14,7 @@ def test_default_plan_features_match_published_matrix():
     assert DEFAULT_PLAN_FEATURES["quick_72"]["games_limit"] == 3
     assert DEFAULT_PLAN_FEATURES["standard_15"]["games_limit"] == 5
     assert DEFAULT_PLAN_FEATURES["premium_30"]["games_limit"] == 8
-    assert DEFAULT_PLAN_FEATURES["quick_72"]["can_send_challenges"] is False
+    assert DEFAULT_PLAN_FEATURES["quick_72"]["can_send_challenges"] is True
     assert DEFAULT_PLAN_FEATURES["quick_72"]["can_create_study_group"] is False
 
 
@@ -71,7 +71,7 @@ async def test_free_daily_review_limit(monkeypatch):
     ("plan", "books", "sets", "cards", "games", "challenges", "groups"),
     [
         ("free", 1, 1, 5, 2, False, False),
-        ("quick_72", 2, 5, 20, 3, False, False),
+        ("quick_72", 2, 5, 20, 3, True, False),
         ("standard_15", 5, 10, 30, 5, True, True),
         ("premium_30", 10, 20, 50, 8, True, True),
     ],
@@ -132,7 +132,7 @@ async def test_resource_allowances_are_per_user(plan, action, limit, monkeypatch
     ("plan", "games", "challenges", "groups", "daily_21"),
     [
         ("free", True, False, False, False),
-        ("quick_72", True, False, False, True),
+        ("quick_72", True, True, False, True),
         ("standard_15", True, True, True, True),
         ("premium_30", True, True, True, True),
     ],

@@ -47,7 +47,8 @@ export function AuthProvider({ children }) {
   }, [navigate]);
 
   useEffect(() => {
-    loadUser();
+    const task = window.setTimeout(() => void loadUser(), 0);
+    return () => window.clearTimeout(task);
   }, [loadUser]);
 
   const login = useCallback(async (email, password) => {

@@ -1,5 +1,7 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
+import * as Clipboard from "expo-clipboard";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -15,6 +17,7 @@ import {
 import { GenerateProgressBar } from "../../components/GenerateProgressBar";
 import { TocEditor } from "../../components/library/TocEditor";
 import { Screen } from "../../components/Screen";
+import { IconButton } from "../../components/ui/IconButton";
 import { SelectedChaptersList } from "../../components/study/SelectedChaptersList";
 import { api } from "../../api/client";
 import { useJobPoll } from "../../hooks/useJobPoll";
@@ -63,6 +66,7 @@ export default function BookByIdScreen() {
   const [tocPhase, setTocPhase] = useState<string | null>(null);
   const [tocError, setTocError] = useState<string | null>(null);
   const [editingToc, setEditingToc] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [summaryDetailLevel, setSummaryDetailLevel] = useState<SummaryDetailLevel>("standard");
   const [deleting, setDeleting] = useState(false);
   const [deletionSucceeded, setDeletionSucceeded] = useState(false);
@@ -159,6 +163,17 @@ export default function BookByIdScreen() {
       }
     },
   });
+
+  const copyBookCode = async (code: string) => {
+    try {
+      await Clipboard.setStringAsync(code);
+      void hapticImpact("light");
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1500);
+    } catch {
+      // Clipboard access can fail on some platforms; the code is still visible to copy manually.
+    }
+  };
 
   const extractToc = async () => {
     if (!id) return;
@@ -413,6 +428,24 @@ export default function BookByIdScreen() {
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator>
           <Text style={[styles.title, { color: colors.text }]}>{book.title}</Text>
           {book.author ? <Text style={[styles.meta, { color: colors.muted }]}>{book.author}</Text> : null}
+          {book.book_code ? (
+            <Pressable
+              style={styles.codeRow}
+              hitSlop={6}
+              onPress={() => void copyBookCode(book.book_code)}
+              accessibilityRole="button"
+              accessibilityLabel={`Book code ${book.book_code}, tap to copy`}
+            >
+              <Text style={[styles.meta, styles.codeText, { color: colors.muted }]}>
+                Code: {book.book_code}
+              </Text>
+              <Ionicons
+                name={codeCopied ? "checkmark" : "copy-outline"}
+                size={14}
+                color={codeCopied ? colors.success : colors.muted}
+              />
+            </Pressable>
+          ) : null}
           <Text style={[styles.meta, { color: colors.muted }]}>
             {chapters.length > 0
               ? `${chapters.length} chapter${chapters.length !== 1 ? "s" : ""} extracted`
@@ -436,6 +469,25 @@ export default function BookByIdScreen() {
                     : "Select one chapter to generate flashcards from"}
                 </Text>
               </View>
+              {chapters.length > 0 ? (
+                editingToc ? (
+                  <IconButton
+                    icon="checkmark"
+                    accessibilityLabel="Done editing table of contents"
+                    variant="outlined"
+                    size="sm"
+                    onPress={() => setEditingToc(false)}
+                  />
+                ) : (
+                  <IconButton
+                    icon="pencil"
+                    accessibilityLabel="Edit table of contents"
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => setEditingToc(true)}
+                  />
+                )
+              ) : null}
             </View>
 
             {chapters.length === 0 ? (
@@ -488,7 +540,10 @@ export default function BookByIdScreen() {
                   chapter_number: ch.chapter_number ?? i + 1,
                   title: ch.title ?? `Chapter ${i + 1}`,
                   subtopics: ch.subtopics ?? [],
+                  start_offset: ch.start_offset,
+                  end_offset: ch.end_offset,
                 }))}
+                totalLength={book.toc_text_length}
                 onSaved={() => {
                   void refetch();
                   setEditingToc(false);
@@ -647,6 +702,8 @@ const styles = StyleSheet.create({
   center: { padding: 24, alignItems: "center", gap: 12 },
   title: { fontSize: 24, fontWeight: "800", marginBottom: 6 },
   meta: { fontSize: 15, marginBottom: 4 },
+  codeRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  codeText: { marginBottom: 0, fontSize: 13 },
   body: { fontSize: 15, lineHeight: 22, marginTop: 12, marginBottom: 8 },
   section: {
     borderRadius: 16,

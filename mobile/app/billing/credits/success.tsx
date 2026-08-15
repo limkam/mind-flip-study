@@ -1,14 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Screen } from "../../../components/Screen";
 import { useTheme } from "../../../hooks/useTheme";
-import { fetchCreditPurchaseHistory, fetchCreditUsage, fetchEntitlementsSnapshot, verifyCheckoutSession } from "../../../lib/billing";
+import { fetchCreditPurchaseHistory, fetchCreditUsage, fetchEntitlementsSnapshot, formatUsd, verifyCheckoutSession } from "../../../lib/billing";
 import { getCheckoutAttempt, releaseCheckoutAttempt } from "../../../lib/checkoutAttempt";
 import { mobileQueryClient } from "../../../lib/queryClient";
 import { useAuthStore } from "../../../store/authStore";
+import { TOKENS } from "../../../theme/tokens";
 
 type VerificationStep =
   | "verifying"
@@ -17,6 +18,9 @@ type VerificationStep =
   | "processing"
   | "sync_failed"
   | "error";
+
+/** Seconds shown on the auto-redirect countdown once credits are confirmed. */
+const REDIRECT_SECONDS = 3;
 
 export default function CreditSuccessScreen() {
   const { colors } = useTheme();
@@ -27,8 +31,32 @@ export default function CreditSuccessScreen() {
   const [step, setStep] = useState<VerificationStep>("verifying");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [purchasedQuantity, setPurchasedQuantity] = useState<number | null>(null);
+  const [amountCents, setAmountCents] = useState<number | null>(null);
   const [resultingBalance, setResultingBalance] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(REDIRECT_SECONDS);
+  const revealAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (step !== "credited") return undefined;
+    revealAnim.setValue(0);
+    Animated.timing(revealAnim, {
+      toValue: 1,
+      duration: TOKENS.motion.duration.celebration,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+
+    setSecondsLeft(REDIRECT_SECONDS);
+    const tick = setInterval(() => {
+      setSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    const redirect = setTimeout(() => router.replace("/billing"), REDIRECT_SECONDS * 1000);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(redirect);
+    };
+  }, [step, revealAnim, router]);
 
   const handleRefreshSync = async () => {
     setIsRefreshing(true);
@@ -91,6 +119,9 @@ export default function CreditSuccessScreen() {
 
           if (res.credit_quantity !== null) {
             setPurchasedQuantity(res.credit_quantity);
+          }
+          if (res.credit_quantity !== null && res.unit_price_cents !== null) {
+            setAmountCents(res.credit_quantity * res.unit_price_cents);
           }
 
           if (res.purchase_state === "credited") {
@@ -172,7 +203,18 @@ export default function CreditSuccessScreen() {
             </Text>
           </View>
         ) : step === "credited" ? (
-          <View style={styles.card}>
+          <Animated.View
+            style={[
+              styles.card,
+              {
+                opacity: revealAnim,
+                transform: [
+                  { translateY: revealAnim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) },
+                  { scale: revealAnim.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) },
+                ],
+              },
+            ]}
+          >
             <View style={[styles.iconCircle, { backgroundColor: `${colors.success}15` }]}>
               <Ionicons name="checkmark-circle" size={48} color={colors.success} />
             </View>
@@ -182,6 +224,11 @@ export default function CreditSuccessScreen() {
                 ? `Successfully added ${purchasedQuantity} credit${purchasedQuantity === 1 ? "" : "s"} to your account.`
                 : "Your extra credits are now available for AI generation and flashcard tools."}
             </Text>
+            {amountCents !== null && formatUsd(amountCents) && (
+              <Text style={[styles.subtitle, { color: colors.muted }]}>
+                Charged <Text style={{ fontWeight: "800", color: colors.text }}>{formatUsd(amountCents)}</Text>
+              </Text>
+            )}
 
             {resultingBalance !== null && (
               <View style={[styles.balanceCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -195,7 +242,9 @@ export default function CreditSuccessScreen() {
                 style={[styles.button, { backgroundColor: colors.primary }]}
                 onPress={() => router.replace("/billing")}
               >
-                <Text style={styles.buttonText}>Open Billing & Credits</Text>
+                <Text style={styles.buttonText}>
+                  Continue{secondsLeft > 0 ? ` (${secondsLeft})` : ""}
+                </Text>
               </Pressable>
               <Pressable
                 style={[styles.buttonSecondary, { borderColor: colors.border }]}
@@ -204,7 +253,7 @@ export default function CreditSuccessScreen() {
                 <Text style={[styles.buttonSecondaryText, { color: colors.text }]}>Return Home</Text>
               </Pressable>
             </View>
-          </View>
+          </Animated.View>
         ) : step === "sync_failed" ? (
           <View style={styles.card}>
             <View style={[styles.iconCircle, { backgroundColor: `${colors.warning}15` }]}>

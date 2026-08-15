@@ -63,7 +63,27 @@ export function AuthProvider({ children }) {
     loadUser();
   }, [loadUser]);
 
-  const loginWithEmailCode = useCallback(async (challengeId, code, rememberMe = true) => {
+  useEffect(() => {
+    if (!user) return undefined;
+    let lastSentAt = 0;
+    const record = () => {
+      const now = Date.now();
+      if (document.visibilityState === 'visible' && now - lastSentAt >= 15 * 60 * 1000) {
+        lastSentAt = now;
+        void client.post('/activity/meaningful', { activity_key: 'app_active', platform: 'web' }).catch(() => {});
+      }
+    };
+    // Only direct human interaction counts. Initial load, refresh, polling and
+    // visibility/focus transitions deliberately do not create activity.
+    window.addEventListener('pointerdown', record);
+    window.addEventListener('keydown', record);
+    return () => {
+      window.removeEventListener('pointerdown', record);
+      window.removeEventListener('keydown', record);
+    };
+  }, [user]);
+
+  const loginWithEmailCode = useCallback(async (challengeId, code, rememberMe = true, dateOfBirth = null) => {
     loadUserSeq.current += 1;
     setIsLoading(false);
     setRememberMe(rememberMe);
@@ -71,6 +91,7 @@ export function AuthProvider({ children }) {
       challenge_id: challengeId,
       code,
       remember_me: rememberMe,
+      date_of_birth: dateOfBirth,
     });
     setAccessToken(data.access_token);
     activateCoreDataCache(data.user.id);

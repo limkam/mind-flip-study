@@ -43,6 +43,8 @@ class User(Base):
         default=False,
         server_default=text("false"),
     )
+    onboarding_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     ip_history: Mapped[list] = mapped_column(
         JSONB,

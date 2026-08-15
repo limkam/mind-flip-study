@@ -7,10 +7,12 @@ import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { api } from "../../api/client";
 import { MindFlipLogoMark } from "../../components/brand/MindFlipBrand";
-import { AppButton, AppCard, AppScreen, AppTextInput } from "../../components/ui";
+import { DateOfBirthField } from "../../components/DateOfBirthField";
+import { AppButton, AppScreen, AppTextInput, BrandSurface } from "../../components/ui";
 import { useTheme } from "../../hooks/useTheme";
 import { getApiErrorMessage } from "../../lib/apiErrors";
 import { hapticSelection } from "../../lib/haptics";
+import { calculateAge } from "../../lib/ageUtils";
 import { type User, useAuthStore } from "../../store/authStore";
 import { TOKENS } from "../../theme/tokens";
 
@@ -116,6 +118,8 @@ export default function LoginScreen() {
   const setKeepSignedIn = useAuthStore((s) => s.setKeepSignedIn);
 
   const [email, setEmail] = useState("");
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [dateOfBirth, setDateOfBirth] = useState("");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [emailFieldError, setEmailFieldError] = useState<string | null>(null);
@@ -140,6 +144,10 @@ export default function LoginScreen() {
       setEmailFieldError("Enter a valid email address.");
       return;
     }
+    if (authMode === "signup" && (calculateAge(dateOfBirth) ?? -1) < 13) {
+      setFormError("MindFlip is only available to users aged 13 and above.");
+      return;
+    }
 
     emailSubmitLockRef.current = true;
     setEmailFieldError(null);
@@ -153,7 +161,7 @@ export default function LoginScreen() {
       });
       router.push({
         pathname: "/(auth)/verify-email",
-        params: { email: normalizedEmail, challengeId: data.challenge_id, resendAfter: String(data.resend_after) },
+        params: { email: normalizedEmail, challengeId: data.challenge_id, resendAfter: String(data.resend_after), dateOfBirth: authMode === "signup" ? dateOfBirth : "" },
       });
     } catch (e: unknown) {
       setFormError(getApiErrorMessage(e, "MindFlip is having trouble sending your verification code. Please try again."));
@@ -167,20 +175,37 @@ export default function LoginScreen() {
 
   return (
     <AppScreen keyboard scrollable style={styles.root} contentContainerStyle={styles.contentContainer}>
-      <View style={styles.headerStack}>
-        <MindFlipLogoMark size={64} style={styles.logoMark} />
-        <Text style={[styles.brandTitle, { color: colors.textPrimary }]}>MindFlip</Text>
-        <Text style={[styles.tagline, { color: colors.textMuted }]}>
-          Learn smarter. Remember longer.
+      <BrandSurface style={styles.brandSurface}>
+        <View style={styles.brandContent}>
+          <View style={[styles.markChip, { backgroundColor: `${colors.onBrand}26` }]}>
+            <MindFlipLogoMark size={44} />
+          </View>
+          <Text style={[styles.brandWordmark, { color: colors.onBrand }]}>MindFlip</Text>
+        </View>
+      </BrandSurface>
+
+      <View style={styles.headlineStack}>
+        <Text style={[styles.headline, { color: colors.textPrimary }]}>
+          Study smarter, remember more.
+        </Text>
+        <Text style={[styles.benefitCopy, { color: colors.textSecondary }]}>
+          Turn any material into flashcards that adapt to what you're forgetting.
         </Text>
       </View>
 
-      <AppCard variant="elevated" style={styles.card}>
+      <View style={[styles.panel, { backgroundColor: colors.surfaceMuted }]}>
+        <View style={styles.modeRow}>
+          {(["signin", "signup"] as const).map((mode) => (
+            <Pressable key={mode} onPress={() => { setAuthMode(mode); setFormError(null); }} style={[styles.modeButton, authMode === mode && { backgroundColor: colors.surfaceElevated }]}>
+              <Text style={{ color: authMode === mode ? colors.textPrimary : colors.textMuted, fontWeight: "600" }}>{mode === "signin" ? "Sign in" : "Sign up"}</Text>
+            </Pressable>
+          ))}
+        </View>
         {formError ? (
           <View
             accessibilityRole="alert"
             accessibilityLiveRegion="polite"
-            style={[styles.errorBanner, { backgroundColor: `${colors.danger}12`, borderColor: `${colors.danger}30` }]}
+            style={[styles.errorBanner, { backgroundColor: colors.dangerSurface }]}
           >
             <Ionicons name="alert-circle-outline" size={20} color={colors.danger} />
             <Text style={[styles.errorText, { color: colors.danger }]}>{formError}</Text>
@@ -224,6 +249,8 @@ export default function LoginScreen() {
           containerStyle={styles.inputContainer}
         />
 
+        {authMode === "signup" ? <DateOfBirthField label="Date of birth (13+)" value={dateOfBirth} onChange={(value) => { setDateOfBirth(value); setFormError(null); }} /> : null}
+
         <AppButton
           label="Continue with Email"
           icon="mail-outline"
@@ -253,7 +280,7 @@ export default function LoginScreen() {
             Keep me signed in
           </Text>
         </Pressable>
-      </AppCard>
+      </View>
     </AppScreen>
   );
 }
@@ -264,37 +291,56 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     paddingHorizontal: TOKENS.spacing.lg,
-    paddingVertical: TOKENS.spacing.xxl,
-    justifyContent: "center",
+    paddingTop: TOKENS.spacing.xl,
+    paddingBottom: TOKENS.spacing.xxl,
   },
-  headerStack: {
+  brandSurface: {
+    marginBottom: TOKENS.spacing.xl,
+  },
+  brandContent: {
     alignItems: "center",
-    marginBottom: TOKENS.spacing.xxl,
   },
-  logoMark: {
-    marginBottom: TOKENS.spacing.md,
+  markChip: {
+    borderRadius: TOKENS.radii.pill,
+    padding: TOKENS.spacing.md,
+    marginBottom: TOKENS.spacing.sm,
   },
-  brandTitle: {
+  brandWordmark: {
+    fontSize: TOKENS.typography.sectionTitle.fontSize,
+    fontWeight: TOKENS.typography.sectionTitle.fontWeight,
+    letterSpacing: TOKENS.typography.sectionTitle.letterSpacing,
+  },
+  headlineStack: {
+    alignItems: "center",
+    marginBottom: TOKENS.spacing.xl,
+  },
+  headline: {
     fontSize: TOKENS.typography.display.fontSize,
+    lineHeight: TOKENS.typography.display.lineHeight,
     fontWeight: TOKENS.typography.display.fontWeight,
-    letterSpacing: -0.5,
-  },
-  tagline: {
-    fontSize: TOKENS.typography.bodyEmphasis.fontSize,
-    lineHeight: TOKENS.typography.bodyEmphasis.lineHeight,
-    marginTop: TOKENS.spacing.xs,
+    letterSpacing: TOKENS.typography.display.letterSpacing,
     textAlign: "center",
   },
-  card: {
+  benefitCopy: {
+    fontSize: TOKENS.typography.secondaryBody.fontSize,
+    lineHeight: TOKENS.typography.secondaryBody.lineHeight,
+    marginTop: TOKENS.spacing.sm,
+    textAlign: "center",
+    maxWidth: 320,
+  },
+  panel: {
+    borderRadius: TOKENS.radii.xl,
+    padding: TOKENS.spacing.lg,
     gap: TOKENS.spacing.md,
   },
+  modeRow: { flexDirection: "row", gap: TOKENS.spacing.xs },
+  modeButton: { flex: 1, alignItems: "center", paddingVertical: TOKENS.spacing.sm, borderRadius: TOKENS.radii.md },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: TOKENS.spacing.sm,
     padding: TOKENS.spacing.md,
     borderRadius: TOKENS.radii.md,
-    borderWidth: 1,
     marginBottom: TOKENS.spacing.xs,
   },
   errorText: {

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -18,8 +18,7 @@ import { FlashCard } from "../components/FlashCard";
 import { Screen } from "../components/Screen";
 import { StudySessionSummary } from "../components/study/StudySessionSummary";
 import { RecallRatingBar } from "../components/study/RecallRatingBar";
-import { StudyProgressHeader } from "../components/study/StudyProgressHeader";
-import { useScreenHeader } from "../hooks/useScreenHeader";
+import { IconButton, ProgressRing } from "../components/ui";
 import { useTheme } from "../hooks/useTheme";
 import { hapticImpact, hapticSuccess } from "../lib/haptics";
 import { queueProgressSync } from "../lib/offlineStudy";
@@ -27,6 +26,7 @@ import { invalidateAfterStudyProgress } from "../lib/studyInvalidation";
 import { submitStudyProgress } from "../lib/studyProgress";
 import { useCelebration } from "../context/CelebrationContext";
 import { useAuthStore } from "../store/authStore";
+import { TOKENS } from "../theme/tokens";
 import type { BookOut, DueFlashcardOut, Paginated, StudyProgressOut } from "../types/api";
 
 type ReviewItem = {
@@ -66,7 +66,7 @@ function mapReviewRows(rows: DueFlashcardOut[]): ReviewItem[] {
 
 export default function DailyReviewScreen() {
   const { colors } = useTheme();
-  const header = useScreenHeader("Daily Review");
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
   const { requestMany: requestCelebrations } = useCelebration();
@@ -247,81 +247,81 @@ export default function DailyReviewScreen() {
   }, [refetchBooks, refetchQueue]);
 
   const rate = useCallback(
-    async (quality: number) => {
-      const currentCardId = item?.card.id;
+    (quality: number) => {
+      const ratedItem = item;
+      const currentCardId = ratedItem?.card.id;
       const expectedUserId = user?.id;
-      if (!item || !currentCardId || !expectedUserId) return;
+      if (!ratedItem || !currentCardId || !expectedUserId) return;
 
       if (ratingInFlightRef.current.has(currentCardId)) return;
       ratingInFlightRef.current.add(currentCardId);
 
-      setPendingRating(quality);
       const bucket = quality <= 2 ? "hard" : quality >= 5 ? "easy" : "medium";
+      const ratingKey = quality as 1 | 2 | 3 | 4 | 5;
+      const isLast = currentIdx >= count - 1;
 
-      try {
-        const result = await submitStudyProgress(
-          { card_id: currentCardId, quality },
-          queueProgressSync,
+      // Advance the UI immediately; submission + invalidation run in the
+      // background below so rating never blocks the next card.
+      setPendingRating(quality);
+      setSessionStats((s) => ({
+        ...s,
+        total: s.total + 1,
+        [bucket]: s[bucket] + 1,
+        ratingCounts: {
+          ...s.ratingCounts,
+          [ratingKey]: (s.ratingCounts[ratingKey] ?? 0) + 1,
+        },
+      }));
+
+      if (quality <= 2 && !hardReviewMode) {
+        setHardReviewItems((items) =>
+          items.some((i) => i.card.id === currentCardId) ? items : [...items, ratedItem],
         );
+      }
 
-        if (!isMountedRef.current || useAuthStore.getState().user?.id !== expectedUserId) {
-          return;
-        }
+      void hapticImpact("light");
 
-        if (result.status === "submitted" || result.status === "queued") {
-          const ratingKey = quality as 1 | 2 | 3 | 4 | 5;
-          setSessionStats((s) => ({
-            ...s,
-            total: s.total + 1,
-            [bucket]: s[bucket] + 1,
-            ratingCounts: {
-              ...s.ratingCounts,
-              [ratingKey]: (s.ratingCounts[ratingKey] ?? 0) + 1,
-            },
-          }));
+      if (isLast) {
+        setSessionDone(true);
+        void hapticSuccess();
+      } else {
+        setCurrentIdx((i) => i + 1);
+        setFlipped(false);
+      }
+
+      void (async () => {
+        try {
+          const result = await submitStudyProgress(
+            { card_id: currentCardId, quality },
+            queueProgressSync,
+          );
+
+          if (!isMountedRef.current || useAuthStore.getState().user?.id !== expectedUserId) {
+            return;
+          }
+
           if (result.status === "submitted") {
             serverProgress.current[result.progress.card_id] = result.progress;
             setSessionStats((s) => ({ ...s, submittedCount: s.submittedCount + 1 }));
             void requestCelebrations(result.progress);
             await invalidateAfterStudyProgress(queryClient, {
               expectedUserId,
-              setIds: [item.setId],
+              setIds: [ratedItem.setId],
               cardIds: [result.progress.card_id],
             });
-          } else {
+          } else if (result.status === "queued") {
             setSessionStats((s) => ({ ...s, queuedOfflineCount: s.queuedOfflineCount + 1 }));
+          } else {
+            // Permanent rejection or error
+            setSessionStats((s) => ({ ...s, rejectedCount: s.rejectedCount + 1 }));
+            Alert.alert("Progress not saved", result.reason);
           }
-
-          if (quality <= 2 && !hardReviewMode) {
-            setHardReviewItems((items) =>
-              items.some((i) => i.card.id === currentCardId) ? items : [...items, item],
-            );
-          }
-
-          void hapticImpact("light");
-
-          if (currentIdx >= count - 1) {
-            setSessionDone(true);
-            void hapticSuccess();
-            return;
-          }
-
-          setCurrentIdx((i) => i + 1);
-          setFlipped(false);
-          return;
+        } finally {
+          ratingInFlightRef.current.delete(currentCardId);
         }
-
-        // Permanent rejection or error
-        setSessionStats((s) => ({ ...s, rejectedCount: s.rejectedCount + 1 }));
-        Alert.alert("Progress not saved", result.reason);
-      } finally {
-        ratingInFlightRef.current.delete(currentCardId);
-        if (isMountedRef.current) {
-          setPendingRating(null);
-        }
-      }
+      })();
     },
-    [item, currentIdx, count, queryClient, hardReviewMode, user?.id],
+    [item, currentIdx, count, queryClient, hardReviewMode, user?.id, requestCelebrations],
   );
 
   const restartHardSession = () => {
@@ -375,7 +375,13 @@ export default function DailyReviewScreen() {
   if (sessionDone) {
     return (
       <Screen>
-        {header}
+        <View style={styles.topBar}>
+          <View style={styles.topBarSpacer} />
+          <Text style={[styles.topBarTitle, { color: colors.text }]} numberOfLines={1}>
+            Summary
+          </Text>
+          <IconButton icon="close" accessibilityLabel="Close daily review" onPress={() => router.back()} variant="filled" />
+        </View>
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           refreshControl={
@@ -399,7 +405,13 @@ export default function DailyReviewScreen() {
 
   return (
     <Screen>
-      {header}
+      <View style={styles.topBar}>
+        <View style={styles.topBarSpacer} />
+        <Text style={[styles.topBarTitle, { color: colors.text }]} numberOfLines={1}>
+          {count > 0 ? `Card ${currentIdx + 1} of ${count}` : hardReviewMode ? "Hard card review" : "Daily review"}
+        </Text>
+        <IconButton icon="close" accessibilityLabel="Close daily review" onPress={() => router.back()} variant="filled" />
+      </View>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -445,26 +457,37 @@ export default function DailyReviewScreen() {
           </View>
         ) : (
           <View style={styles.session}>
-            <View style={styles.topRow}>
-              <Text style={[styles.brand, { color: colors.primary }]}>
-                {hardReviewMode ? "Hard card review" : "Daily review"}
-              </Text>
-              {!hardReviewMode ? (
-                <Pressable onPress={() => setShowFilters((v) => !v)}>
-                  <Text style={[styles.filterBtn, { color: colors.primary }]}>Filter</Text>
-                </Pressable>
-              ) : null}
-              {queueFetching && !hardReviewMode ? (
-                <ActivityIndicator size="small" color={colors.primary} />
+            <View style={styles.hero}>
+              <View style={styles.heroText}>
+                <Text style={[styles.heroTitle, { color: colors.textPrimary }]}>
+                  {hardReviewMode ? "Hard card review" : "Daily Review"}
+                </Text>
+                <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
+                  {hardReviewMode
+                    ? "Give these another pass before you finish."
+                    : "Strengthen what you're close to forgetting."}
+                </Text>
+              </View>
+              {count > 0 ? (
+                <ProgressRing
+                  progress={currentIdx / count}
+                  size={64}
+                  strokeWidth={6}
+                  trackColor={`${colors.primary}22`}
+                  progressColor={colors.primary}
+                  label={`${Math.round((currentIdx / count) * 100)}%`}
+                  accessibilityLabel={`Daily review progress, card ${currentIdx + 1} of ${count}`}
+                />
               ) : null}
             </View>
 
-            {count > 0 ? (
-              <StudyProgressHeader
-                current={currentIdx + 1}
-                total={count}
-                title={hardReviewMode ? "Hard card review" : "Daily Review"}
-              />
+            {!hardReviewMode ? (
+              <View style={styles.controlsRow}>
+                {queueFetching ? <ActivityIndicator size="small" color={colors.primary} /> : <View />}
+                <Pressable onPress={() => setShowFilters((v) => !v)} hitSlop={8}>
+                  <Text style={[styles.filterBtn, { color: colors.primary }]}>Filter</Text>
+                </Pressable>
+              </View>
             ) : null}
 
             {filtersOpen && !hardReviewMode ? (
@@ -543,7 +566,7 @@ export default function DailyReviewScreen() {
                 {flipped ? (
                   <Animated.View entering={FadeIn} style={styles.ratingRow}>
                     <RecallRatingBar
-                      onRate={(quality) => void rate(quality)}
+                      onRate={rate}
                       qualities={[2, 3, 5]}
                       submittingQuality={pendingRating}
                     />
@@ -621,8 +644,26 @@ const styles = StyleSheet.create({
   center: { alignItems: "center", justifyContent: "center", marginTop: 48, gap: 8 },
   centerText: { fontSize: 15 },
   session: { flex: 1, paddingHorizontal: 16, paddingBottom: 16 },
-  topRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
-  brand: { fontSize: 14, fontWeight: "700" },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  topBarTitle: { fontSize: 16, fontWeight: "700", flex: 1, textAlign: "center" },
+  topBarSpacer: { width: TOKENS.layout.minTouchTarget },
+  hero: { flexDirection: "row", alignItems: "center", gap: TOKENS.spacing.lg, marginBottom: TOKENS.spacing.md },
+  heroText: { flex: 1 },
+  heroTitle: { ...TOKENS.typography.screenTitle },
+  heroSubtitle: { ...TOKENS.typography.body, marginTop: TOKENS.spacing.xs },
+  controlsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: TOKENS.spacing.sm,
+  },
   filterBtn: { fontSize: 13, fontWeight: "700" },
   filterBox: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 10 },
   filterHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },

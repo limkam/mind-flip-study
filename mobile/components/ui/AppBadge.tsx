@@ -35,32 +35,32 @@ export function AppBadge({ label, variant = "primary", icon, style }: Props) {
         };
       case "success":
         return {
-          bg: `${colors.success}18`,
-          border: `${colors.success}40`,
+          bg: colors.successSurface,
+          border: "transparent",
           text: colors.success,
         };
       case "warning":
         return {
-          bg: `${colors.warning}18`,
-          border: `${colors.warning}40`,
+          bg: colors.warningSurface,
+          border: "transparent",
           text: colors.warning,
         };
       case "danger":
         return {
-          bg: `${colors.danger}18`,
-          border: `${colors.danger}40`,
+          bg: colors.dangerSurface,
+          border: "transparent",
           text: colors.danger,
         };
       case "xp":
         return {
-          bg: `${colors.xp}18`,
-          border: `${colors.xp}40`,
+          bg: colors.xpSurface,
+          border: "transparent",
           text: colors.xp,
         };
       case "streak":
         return {
-          bg: `${colors.streak}18`,
-          border: `${colors.streak}40`,
+          bg: colors.streakSurface,
+          border: "transparent",
           text: colors.streak,
         };
       case "outline":
@@ -72,8 +72,8 @@ export function AppBadge({ label, variant = "primary", icon, style }: Props) {
       case "primary":
       default:
         return {
-          bg: `${colors.primary}18`,
-          border: `${colors.primary}40`,
+          bg: colors.primarySoft,
+          border: "transparent",
           text: colors.primary,
         };
     }
