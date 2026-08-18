@@ -6,6 +6,7 @@ import hashlib
 import logging
 
 from config import settings
+from emails.provider import LogOnlyEmailProvider, provider_for
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +26,21 @@ def send_email_or_raise(
     attachments: list[dict] | None = None,
 ) -> None:
     """Send through Resend and require a provider message id."""
+    provider = provider_for(to)
+    if provider is None:
+        log.info(
+            "Email suppressed by delivery gate recipient=%s mode=%s",
+            _recipient_fingerprint(to),
+            settings.EMAIL_DELIVERY_MODE,
+        )
+        raise EmailDeliveryError("Email delivery gate suppressed this send")
+    if isinstance(provider, LogOnlyEmailProvider):
+        log.info(
+            "Email log-only (delivery gate) recipient=%s subject=%s",
+            _recipient_fingerprint(to),
+            subject,
+        )
+        return
     if not settings.RESEND_API_KEY:
         log.error("Email delivery is not configured")
         raise EmailDeliveryError("Email delivery is not configured")
