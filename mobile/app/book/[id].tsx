@@ -533,24 +533,26 @@ export default function BookByIdScreen() {
                   </Pressable>
                 </View>
               )
-            ) : editingToc ? (
-              <TocEditor
-                bookId={book.id}
-                chapters={chapters.map((ch, i) => ({
-                  chapter_number: ch.chapter_number ?? i + 1,
-                  title: ch.title ?? `Chapter ${i + 1}`,
-                  subtopics: ch.subtopics ?? [],
-                  start_offset: ch.start_offset,
-                  end_offset: ch.end_offset,
-                }))}
-                totalLength={book.toc_text_length}
-                onSaved={() => {
-                  void refetch();
-                  setEditingToc(false);
-                }}
-              />
             ) : (
-              chapters.map((chapter, idx) => {
+              <ScrollView style={styles.tocScroll} nestedScrollEnabled showsVerticalScrollIndicator>
+                {editingToc ? (
+                  <TocEditor
+                    bookId={book.id}
+                    chapters={chapters.map((ch, i) => ({
+                      chapter_number: ch.chapter_number ?? i + 1,
+                      title: ch.title ?? `Chapter ${i + 1}`,
+                      subtopics: ch.subtopics ?? [],
+                      start_offset: ch.start_offset,
+                      end_offset: ch.end_offset,
+                    }))}
+                    totalLength={book.toc_text_length}
+                    onSaved={() => {
+                      void refetch();
+                      setEditingToc(false);
+                    }}
+                  />
+                ) : (
+                  chapters.map((chapter, idx) => {
                 const t = chapter.title ?? `Chapter ${idx + 1}`;
                 const chapterNumber = idx + 1;
                 const on = selectedChapter === t;
@@ -611,6 +613,8 @@ export default function BookByIdScreen() {
                   </View>
                 );
               })
+                )}
+              </ScrollView>
             )}
           </View>
 
@@ -711,6 +715,7 @@ const styles = StyleSheet.create({
     padding: 16,
     marginTop: 16,
   },
+  tocScroll: { maxHeight: 480 },
   sectionHead: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 12 },
   sectionTitle: { fontSize: 18, fontWeight: "700" },
   sectionSub: { fontSize: 13, marginTop: 4 },

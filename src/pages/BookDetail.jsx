@@ -524,7 +524,9 @@ export default function BookDetail() {
               </>
             )}
           </div>
-        ) : editingToc ? (
+        ) : (
+          <div className="max-h-[520px] overflow-y-auto pr-1">
+          {editingToc ? (
           <TocEditor
             bookId={book.id}
             chapters={toc}
@@ -610,6 +612,8 @@ export default function BookDetail() {
               );
             })}
           </RadioGroup>
+        )}
+          </div>
         )}
       </motion.div>
 

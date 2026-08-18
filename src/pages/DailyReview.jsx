@@ -311,28 +311,32 @@ export default function DailyReview() {
         <div className="rounded-xl border border-border bg-card p-4 mb-4 space-y-4">
           <div className="space-y-2">
             <p className="text-xs font-semibold text-muted-foreground uppercase">Books</p>
-            {books.map((b) => (
-              <label key={b.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                <Checkbox
-                  checked={!!selectedBooks[b.id]}
-                  onCheckedChange={(v) => setSelectedBooks((prev) => ({ ...prev, [b.id]: !!v }))}
-                />
-                {b.title}
-              </label>
-            ))}
+            <div className="max-h-[120px] overflow-y-auto space-y-2 pr-1">
+              {books.map((b) => (
+                <label key={b.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={!!selectedBooks[b.id]}
+                    onCheckedChange={(v) => setSelectedBooks((prev) => ({ ...prev, [b.id]: !!v }))}
+                  />
+                  {b.title}
+                </label>
+              ))}
+            </div>
           </div>
           {availableChapters.length > 0 ? (
             <div className="space-y-2 border-t border-border pt-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase">Chapters</p>
-              {availableChapters.map((ch) => (
-                <label key={ch} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <Checkbox
-                    checked={!!selectedChapters[ch]}
-                    onCheckedChange={(v) => setSelectedChapters((prev) => ({ ...prev, [ch]: !!v }))}
-                  />
-                  {ch}
-                </label>
-              ))}
+              <div className="max-h-[160px] overflow-y-auto space-y-2 pr-1">
+                {availableChapters.map((ch) => (
+                  <label key={ch} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={!!selectedChapters[ch]}
+                      onCheckedChange={(v) => setSelectedChapters((prev) => ({ ...prev, [ch]: !!v }))}
+                    />
+                    {ch}
+                  </label>
+                ))}
+              </div>
             </div>
           ) : null}
         </div>
