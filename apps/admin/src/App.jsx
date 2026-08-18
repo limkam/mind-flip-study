@@ -19,7 +19,8 @@ const Subscriptions = controlPage('Subscriptions');
 const BillingOperations = controlPage('BillingOperations');
 const CreditMonitoring = controlPage('CreditMonitoring');
 const LearningActivity = controlPage('LearningActivity');
-const ActivityAnalytics = controlPage('ActivityAnalytics');
+// Temporarily hidden until the activity analytics experience is redesigned.
+// const ActivityAnalytics = controlPage('ActivityAnalytics');
 const LeaderboardMonitoring = controlPage('LeaderboardMonitoring');
 const Security = controlPage('Security');
 const AuditLog = controlPage('AuditLog');
@@ -47,7 +48,7 @@ export default function App() {
         <Route path="billing" element={<BillingOperations />} />
         <Route path="credits" element={<CreditMonitoring />} />
         <Route path="learning" element={<LearningActivity />} />
-        <Route path="analytics" element={<ActivityAnalytics />} />
+        {/* <Route path="analytics" element={<ActivityAnalytics />} /> */}
         <Route path="leaderboards" element={<LeaderboardMonitoring />} />
         <Route path="security" element={<Security />} />
         <Route path="audit-log" element={<AuditLog />} />

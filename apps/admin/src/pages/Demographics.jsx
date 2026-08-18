@@ -154,6 +154,13 @@ export default function Demographics() {
         </div>
       </div>
 
+      <div className="charts-row">
+        <div>
+          <h3 className="section-title">Users by Gender</h3>
+          <DonutChart data={d.users_by_gender} />
+        </div>
+      </div>
+
       <h3 className="section-title">User IP Addresses</h3>
       <UserIpTable />
 

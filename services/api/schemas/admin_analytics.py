@@ -104,6 +104,7 @@ class DemographicsOut(BaseModel):
     users_by_country: list[LabeledCount]
     users_by_continent: list[LabeledCount]
     users_by_occupation: list[LabeledCount]
+    users_by_gender: list[LabeledCount]
     users_by_age_group: list[LabeledCount]
     plan_distribution: list[LabeledCount]
     users_by_role: list[LabeledCount]
@@ -193,7 +194,7 @@ class AiUsageLogEntry(BaseModel):
     duration_ms: int | None = None
     estimated_cost_usd: float
     book_id: str | None = None
-    book_title: str | None = None
+    book_code: str | None = None
     celery_task_id: str | None = None
     call_metadata: dict[str, Any] | None = None
 
@@ -224,7 +225,7 @@ class GenerationJobDetailOut(BaseModel):
 
 class AiUsageByBook(BaseModel):
     book_id: str
-    book_title: str
+    book_code: str
     total_cost_usd: float
     total_calls: int
     input_tokens: int

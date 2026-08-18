@@ -15,6 +15,7 @@ from models.billing_analytics import BillingEvent, BillingInvoice
 from models.book import Book
 from models.credit_ledger import CreditLedger
 from models.credit_purchase import CreditPurchase
+from models.engagement import LearningStreak
 from models.enums import UserRole
 from models.feedback import SupportConversation, SupportMessage
 from models.flashcard import Flashcard, FlashcardSet, Workbook
@@ -24,6 +25,13 @@ from models.token_usage import TokenUsage
 from models.user import User
 from models.user_subscription import UserSubscription
 from models.xp import XPTransaction
+from routers.leaderboard import (
+    LeaderboardMetric,
+    LeaderboardPeriod,
+    METRIC_LABELS,
+    _build_ranked_subquery,
+)
+from user_identity import resolve_display_name
 from services.credits import get_credit_accounting_snapshot, _split_pool_balances
 from services.subscription_monitoring import subscription_time_state, trial_time_state
 from services.admin_metrics import rank_plan_counts
@@ -75,6 +83,77 @@ async def plan_rankings(request: Request, _admin: Annotated[User, Depends(requir
         if sub and sub.status == "trialing":
             trials[label] = trials.get(label, 0) + 1
     return {"population_definition": "Non-admin registered customer accounts; banned users included; billing conflicts excluded.", "trial_counts": trials, **rank_plan_counts(counts, conflicts=conflicts)}
+
+
+@router.get("/subscriptions/plan-summary")
+async def subscriptions_plan_summary(
+    _admin: Annotated[User, Depends(require_role("admin"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    window: str = Query("week", pattern="^(day|week|month|custom)$"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+):
+    now = datetime.now(UTC)
+    if window == "day":
+        start, end = now - timedelta(days=1), now
+    elif window == "week":
+        start, end = now - timedelta(days=7), now
+    elif window == "month":
+        start, end = now - timedelta(days=30), now
+    else:
+        if not date_from or not date_to:
+            raise HTTPException(400, "date_from and date_to are required for a custom window")
+        start = datetime.combine(date_from, time.min, tzinfo=UTC)
+        end = datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=UTC)
+
+    # Current totals per plan: reuses the same resolved-active-subscription logic as /plan-rankings
+    # (a real-time snapshot of what plan each non-admin user is currently entitled to).
+    users = list((await db.scalars(select(User).where(User.role != UserRole.admin))).all())
+    catalog = list((await db.scalars(select(Plan).order_by(Plan.name))).all())
+    groups = await _subscription_rows(db, [u.id for u in users])
+    counts: dict[str, int] = {plan.name: 0 for plan in catalog}
+    counts.setdefault("Free", 0)
+    conflicts = 0
+    for user in users:
+        sub, plan, conflict = _resolved(groups.get(user.id, []))
+        if conflict:
+            conflicts += 1
+            continue
+        label = plan.name if plan else "Free"
+        counts[label] = counts.get(label, 0) + 1
+    current_totals = rank_plan_counts(counts, conflicts=conflicts)
+
+    # New subscriptions *started* within the window, grouped by plan. Free has no Stripe
+    # subscription row, so it never appears here by construction — only paid plans do.
+    new_rows = (
+        await db.execute(
+            select(Plan.name, func.count(func.distinct(UserSubscription.user_id)))
+            .join(Plan, Plan.id == UserSubscription.plan_id)
+            .join(User, User.id == UserSubscription.user_id)
+            .where(
+                User.role != UserRole.admin,
+                UserSubscription.subscription_started_at >= start,
+                UserSubscription.subscription_started_at < end,
+            )
+            .group_by(Plan.name)
+        )
+    ).all()
+    new_counts = {name: int(count) for name, count in new_rows}
+    new_total = sum(new_counts.values())
+    new_in_window = [
+        {
+            "plan": name,
+            "new_subscriptions": count,
+            "percentage": round(count / new_total * 100, 1) if new_total else 0,
+        }
+        for name, count in sorted(new_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+
+    return {
+        "window": {"preset": window, "start": start, "end": end},
+        "current_totals": current_totals,
+        "new_in_window": {"total": new_total, "distribution": new_in_window},
+    }
 
 
 @router.get("/subscriptions")
@@ -190,13 +269,117 @@ async def billing_operations(_admin: Annotated[User, Depends(require_role("admin
 
 
 @router.get("/leaderboards")
-@cached_admin_response("leaderboards", ttl=120)
-async def leaderboard_monitoring(request: Request, _admin: Annotated[User, Depends(require_role("admin"))], db: Annotated[AsyncSession, Depends(get_db)]):
-    now=datetime.now(UTC); day=now-timedelta(days=1); week=now-timedelta(days=7)
-    totals=(await db.execute(select(func.count(func.distinct(XPTransaction.user_id)),func.coalesce(func.sum(XPTransaction.amount).filter(XPTransaction.created_at>=day),0),func.coalesce(func.sum(XPTransaction.amount).filter(XPTransaction.created_at>=week),0)))).one()
-    top=(await db.execute(select(XPTransaction.user_id,User.email,func.sum(XPTransaction.amount).label("xp"),func.count(XPTransaction.id).label("events")).join(User,User.id==XPTransaction.user_id).where(XPTransaction.created_at>=week).group_by(XPTransaction.user_id,User.email).order_by(func.sum(XPTransaction.amount).desc()).limit(50))).all()
-    sources=(await db.execute(select(XPTransaction.source_type,func.sum(XPTransaction.amount)).where(XPTransaction.created_at>=week).group_by(XPTransaction.source_type))).all()
-    return {"all_time_participants":int(totals[0] or 0),"xp_today":int(totals[1] or 0),"xp_week":int(totals[2] or 0),"weekly_participants":len(top),"xp_by_source":[{"source":x[0],"xp":int(x[1] or 0)} for x in sources],"top_earners":[{"user_id":str(x[0]),"email":x[1],"xp":int(x[2]),"events":int(x[3]),"suspicious":int(x[2])>=5000 or int(x[3])>=500} for x in top],"anomaly_rule":"Flag >=5,000 XP or >=500 ledger entries in 7 days; informational only."}
+async def leaderboard_monitoring(
+    _admin: Annotated[User, Depends(require_role("admin"))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    period: LeaderboardPeriod = Query("weekly"),
+    metric: LeaderboardMetric = Query("xp"),
+):
+    """Admin leaderboard view. Rebuilt to share the exact ranking logic used by the
+    user-facing leaderboard (same period/metric options, same ROW_NUMBER() ranking via
+    _build_ranked_subquery), then layered with admin-only insight: streaks, a 30-day
+    platform-wide XP trend, a top-country breakdown, and the existing anomaly flag.
+    Global scope only — a "connections" scope has no meaning for a platform-wide view.
+    """
+    now = datetime.now(UTC)
+    week_ago = now - timedelta(days=7)
+
+    ranked_cte = _build_ranked_subquery(period, metric, allowed_ids=None)
+    total = int(await db.scalar(select(func.count()).select_from(ranked_cte)) or 0)
+
+    top_rows = (
+        await db.execute(
+            select(
+                ranked_cte.c.user_id,
+                ranked_cte.c.full_name,
+                ranked_cte.c.email,
+                ranked_cte.c.value,
+                ranked_cte.c.rank,
+                User.country,
+                LearningStreak.current_streak,
+                LearningStreak.longest_streak,
+            )
+            .select_from(ranked_cte)
+            .join(User, User.id == ranked_cte.c.user_id)
+            .outerjoin(LearningStreak, LearningStreak.user_id == ranked_cte.c.user_id)
+            .order_by(ranked_cte.c.rank.asc())
+            .limit(50)
+        )
+    ).all()
+
+    events_7d: dict[UUID, int] = {}
+    if top_rows:
+        events_7d_rows = (
+            await db.execute(
+                select(XPTransaction.user_id, func.count(XPTransaction.id))
+                .where(
+                    XPTransaction.created_at >= week_ago,
+                    XPTransaction.user_id.in_([r.user_id for r in top_rows]),
+                )
+                .group_by(XPTransaction.user_id)
+            )
+        ).all()
+        events_7d = {uid: int(n) for uid, n in events_7d_rows}
+
+    items = [
+        {
+            "rank": int(r.rank),
+            "user_id": str(r.user_id),
+            "full_name": resolve_display_name(full_name=r.full_name, email=r.email),
+            "email": r.email,
+            "country": r.country,
+            "value": float(r.value or 0),
+            "metric": metric,
+            "current_streak": int(r.current_streak or 0),
+            "longest_streak": int(r.longest_streak or 0),
+            "events_7d": events_7d.get(r.user_id, 0),
+            "suspicious": metric == "xp" and (float(r.value or 0) >= 5000 or events_7d.get(r.user_id, 0) >= 500),
+        }
+        for r in top_rows
+    ]
+
+    xp_trend_rows = (
+        await db.execute(
+            select(
+                cast(XPTransaction.created_at, Date).label("day"),
+                func.coalesce(func.sum(XPTransaction.amount), 0),
+            )
+            .where(XPTransaction.created_at >= now - timedelta(days=30))
+            .group_by(cast(XPTransaction.created_at, Date))
+        )
+    ).all()
+    xp_map = {row[0]: int(row[1]) for row in xp_trend_rows}
+    xp_trend_daily = [
+        {
+            "date": (day := now.date() - timedelta(days=29 - i)).isoformat(),
+            "xp": xp_map.get(day, 0),
+        }
+        for i in range(30)
+    ]
+
+    country_rows = (
+        await db.execute(
+            select(User.country, func.count(func.distinct(ranked_cte.c.user_id)))
+            .select_from(ranked_cte)
+            .join(User, User.id == ranked_cte.c.user_id)
+            .where(User.country.isnot(None))
+            .group_by(User.country)
+            .order_by(func.count(func.distinct(ranked_cte.c.user_id)).desc())
+            .limit(10)
+        )
+    ).all()
+    by_country = [{"country": c, "users": int(n)} for c, n in country_rows]
+
+    return {
+        "period": period,
+        "metric": metric,
+        "metric_label": METRIC_LABELS[metric],
+        "total_ranked": total,
+        "items": items,
+        "xp_trend_daily": xp_trend_daily,
+        "by_country": by_country,
+        "anomaly_rule": "XP metric only: flag >=5,000 XP or >=500 ledger entries in 7 days; informational only.",
+    }
 
 
 @router.get("/content-stats")
@@ -216,7 +399,7 @@ async def content_detail(book_id: UUID, _admin: Annotated[User, Depends(require_
     book,user=row
     sets=list((await db.scalars(select(FlashcardSet).where(FlashcardSet.book_id==book_id).order_by(FlashcardSet.created_at))).all())
     ai=(await db.execute(select(func.count(TokenUsage.id),func.coalesce(func.sum(TokenUsage.estimated_cost_usd),0),func.count(TokenUsage.id).filter(TokenUsage.status=="failed"),func.coalesce(func.sum(TokenUsage.input_tokens+TokenUsage.output_tokens),0)).where(TokenUsage.book_id==book_id))).one()
-    return {"id":str(book.id),"type":"book","title":book.title,"author":book.author,"code":book.book_code,"uploader":{"id":str(user.id),"name":user.full_name,"email":user.email},"uploaded_at":book.created_at,"status":book.status.value,"flagged":book.is_flagged,"file_size_bytes":book.file_size_bytes,"related_sets":[{"id":str(x.id),"title":x.title,"created_at":x.created_at} for x in sets],"generated_resources":{"workbooks":int(await db.scalar(select(func.count(Workbook.id)).where(Workbook.book_id==book_id)) or 0)},"ai":{"calls":int(ai[0]),"estimated_cost_usd":round(float(ai[1]),4),"failures":int(ai[2]),"tokens":int(ai[3])},"processing_failure":(book.extras or {}).get("error")}
+    return {"id":str(book.id),"type":"book","code":book.book_code,"uploader":{"id":str(user.id),"name":user.full_name,"email":user.email},"uploaded_at":book.created_at,"status":book.status.value,"flagged":book.is_flagged,"file_size_bytes":book.file_size_bytes,"related_sets":[{"id":str(x.id),"title":x.title,"created_at":x.created_at} for x in sets],"generated_resources":{"workbooks":int(await db.scalar(select(func.count(Workbook.id)).where(Workbook.book_id==book_id)) or 0)},"ai":{"calls":int(ai[0]),"estimated_cost_usd":round(float(ai[1]),4),"failures":int(ai[2]),"tokens":int(ai[3])},"processing_failure":(book.extras or {}).get("error")}
 
 
 @router.get("/support-analytics")

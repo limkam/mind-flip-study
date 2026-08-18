@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from age_utils import age_group_from_dob, calculate_age
 from models.enums import BookStatus, UserRole
 from models.user import User
+from schemas.admin_analytics import FeatureUsagePoint
 
 
 class AdminUserUpdate(BaseModel):
@@ -30,6 +31,7 @@ class AdminUserRow(BaseModel):
     date_of_birth: date | None = None
     age: int | None = None
     age_group: str | None = None
+    gender: str | None = None
     country: str | None = None
     custom_country: str | None = None
     continent: str | None = None
@@ -52,6 +54,7 @@ def admin_user_row_from_model(user: User, *, plan: str = "Free") -> AdminUserRow
         date_of_birth=user.date_of_birth,
         age=age,
         age_group=age_group_from_dob(user.date_of_birth) if user.date_of_birth else None,
+        gender=user.gender,
         country=user.country,
         custom_country=user.custom_country,
         continent=user.continent,
@@ -69,8 +72,6 @@ class AdminUserListPage(BaseModel):
 
 class AdminBookRow(BaseModel):
     id: UUID
-    title: str
-    author: str
     book_code: str
     uploader_name: str
     uploader_email: str
@@ -84,11 +85,6 @@ class AdminBookListPage(BaseModel):
     total: int
     page: int
     size: int
-
-
-class TopBookMetric(BaseModel):
-    title: str
-    set_count: int
 
 
 class AdminUserIpRow(BaseModel):
@@ -107,15 +103,28 @@ class AdminUserIpListPage(BaseModel):
     size: int = 50
 
 
+class MetricsDailyPoint(BaseModel):
+    date: str
+    ai_cost_usd: float
+    ai_calls: int
+
+
 class AdminMetricsOut(BaseModel):
+    updated_at: datetime
     dau: int
     signups_30d: int
     total_books: int
     ai_generations_30d: int
     paying_users: int
     mrr_usd: float
-    top_books: list[TopBookMetric]
     ai_cost_30d_usd: float = 0.0
+    onboarding_started_30d: int
+    onboarding_completed_30d: int
+    onboarding_rate_pct: float
+    churned_users_30d: int
+    churn_rate_pct: float
+    usage_by_feature: list[FeatureUsagePoint]
+    ai_cost_daily: list[MetricsDailyPoint]
 
 
 class AdminFeedbackRow(BaseModel):

@@ -42,8 +42,6 @@ export default function Content() {
   const stats = useQuery({ queryKey: ['admin-content-stats'], queryFn: async () => (await client.get('/admin/control/content-stats')).data });
 
   const columns = [
-    { key: 'title', label: 'Title' },
-    { key: 'author', label: 'Author' },
     { key: 'book_code', label: 'Code' },
     { key: 'uploader_name', label: 'Uploaded By' },
     {
@@ -65,7 +63,7 @@ export default function Content() {
       <div className="metrics-grid">
         {stats.data && [['Total Books','total_books'],['Flashcard Sets','total_sets'],['Flashcards','total_flashcards'],['Uploads Today','uploads_today'],['Uploads 7d','uploads_7d'],['Uploads 30d','uploads_30d'],['Flagged','flagged']].map(([label,key]) => <MetricCard key={key} label={label} value={stats.data[key]} />)}
       </div>
-      <div className="filters-row"><input type="search" value={search} placeholder="Search title, author, code, or uploader…" onChange={(event) => { setSearch(event.target.value); setPage(1); }} /></div>
+      <div className="filters-row"><input type="search" value={search} placeholder="Search by book code…" onChange={(event) => { setSearch(event.target.value); setPage(1); }} /></div>
       <div className="tabs">
         {TABS.map((t) => (
           <button

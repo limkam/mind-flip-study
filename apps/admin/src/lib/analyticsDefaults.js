@@ -73,10 +73,32 @@ export const EMPTY_DEMOGRAPHICS = {
   users_by_country: [],
   users_by_continent: [],
   users_by_occupation: [],
+  users_by_gender: [],
   users_by_age_group: [],
   plan_distribution: [],
   users_by_role: [],
   top_study_topics: [],
+};
+
+export const EMPTY_METRICS = {
+  dau: 0,
+  signups_30d: 0,
+  total_books: 0,
+  ai_generations_30d: 0,
+  paying_users: 0,
+  mrr_usd: 0,
+  ai_cost_30d_usd: 0,
+  onboarding_started_30d: 0,
+  onboarding_completed_30d: 0,
+  onboarding_rate_pct: 0,
+  churned_users_30d: 0,
+  churn_rate_pct: 0,
+  usage_by_feature: [],
+  ai_cost_daily: Array.from({ length: 30 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (29 - i));
+    return { date: d.toISOString().slice(0, 10), ai_cost_usd: 0, ai_calls: 0 };
+  }),
 };
 
 export const EMPTY_FINANCIAL = {

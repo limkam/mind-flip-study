@@ -18,6 +18,12 @@ const AGE_GROUP_OPTIONS = [
   "65+",
 ];
 
+const GENDER_LABELS = {
+  male: "Male",
+  female: "Female",
+  prefer_not_to_say: "Prefer not to say",
+};
+
 const SORT_OPTIONS = [
   { value: "-created_at", label: "Newest first" },
   { value: "created_at", label: "Oldest first" },
@@ -63,6 +69,7 @@ export default function Users() {
   const [country, setCountry] = useState("");
   const [continent, setContinent] = useState("");
   const [occupation, setOccupation] = useState("");
+  const [gender, setGender] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [sort, setSort] = useState("-created_at");
   const [page, setPage] = useState(1);
@@ -86,7 +93,7 @@ export default function Users() {
   });
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
-    queryKey: ["admin-users", debouncedQ, ageGroup, plan, country, continent, occupation, statusFilter, sort, page],
+    queryKey: ["admin-users", debouncedQ, ageGroup, plan, country, continent, occupation, gender, statusFilter, sort, page],
     queryFn: async () => {
       const { data: res } = await client.get("/admin/users", {
         params: {
@@ -96,6 +103,7 @@ export default function Users() {
           country: country || undefined,
           continent: continent || undefined,
           occupation: occupation || undefined,
+          gender: gender || undefined,
           status: statusFilter || undefined,
           sort,
           page,
@@ -177,6 +185,11 @@ export default function Users() {
       key: "age_group",
       label: "Age Group",
       render: (row) => row.age_group || "—",
+    },
+    {
+      key: "gender",
+      label: "Gender",
+      render: (row) => GENDER_LABELS[row.gender] || "—",
     },
     {
       key: "country",
@@ -268,6 +281,14 @@ export default function Users() {
             </option>
           ))}
         </select>
+        <select className="filter-select" value={gender} onChange={resetPage(setGender)}>
+          <option value="">All genders</option>
+          {(filterOptions?.genders ?? []).map((g) => (
+            <option key={g} value={g}>
+              {GENDER_LABELS[g] || g}
+            </option>
+          ))}
+        </select>
         <select
           className="filter-select"
           value={sort}
@@ -287,7 +308,7 @@ export default function Users() {
         <button type="button" className="btn-secondary" onClick={() => refetch()} disabled={isFetching}>
           {isFetching ? "Refreshing…" : "Refresh users"}
         </button>
-        {(ageGroup || plan || statusFilter || continent || country || occupation || q) && (
+        {(ageGroup || plan || statusFilter || continent || country || occupation || gender || q) && (
           <button
             type="button"
             className="btn-secondary"
@@ -299,6 +320,7 @@ export default function Users() {
               setCountry("");
               setContinent("");
               setOccupation("");
+              setGender("");
               setStatusFilter("");
               setPage(1);
             }}

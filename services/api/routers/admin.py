@@ -8,20 +8,21 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import String, and_, case, delete, func, or_, select, update
+from sqlalchemy import Date, String, and_, case, cast, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from dependencies import require_role
+from models.admin_observability import OnboardingEvent
 from models.book import Book
 from models.enums import BookStatus, UserRole, FeedbackStatus, SupportCategory, SupportConversationStatus, SupportSenderType
 from models.feedback import Feedback, SupportConversation, SupportMessage
-from models.flashcard import Flashcard, FlashcardSet, Workbook
 from models.license import License
-from models.quiz import StudyEvent
+from models.quiz import QuizResult, StudyEvent
 from models.token_usage import TokenUsage
 from models.user_subscription import UserSubscription
 from models.plan import Plan
+from models.xp import XPTransaction
 from models.user import User
 from services import entitlements as entitlements_service
 from services.plan_catalog import PLAN_LABELS, plan_label_from_slug
@@ -36,9 +37,10 @@ from schemas.admin import (
     AdminUserListPage,
     AdminUserRow,
     AdminUserUpdate,
-    TopBookMetric,
+    MetricsDailyPoint,
     admin_user_row_from_model,
 )
+from schemas.admin_analytics import FeatureUsagePoint
 from schemas.feedback import (FeedbackAdminUpdate, FeedbackPublic, SupportMessageCreate,
     SupportMessagePublic, AdminConversationRow, AdminConversationPage, AdminConversationDetail,
     AdminSupportDashboard, CategoryCount)
@@ -128,6 +130,7 @@ async def user_filter_options(
         "continents": await distinct(User.continent),
         "occupations": await distinct(User.occupation),
         "age_groups": list(AGE_GROUP_LABELS),
+        "genders": ["male", "female", "prefer_not_to_say"],
         "statuses": ["active", "banned"],
     }
 
@@ -142,6 +145,7 @@ async def list_users(
     country: str | None = Query(default=None, max_length=128),
     continent: str | None = Query(default=None, max_length=64),
     occupation: str | None = Query(default=None, max_length=100),
+    gender: str | None = Query(default=None, max_length=32),
     status_filter: str | None = Query(default=None, max_length=16, alias="status"),
     sort: str = Query(default="-created_at", max_length=32),
     page: int = Query(1, ge=1),
@@ -173,6 +177,8 @@ async def list_users(
         filters.append(User.continent == continent)
     if occupation:
         filters.append(User.occupation == occupation)
+    if gender:
+        filters.append(User.gender == gender)
     if status_filter:
         if status_filter not in ("active", "banned"):
             raise HTTPException(
@@ -308,12 +314,11 @@ async def list_all_books(
     size: int = Query(20, ge=1, le=100),
     status_filter: BookStatus | None = Query(default=None, alias="status"),
     flagged: bool | None = Query(default=None),
+    q: str | None = Query(default=None, description="Search by book code"),
 ) -> AdminBookListPage:
     base = (
         select(
             Book.id,
-            Book.title,
-            Book.author,
             Book.book_code,
             Book.status,
             Book.created_at,
@@ -327,12 +332,16 @@ async def list_all_books(
         base = base.where(Book.status == status_filter)
     if flagged is not None:
         base = base.where(Book.is_flagged == flagged)
+    if q:
+        base = base.where(Book.book_code.ilike(f"%{q.strip()}%"))
 
     count_q = select(func.count()).select_from(Book).join(User, Book.user_id == User.id)
     if status_filter is not None:
         count_q = count_q.where(Book.status == status_filter)
     if flagged is not None:
         count_q = count_q.where(Book.is_flagged == flagged)
+    if q:
+        count_q = count_q.where(Book.book_code.ilike(f"%{q.strip()}%"))
     total = int(await db.scalar(count_q) or 0)
     offset = (page - 1) * size
     result = await db.execute(
@@ -341,8 +350,6 @@ async def list_all_books(
     items = [
         AdminBookRow(
             id=row.id,
-            title=row.title,
-            author=row.author,
             book_code=row.book_code,
             uploader_name=row.uploader_name,
             uploader_email=row.uploader_email,
@@ -379,8 +386,6 @@ async def flag_book(
     await db.refresh(book)
     return AdminBookRow(
         id=book.id,
-        title=book.title,
-        author=book.author,
         book_code=book.book_code,
         uploader_name=uploader_name,
         uploader_email=uploader_email,
@@ -403,7 +408,7 @@ async def delete_book_admin(
     if book is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
 
-    snapshot = {"title": book.title, "author": book.author, "status": book.status.value, "is_flagged": book.is_flagged}
+    snapshot = {"book_code": book.book_code, "status": book.status.value, "is_flagged": book.is_flagged}
     record_admin_action(db, admin=_admin, action="content.delete", resource_type="book", resource_id=book.id, affected_user_id=book.user_id, previous=snapshot, reason=reason, request=request)
     await cascade_delete_book(db, book, commit=False)
     await db.commit()
@@ -458,16 +463,6 @@ async def get_platform_metrics(
     )
     mrr = round(float(mrr_raw or 0) / 100, 2)
 
-    top_result = await db.execute(
-        select(Book.title, func.count(FlashcardSet.id).label("set_count"))
-        .join(FlashcardSet, FlashcardSet.book_id == Book.id)
-        .group_by(Book.id, Book.title)
-        .order_by(func.count(FlashcardSet.id).desc())
-        .limit(10),
-    )
-    top_books = [
-        TopBookMetric(title=row.title, set_count=int(row.set_count)) for row in top_result.all()
-    ]
     ai_cost_raw = await db.scalar(
         select(func.coalesce(func.sum(TokenUsage.estimated_cost_usd), 0)).where(
             TokenUsage.created_at >= thirty_days_ago_dt,
@@ -475,15 +470,125 @@ async def get_platform_metrics(
     )
     ai_cost_30d = float(ai_cost_raw or 0.0)
 
+    # Onboarding rate: of onboarding funnels *started* in the window, how many were *completed*.
+    # Uses the dedicated onboarding_events log rather than User.created_at so it reflects the
+    # actual funnel (a user can start onboarding without ever finishing signup flows on time).
+    onboarding_started_30d = int(
+        await db.scalar(
+            select(func.count(func.distinct(OnboardingEvent.user_id))).where(
+                OnboardingEvent.event_type == "started",
+                OnboardingEvent.occurred_at >= thirty_days_ago_dt,
+            ),
+        )
+        or 0,
+    )
+    onboarding_completed_30d = int(
+        await db.scalar(
+            select(func.count(func.distinct(OnboardingEvent.user_id))).where(
+                OnboardingEvent.event_type == "completed",
+                OnboardingEvent.occurred_at >= thirty_days_ago_dt,
+            ),
+        )
+        or 0,
+    )
+    onboarding_rate_pct = round(
+        (onboarding_completed_30d / onboarding_started_30d * 100) if onboarding_started_30d else 0.0,
+        1,
+    )
+
+    # Churn: subscriptions canceled within the window, as a share of the paying base
+    # (current payers + those who churned out of it this window) — mirrors the same
+    # denominator shape used by Financial Analytics' churn_rate_pct.
+    churned_users_30d = int(
+        await db.scalar(
+            select(func.count(func.distinct(UserSubscription.user_id))).where(
+                UserSubscription.canceled_at.isnot(None),
+                UserSubscription.canceled_at >= thirty_days_ago_dt,
+            ),
+        )
+        or 0,
+    )
+    churn_rate_pct = round(churned_users_30d / max(paying_users + churned_users_30d, 1) * 100, 1)
+
+    quizzes_30d = int(
+        await db.scalar(
+            select(func.count(QuizResult.id)).where(QuizResult.completed_at >= thirty_days_ago_dt),
+        )
+        or 0,
+    )
+    flashcard_reviews_30d = int(
+        await db.scalar(
+            select(func.count(StudyEvent.id)).where(
+                StudyEvent.event_type == "review",
+                StudyEvent.created_at >= thirty_days_ago_dt,
+            ),
+        )
+        or 0,
+    )
+    lessons_completed_30d = int(
+        await db.scalar(
+            select(func.count(StudyEvent.id)).where(
+                StudyEvent.event_type == "lesson.completed",
+                StudyEvent.created_at >= thirty_days_ago_dt,
+            ),
+        )
+        or 0,
+    )
+    daily_reviews_30d = int(
+        await db.scalar(
+            select(func.count(XPTransaction.id)).where(
+                XPTransaction.source_type == "daily_review",
+                XPTransaction.created_at >= thirty_days_ago_dt,
+            ),
+        )
+        or 0,
+    )
+    # Note: game sessions are not currently persisted anywhere (no session/completion
+    # event exists for Action.START_GAME), so games cannot be included here.
+    usage_by_feature = [
+        FeatureUsagePoint(feature="Quizzes Completed", count=quizzes_30d),
+        FeatureUsagePoint(feature="Flashcard Reviews", count=flashcard_reviews_30d),
+        FeatureUsagePoint(feature="Lessons Completed", count=lessons_completed_30d),
+        FeatureUsagePoint(feature="Daily Reviews", count=daily_reviews_30d),
+    ]
+
+    daily_ai_rows = (
+        await db.execute(
+            select(
+                cast(TokenUsage.created_at, Date).label("day"),
+                func.coalesce(func.sum(TokenUsage.estimated_cost_usd), 0).label("cost"),
+                func.count(TokenUsage.id).label("calls"),
+            )
+            .where(TokenUsage.created_at >= thirty_days_ago_dt)
+            .group_by(cast(TokenUsage.created_at, Date))
+        )
+    ).all()
+    daily_map = {row.day: row for row in daily_ai_rows}
+    ai_cost_daily = [
+        MetricsDailyPoint(
+            date=(day := today - timedelta(days=29 - i)).isoformat(),
+            ai_cost_usd=round(float(daily_map[day].cost), 4) if day in daily_map else 0.0,
+            ai_calls=int(daily_map[day].calls) if day in daily_map else 0,
+        )
+        for i in range(30)
+    ]
+
     return AdminMetricsOut(
+        updated_at=datetime.now(UTC),
         dau=dau,
         signups_30d=signups_30d,
         total_books=total_books,
         ai_generations_30d=ai_generations_30d,
         paying_users=paying_users,
         mrr_usd=mrr,
-        top_books=top_books,
         ai_cost_30d_usd=round(ai_cost_30d, 4),
+        onboarding_started_30d=onboarding_started_30d,
+        onboarding_completed_30d=onboarding_completed_30d,
+        onboarding_rate_pct=onboarding_rate_pct,
+        churned_users_30d=churned_users_30d,
+        churn_rate_pct=churn_rate_pct,
+        usage_by_feature=usage_by_feature,
+        ai_cost_daily=ai_cost_daily,
     )
 
 

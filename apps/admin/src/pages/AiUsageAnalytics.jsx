@@ -274,7 +274,7 @@ export default function AiUsageAnalytics() {
         <table className="admin-table">
           <thead>
             <tr>
-              <th>Book</th>
+              <th>Book Code</th>
               <th>Calls</th>
               <th>Cost</th>
               <th>Input Tokens</th>
@@ -284,7 +284,7 @@ export default function AiUsageAnalytics() {
           <tbody>
             {(data.by_book || []).map((row) => (
               <tr key={row.book_id}>
-                <td>{row.book_title}</td>
+                <td>{row.book_code}</td>
                 <td>{row.total_calls}</td>
                 <td>{fmtCost(row.total_cost_usd)}</td>
                 <td>{fmtTokens(row.input_tokens)}</td>
@@ -452,7 +452,7 @@ export default function AiUsageAnalytics() {
                   <th>Cache read</th>
                   <th>Cache write</th>
                   <th>Cost</th>
-                  <th>Book</th>
+                  <th>Book Code</th>
                   <th>Chapter</th>
                   <th>Flashcards</th>
                   <th>Attempt</th>
@@ -484,7 +484,7 @@ export default function AiUsageAnalytics() {
                     <td>{fmtTokens(row.cache_read_tokens)}</td>
                     <td>{fmtTokens(row.cache_creation_tokens)}</td>
                     <td>{fmtCost(row.estimated_cost_usd)}</td>
-                    <td>{row.book_title || "—"}</td>
+                    <td>{row.book_code || "—"}</td>
                     <td>{row.call_metadata?.chapter || "—"}</td>
                     <td>{row.call_metadata?.flashcards_generated ?? "—"}</td>
                     <td>{row.call_metadata?.attempt ?? "—"}</td>

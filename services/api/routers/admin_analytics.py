@@ -419,6 +419,15 @@ async def demographics(
         .order_by(func.count().desc())
         .limit(12),
     )
+    gender_label = func.coalesce(
+        func.nullif(func.trim(User.gender), ""),
+        literal("Unknown"),
+    )
+    gender_rows = await db.execute(
+        select(gender_label.label("label"), func.count().label("n"))
+        .group_by(gender_label)
+        .order_by(func.count().desc()),
+    )
     dob_rows = await db.execute(
         select(User.date_of_birth).where(User.date_of_birth.is_not(None))
     )
@@ -450,12 +459,11 @@ async def demographics(
         .order_by(func.count().desc()),
     )
 
-    books_topics = select(Book.title.label("topic")).select_from(Book)
     assignment_topics = select(Assignment.subject.label("topic")).select_from(
         Assignment
     )
     set_topics = select(FlashcardSet.title.label("topic")).select_from(FlashcardSet)
-    topics_union = union_all(books_topics, assignment_topics, set_topics).subquery()
+    topics_union = union_all(assignment_topics, set_topics).subquery()
     topic_rows = await db.execute(
         select(topics_union.c.topic, func.count().label("n"))
         .select_from(topics_union)
@@ -487,6 +495,10 @@ async def demographics(
         users_by_occupation=[
             LabeledCount(label=row.label, count=int(row.n))
             for row in occupation_rows.all()
+        ],
+        users_by_gender=[
+            LabeledCount(label=row.label, count=int(row.n))
+            for row in gender_rows.all()
         ],
         users_by_age_group=users_by_age_group,
         plan_distribution=_merge_labeled_counts(
@@ -826,7 +838,7 @@ async def ai_usage_analytics(
     book_rows = await db.execute(
         select(
             TokenUsage.book_id,
-            Book.title,
+            Book.book_code,
             func.coalesce(func.sum(TokenUsage.estimated_cost_usd), 0),
             func.count(TokenUsage.id),
             func.coalesce(func.sum(TokenUsage.input_tokens), 0),
@@ -834,14 +846,14 @@ async def ai_usage_analytics(
         )
         .join(Book, Book.id == TokenUsage.book_id)
         .where(TokenUsage.book_id.isnot(None))
-        .group_by(TokenUsage.book_id, Book.title)
+        .group_by(TokenUsage.book_id, Book.book_code)
         .order_by(func.sum(TokenUsage.estimated_cost_usd).desc())
         .limit(20),
     )
     by_book = [
         AiUsageByBook(
             book_id=str(row[0]),
-            book_title=str(row[1] or ""),
+            book_code=str(row[1] or ""),
             total_cost_usd=round(float(row[2] or 0), 4),
             total_calls=int(row[3] or 0),
             input_tokens=int(row[4] or 0),
@@ -898,7 +910,7 @@ async def ai_usage_logs(
     total = int((await db.execute(count_q)).scalar_one() or 0)
 
     log_q = (
-        select(TokenUsage, User.email, Book.title)
+        select(TokenUsage, User.email, Book.book_code)
         .join(User, User.id == TokenUsage.user_id)
         .outerjoin(Book, Book.id == TokenUsage.book_id)
         .order_by(TokenUsage.created_at.desc())
@@ -931,11 +943,11 @@ async def ai_usage_logs(
             duration_ms=usage.duration_ms,
             estimated_cost_usd=round(float(usage.estimated_cost_usd), 6),
             book_id=str(usage.book_id) if usage.book_id else None,
-            book_title=str(book_title) if book_title else None,
+            book_code=str(book_code) if book_code else None,
             celery_task_id=usage.celery_task_id,
             call_metadata=usage.call_metadata,
         )
-        for usage, email, book_title in rows
+        for usage, email, book_code in rows
     ]
 
     return AiUsageLogsOut(total=total, limit=limit, offset=offset, items=items)
