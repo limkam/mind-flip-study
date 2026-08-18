@@ -23,6 +23,12 @@ def _invoice_link_line(s: dict, invoice_url: str | None) -> str:
     return f'<p style="{s["p"]}">Your invoice is available <a href="{invoice_url}">here</a>.</p>'
 
 
+def _receipt_link_line(s: dict, receipt_url: str | None) -> str:
+    if not receipt_url:
+        return ""
+    return f'<p style="{s["p"]}">Your payment receipt is available <a href="{receipt_url}">here</a>.</p>'
+
+
 def subscription_receipt_email(
     full_name: str,
     plan_name: str,
@@ -30,6 +36,7 @@ def subscription_receipt_email(
     currency: str,
     next_billing_date: datetime | None,
     invoice_url: str | None = None,
+    receipt_url: str | None = None,
 ) -> str:
     s = BASE_STYLES
     name = first_name(full_name)
@@ -45,6 +52,7 @@ def subscription_receipt_email(
         Your <strong>{plan_name}</strong> plan is now active. We charged <strong>{amount}</strong> to your payment method on file.
       </p>
       {next_line}
+      {_receipt_link_line(s, receipt_url)}
       {_invoice_link_line(s, invoice_url)}
       <p style="{s['muted']}">
         Questions about this charge? Reply to this email or visit Billing &amp; Usage in your account.
@@ -60,6 +68,7 @@ def renewal_receipt_email(
     currency: str,
     next_billing_date: datetime | None,
     invoice_url: str | None = None,
+    receipt_url: str | None = None,
 ) -> str:
     s = BASE_STYLES
     name = first_name(full_name)
@@ -75,6 +84,39 @@ def renewal_receipt_email(
         We charged <strong>{amount}</strong> to your payment method on file for your <strong>{plan_name}</strong> plan.
       </p>
       {next_line}
+      {_receipt_link_line(s, receipt_url)}
+      {_invoice_link_line(s, invoice_url)}
+      <p style="{s['muted']}">
+        Questions about this charge? Reply to this email or visit Billing &amp; Usage in your account.
+      </p>
+    """
+    return wrap_email(body_html=body)
+
+
+def upgrade_receipt_email(
+    full_name: str,
+    plan_name: str,
+    amount_cents: int,
+    currency: str,
+    next_billing_date: datetime | None,
+    invoice_url: str | None = None,
+    receipt_url: str | None = None,
+) -> str:
+    s = BASE_STYLES
+    name = first_name(full_name)
+    amount = _format_amount(amount_cents, currency)
+    next_line = (
+        f'<p style="{s["p"]}">Your next billing date is <strong>{_format_date(next_billing_date)}</strong>.</p>'
+        if next_billing_date
+        else ""
+    )
+    body = f"""
+      <h1 style="{s['h1']}">You're upgraded, {name}.</h1>
+      <p style="{s['p']}">
+        We charged <strong>{amount}</strong> to your payment method on file — the prorated cost of switching to <strong>{plan_name}</strong> today.
+      </p>
+      {next_line}
+      {_receipt_link_line(s, receipt_url)}
       {_invoice_link_line(s, invoice_url)}
       <p style="{s['muted']}">
         Questions about this charge? Reply to this email or visit Billing &amp; Usage in your account.
@@ -89,6 +131,7 @@ def credit_purchase_receipt_email(
     amount_cents: int,
     currency: str,
     invoice_url: str | None = None,
+    receipt_url: str | None = None,
 ) -> str:
     s = BASE_STYLES
     name = first_name(full_name)
@@ -99,6 +142,7 @@ def credit_purchase_receipt_email(
       <p style="{s['p']}">
         You purchased <strong>{quantity} credit{plural}</strong> for <strong>{amount}</strong>. They're available in your account now.
       </p>
+      {_receipt_link_line(s, receipt_url)}
       {_invoice_link_line(s, invoice_url)}
       <p style="{s['muted']}">
         Questions about this charge? Reply to this email or visit Billing &amp; Usage in your account.
@@ -139,6 +183,7 @@ def cancellation_confirmation_email(
     full_name: str,
     access_end_date: datetime,
     invoice_url: str | None = None,
+    receipt_url: str | None = None,
 ) -> str:
     s = BASE_STYLES
     name = first_name(full_name)
@@ -148,6 +193,7 @@ def cancellation_confirmation_email(
         This confirms your cancellation went through. You'll keep full access until <strong>{_format_date(access_end_date)}</strong>,
         after which your account moves to the free plan.
       </p>
+      {_receipt_link_line(s, receipt_url)}
       {_invoice_link_line(s, invoice_url)}
       <p style="{s['muted']}">
         Changed your mind? You can resubscribe anytime from Billing &amp; Usage.

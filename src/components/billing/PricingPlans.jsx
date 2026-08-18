@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,12 +25,15 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { getApiErrorMessage } from "@/lib/apiError";
 import { useAuth } from "@/lib/AuthContext";
+import SubscriptionChangeDialog from "@/components/billing/SubscriptionChangeDialog";
 
 export default function PricingPlans({ compact = false }) {
   const [loadingPlan, setLoadingPlan] = useState(null);
   const [interval, setInterval] = useState("monthly");
+  const [changeDialogPlan, setChangeDialogPlan] = useState(null);
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
+  const queryClient = useQueryClient();
 
   const { data: pricing } = useQuery({
     queryKey: ["billing-pricing"],
@@ -65,8 +68,19 @@ export default function PricingPlans({ compact = false }) {
   const currentPlan = entitlements?.plan_slug || "free";
   const accountStateUnresolved = isAuthenticated && (entitlementsPending || entitlementsError);
 
+  const hasActiveSubscription = currentPlan !== "free";
+
   const onCheckout = async (slug) => {
-    if (slug === "free") return;
+    if (slug === "free" || slug === currentPlan) return;
+
+    // Existing subscribers switching plans must go through preview-change/change, not
+    // checkout (a new-subscription flow) — checkout 409s for anyone who already has an
+    // active subscription.
+    if (hasActiveSubscription) {
+      setChangeDialogPlan(slug);
+      return;
+    }
+
     setLoadingPlan(slug);
     try {
       await startCheckout(checkoutPlanForSlug(slug), interval);
@@ -198,7 +212,7 @@ export default function PricingPlans({ compact = false }) {
               </div>
 
               <div className="mt-auto pt-6">
-                {!isFree && !isCurrent ? (
+                {!isFree && !isCurrent && !hasActiveSubscription ? (
                   <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
                     You&apos;ll be charged <span className="font-semibold text-foreground">{priceAmount}</span> today. Your subscription renews automatically every {interval === "annual" ? "year" : "month"} until you cancel. Cancel anytime from Billing &amp; Credits.
                   </p>
@@ -227,14 +241,18 @@ export default function PricingPlans({ compact = false }) {
                   >
                     {loadingPlan === plan.slug
                       ? "Redirecting…"
-                      : plan.stripePriceId
-                        ? PLAN_CTA_LABELS[plan.slug]
-                        : "Temporarily unavailable"}
+                      : !plan.stripePriceId
+                        ? "Temporarily unavailable"
+                        : hasActiveSubscription
+                          ? `Switch to ${plan.label}`
+                          : PLAN_CTA_LABELS[plan.slug]}
                   </Button>
                 )}
                 {!isFree ? (
                   <p className="mt-3 text-center text-xs text-muted-foreground">
-                    {interval === "annual" ? "Annual" : "Monthly"} Stripe checkout · cancel anytime
+                    {hasActiveSubscription
+                      ? "Review the charge before it's confirmed"
+                      : `${interval === "annual" ? "Annual" : "Monthly"} Stripe checkout · cancel anytime`}
                   </p>
                 ) : (
                   <p className="mt-3 text-center text-xs text-muted-foreground">
@@ -247,6 +265,22 @@ export default function PricingPlans({ compact = false }) {
         })}
       </div>
 
+      <p className="text-center text-xs text-muted-foreground">
+        Limits are for total accessible content — including books and sets added through Study Groups, not just your own uploads.
+      </p>
+
+      <SubscriptionChangeDialog
+        open={!!changeDialogPlan}
+        billingPlan={changeDialogPlan ? checkoutPlanForSlug(changeDialogPlan) : null}
+        interval={interval}
+        planLabel={changeDialogPlan ? planLabelFromSlug(changeDialogPlan) : ""}
+        onClose={() => setChangeDialogPlan(null)}
+        onChanged={() => {
+          setChangeDialogPlan(null);
+          queryClient.invalidateQueries({ queryKey: ["billing-entitlements"] });
+          queryClient.invalidateQueries({ queryKey: ["billing-overview"] });
+        }}
+      />
     </section>
   );
 }

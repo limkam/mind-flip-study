@@ -12,7 +12,9 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from config import settings
+import database
 from database import init_engine
+from services.migration_check import check_migration_head
 from middleware.ip_capture import IPCaptureMiddleware
 from middleware.onboarding_gate import OnboardingGateMiddleware
 from middleware.performance_timing import PerformanceTimingMiddleware
@@ -87,6 +89,15 @@ async def lifespan(app: FastAPI):
             raise
         logger.warning("S3 not fully configured (uploads will fail until fixed): %s", exc)
     init_engine(settings.DATABASE_URL)
+    try:
+        await check_migration_head(database.engine)
+    except Exception as exc:
+        # Covers both a real MigrationDriftError and being unable to check at all (DB
+        # unreachable, etc.) — either way, production must not serve traffic against a
+        # database whose schema state wasn't verified.
+        if settings.ENVIRONMENT == "production":
+            raise
+        logger.warning("migration_drift_check_failed (non-production, not blocking): %s", exc)
     redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
     await redis.ping()
     app.state.redis = redis

@@ -196,27 +196,6 @@ def send_weekly_digest_email_task(full_name: str, email: str, stats: dict) -> bo
     return send_email(to=email, subject="Your MindFlip week in review 📊", html=html)
 
 
-@celery.task(name="tasks.email_tasks.send_challenge_alert_task")
-def send_challenge_alert_task(
-    recipient_name: str,
-    recipient_email: str,
-    challenger_name: str,
-    set_title: str,
-    challenger_score: int,
-    challenge_id: str,
-) -> bool:
-    from emails.templates.challenge import challenge_alert_email
-
-    html = challenge_alert_email(
-        recipient_name, challenger_name, set_title, challenger_score, challenge_id
-    )
-    return send_email(
-        to=recipient_email,
-        subject=f"{challenger_name} challenged you on MindFlip ⚔️",
-        html=html,
-    )
-
-
 @celery.task(name="tasks.email_tasks.send_second_purchase_upsell_task")
 def send_second_purchase_upsell_task(user_id: str, full_name: str, email: str) -> bool:
     """Send upsell email on second credit purchase to encourage subscription upgrade."""
@@ -228,18 +207,29 @@ def send_second_purchase_upsell_task(user_id: str, full_name: str, email: str) -
     )
 
 
-def _invoice_attachment_and_link(invoice_id: str | None) -> tuple[list[dict] | None, str | None]:
-    """Best-effort PDF attachment for a Stripe invoice; falls back to a hosted link."""
+def _invoice_attachment_and_links(
+    invoice_id: str | None,
+) -> tuple[list[dict] | None, str | None, str | None]:
+    """Best-effort PDF attachment plus invoice/receipt links for a Stripe invoice.
+
+    The invoice link is the itemized Stripe Invoice document; the receipt link is
+    Stripe's separate pay.stripe.com/receipts/... payment confirmation page.
+    """
     if not invoice_id:
-        return None, None
-    from services.stripe_invoices import fetch_invoice_pdf
+        return None, None, None
+    from services.stripe_invoices import fetch_charge_receipt_url, fetch_invoice_pdf
 
     pdf_bytes, hosted_url = fetch_invoice_pdf(invoice_id)
+    receipt_url = fetch_charge_receipt_url(invoice_id)
     if pdf_bytes:
-        return [{"filename": f"invoice-{invoice_id}.pdf", "content": list(pdf_bytes)}], None
+        return (
+            [{"filename": f"invoice-{invoice_id}.pdf", "content": list(pdf_bytes)}],
+            None,
+            receipt_url,
+        )
     if hosted_url:
         log.warning("invoice_pdf_unavailable_falling_back_to_link invoice_id=%s", invoice_id)
-    return None, hosted_url
+    return None, hosted_url, receipt_url
 
 
 @celery.task(name="tasks.email_tasks.send_subscription_receipt_task")
@@ -258,9 +248,10 @@ def send_subscription_receipt_task(
     next_billing_date = (
         datetime.fromisoformat(next_billing_date_iso) if next_billing_date_iso else None
     )
-    attachments, invoice_url = _invoice_attachment_and_link(invoice_id)
+    attachments, invoice_url, receipt_url = _invoice_attachment_and_links(invoice_id)
     html = subscription_receipt_email(
-        full_name, plan_name, amount_cents, currency, next_billing_date, invoice_url=invoice_url,
+        full_name, plan_name, amount_cents, currency, next_billing_date,
+        invoice_url=invoice_url, receipt_url=receipt_url,
     )
     return send_email(
         to=email, subject="Your MindFlip subscription is active", html=html, attachments=attachments,
@@ -283,12 +274,39 @@ def send_renewal_receipt_task(
     next_billing_date = (
         datetime.fromisoformat(next_billing_date_iso) if next_billing_date_iso else None
     )
-    attachments, invoice_url = _invoice_attachment_and_link(invoice_id)
+    attachments, invoice_url, receipt_url = _invoice_attachment_and_links(invoice_id)
     html = renewal_receipt_email(
-        full_name, plan_name, amount_cents, currency, next_billing_date, invoice_url=invoice_url,
+        full_name, plan_name, amount_cents, currency, next_billing_date,
+        invoice_url=invoice_url, receipt_url=receipt_url,
     )
     return send_email(
         to=email, subject="Your MindFlip subscription renewed", html=html, attachments=attachments,
+    )
+
+
+@celery.task(name="tasks.email_tasks.send_upgrade_receipt_task")
+def send_upgrade_receipt_task(
+    email: str,
+    full_name: str,
+    plan_name: str,
+    amount_cents: int,
+    currency: str,
+    next_billing_date_iso: str | None,
+    invoice_id: str | None = None,
+) -> bool:
+    """Send a payment receipt when an existing subscriber upgrades (immediate prorated invoice)."""
+    from emails.templates.receipt import upgrade_receipt_email
+
+    next_billing_date = (
+        datetime.fromisoformat(next_billing_date_iso) if next_billing_date_iso else None
+    )
+    attachments, invoice_url, receipt_url = _invoice_attachment_and_links(invoice_id)
+    html = upgrade_receipt_email(
+        full_name, plan_name, amount_cents, currency, next_billing_date,
+        invoice_url=invoice_url, receipt_url=receipt_url,
+    )
+    return send_email(
+        to=email, subject="You're upgraded — MindFlip receipt", html=html, attachments=attachments,
     )
 
 
@@ -304,9 +322,10 @@ def send_credit_purchase_receipt_task(
     """Send a payment receipt when a one-time credit purchase is fulfilled."""
     from emails.templates.receipt import credit_purchase_receipt_email
 
-    attachments, invoice_url = _invoice_attachment_and_link(invoice_id)
+    attachments, invoice_url, receipt_url = _invoice_attachment_and_links(invoice_id)
     html = credit_purchase_receipt_email(
-        full_name, quantity, amount_cents, currency, invoice_url=invoice_url,
+        full_name, quantity, amount_cents, currency,
+        invoice_url=invoice_url, receipt_url=receipt_url,
     )
     return send_email(
         to=email, subject="Your MindFlip credits receipt", html=html, attachments=attachments,
@@ -340,8 +359,10 @@ def send_cancellation_confirmation_task(
     from emails.templates.receipt import cancellation_confirmation_email
 
     access_end_date = datetime.fromisoformat(access_end_date_iso)
-    attachments, invoice_url = _invoice_attachment_and_link(invoice_id)
-    html = cancellation_confirmation_email(full_name, access_end_date, invoice_url=invoice_url)
+    attachments, invoice_url, receipt_url = _invoice_attachment_and_links(invoice_id)
+    html = cancellation_confirmation_email(
+        full_name, access_end_date, invoice_url=invoice_url, receipt_url=receipt_url,
+    )
     return send_email(
         to=email, subject="Your MindFlip subscription has been canceled", html=html, attachments=attachments,
     )

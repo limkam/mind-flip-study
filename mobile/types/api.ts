@@ -449,6 +449,26 @@ export type SubscriptionCancelResponse = {
   current_period_end: string | null;
 };
 
+export type SubscriptionChangePreviewResponse = {
+  is_upgrade: boolean;
+  plan_slug: string;
+  billing_interval: string;
+  amount_due_today_cents: number;
+  new_recurring_amount_cents: number;
+  currency: string;
+  effective: "immediately" | "next_period";
+  next_billing_date: string | null;
+  downgrade_notice: string | null;
+};
+
+export type SubscriptionChangeResponse = {
+  is_upgrade: boolean;
+  plan_slug: string;
+  billing_interval: string;
+  effective: "immediately" | "next_period";
+  pending_change_effective_at: string | null;
+};
+
 export type CreditPricing = {
   unit_price_cents: number;
   currency: string;

@@ -16,7 +16,12 @@ anthropic>=0.42.0
 alembic>=1.13.2
 python-multipart>=0.0.17
 httpx>=0.28.0
-stripe>=11.0.0
+# Pinned exact, not >=: an unbounded floor here (previously stripe>=11.0.0) let a major
+# version bump silently remove stripe.Invoice.upcoming (replaced by Invoice.create_preview)
+# and shipped 503s on /billing/subscription/preview-change with no warning until live
+# testing caught it. Bump deliberately and re-verify Stripe calls in routers/billing.py
+# against the SDK's own changelog before raising this.
+stripe==15.1.0
 google-auth>=2.35.0
 PyJWT>=2.9.0
 cryptography>=43.0.0

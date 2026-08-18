@@ -27,7 +27,7 @@ from models.billing_analytics import BillingEvent, BillingInvoice
 from models.user import User
 from models.credit_purchase import CreditPurchase
 from models.credit_ledger import CreditLedger
-from services.usage_events import BOOK_UPLOADED, FLASHCARDS_GENERATED, consumed_quantity
+from services.usage_events import BOOK_UPLOADED, FLASHCARDS_GENERATED, consumed_quantity, current_period_start
 from schemas.billing import CheckoutUrlResponse, CheckoutClient, CheckoutVerificationResponse
 from schemas.billing import (
     BillingPricingResponse,
@@ -37,6 +37,8 @@ from schemas.billing import (
     EntitlementFeatures,
     EntitlementsSnapshotResponse,
     SubscriptionCancelResponse,
+    SubscriptionChangePreviewResponse,
+    SubscriptionChangeResponse,
 )
 from services import credits as credits_service
 from services import entitlements as entitlements_service
@@ -408,6 +410,14 @@ async def _sync_subscription_from_stripe_object(
     internal_sub.trial_end = trial_end
     internal_sub.pause_collection = pause_collection
     internal_sub.stripe_price_id = str(price_id) if price_id else None
+    # A scheduled downgrade (POST /subscription/change) lands here as an ordinary
+    # customer.subscription.updated event once Stripe applies the second schedule phase —
+    # clear the pending-change fields once the live price matches what was scheduled.
+    if getattr(internal_sub, "pending_price_id", None) and price_id and str(price_id) == internal_sub.pending_price_id:
+        internal_sub.pending_plan_id = None
+        internal_sub.pending_price_id = None
+        internal_sub.pending_change_effective_at = None
+        internal_sub.stripe_schedule_id = None
     if event_created_at is not None:
         internal_sub.stripe_event_created_at = max(
             filter(None, (event_created_at, last_applied)), default=event_created_at
@@ -494,6 +504,7 @@ async def billing_entitlements_snapshot(
     action_inputs = [
         ("create_book", entitlements_service.Action.CREATE_BOOK, {}),
         ("create_flashcard_set", entitlements_service.Action.CREATE_SET, {}),
+        ("activate_shared_content", entitlements_service.Action.ACTIVATE_SHARED_CONTENT, {}),
         ("games", entitlements_service.Action.START_GAME, {}),
         ("challenges", entitlements_service.Action.SEND_CHALLENGE, {}),
         ("study_group_creation", entitlements_service.Action.CREATE_STUDY_GROUP, {}),
@@ -592,6 +603,18 @@ async def billing_overview(
     sets_used = await consumed_quantity(
         db, current_user.id, FLASHCARDS_GENERATED, period_start=usage_start, include_reservations=False
     )
+    # Content activated from a Study Group is charged permanently into the same ledger as
+    # own uploads (see Action.ACTIVATE_SHARED_CONTENT), so books_used/sets_used above already
+    # include it. This is purely a display breakdown of how much of that total came from
+    # activation vs. direct upload — it must not be added again on top of the total.
+    shared_books_used = await consumed_quantity(
+        db, current_user.id, BOOK_UPLOADED, period_start=usage_start,
+        include_reservations=False, resource_type="study_group_material",
+    )
+    shared_sets_used = await consumed_quantity(
+        db, current_user.id, FLASHCARDS_GENERATED, period_start=usage_start,
+        include_reservations=False, resource_type="study_group_material",
+    )
     monthly_content, purchased = await credits_service._split_pool_balances(db, current_user.id, pool="content")
     monthly_regen, purchased_regen = await credits_service._split_pool_balances(db, current_user.id, pool="regen")
 
@@ -636,8 +659,20 @@ async def billing_overview(
             "needs_reconciliation": needs_reconciliation,
         },
         "usage": [
-            {"key": "books", "used": books_used, "limit": features.get("max_books"), "resets_at": usage_reset},
-            {"key": "flashcard_sets", "used": sets_used, "limit": features.get("max_sets"), "resets_at": usage_reset},
+            {
+                "key": "books",
+                "used": books_used,
+                "limit": features.get("max_books"),
+                "resets_at": usage_reset,
+                "breakdown": {"own": books_used - shared_books_used, "shared": shared_books_used},
+            },
+            {
+                "key": "flashcard_sets",
+                "used": sets_used,
+                "limit": features.get("max_sets"),
+                "resets_at": usage_reset,
+                "breakdown": {"own": sets_used - shared_sets_used, "shared": shared_sets_used},
+            },
         ],
         "limits": {
             "cards_per_set": features.get("max_cards_per_set"), "games": features.get("games_limit"),
@@ -827,6 +862,285 @@ async def cancel_subscription_at_period_end(
         canceled_at_period_end=True,
         current_period_end=latest_sub.current_period_end,
     )
+
+
+def _rank_amount_cents(plan_slug: str | None, interval: "BillingInterval") -> int:
+    catalog = _pricing_plan_catalog()
+    entry = catalog.get(plan_slug or "free")
+    if entry is None:
+        return 0
+    amount = entry.annual_price_cents if interval == BillingInterval.annual else entry.monthly_price_cents
+    return int(amount or 0)
+
+
+async def _require_active_subscription_for_change(db: AsyncSession, user: User) -> tuple[UserSubscription, dict]:
+    resolution = await _resolve_stripe_subscription(db, user)
+    if resolution["state"] == "subscription_conflict":
+        raise _billing_error(status.HTTP_409_CONFLICT, "SUBSCRIPTION_CONFLICT", "Multiple active subscriptions require support review.")
+    if resolution["state"] != "active":
+        raise _billing_error(status.HTTP_404_NOT_FOUND, "NO_ACTIVE_SUBSCRIPTION", "No active subscription to change. Use checkout to subscribe.")
+    resolved = resolution["subscription"] or {}
+    stripe_sub_id = resolved.get("id")
+    latest_sub = await db.scalar(
+        select(UserSubscription).where(
+            UserSubscription.user_id == user.id,
+            UserSubscription.stripe_subscription_id == str(stripe_sub_id),
+        )
+    ) if stripe_sub_id else None
+    if latest_sub is None:
+        raise _billing_error(status.HTTP_404_NOT_FOUND, "NO_ACTIVE_SUBSCRIPTION", "No active subscription to change. Use checkout to subscribe.")
+    return latest_sub, resolved
+
+
+async def _downgrade_over_quota_notice(db: AsyncSession, user: User, new_plan_slug: str) -> str | None:
+    """Warn upfront when a downgrade will immediately block new book/set creation.
+
+    Existing content is intentional policy: it's never removed on downgrade (see the policy
+    comment on entitlements.py's CREATE_BOOK/CREATE_SET/ACTIVATE_SHARED_CONTENT checks) — only
+    new creation/activation is blocked until usage is back under the new, lower limit. This
+    mirrors that same check (same period_start rules) purely for the preview message, so it
+    can never say something the real gate wouldn't actually enforce.
+    """
+    new_features = await entitlements_service._plan_features(db, new_plan_slug)
+    period_start = current_period_start(lifetime=new_plan_slug == "free")
+    parts: list[str] = []
+    max_books = new_features.get("max_books")
+    if max_books is not None:
+        books_now = int(await consumed_quantity(db, user.id, BOOK_UPLOADED, period_start=period_start) or 0)
+        if books_now >= int(max_books):
+            parts.append(f"you'll keep your {books_now} books, but can't add more until you're back under your new limit of {max_books}")
+    max_sets = new_features.get("max_sets")
+    if max_sets is not None:
+        sets_now = int(await consumed_quantity(db, user.id, FLASHCARDS_GENERATED, period_start=period_start) or 0)
+        if sets_now >= int(max_sets):
+            parts.append(f"you'll keep your {sets_now} flashcard sets, but can't add more until you're back under your new limit of {max_sets}")
+    if not parts:
+        return None
+    return "You're currently over the new plan's limits — " + "; ".join(parts) + "."
+
+
+def _next_billing_date_from_preview(preview: dict) -> datetime | None:
+    """The previewed invoice's own top-level period_end/created is just this one-off
+    proration invoice's timestamp (effectively "now"), NOT the subscription's next regular
+    renewal — that only shows up as the `period.end` on the invoice's line items (verified
+    directly against a real Stripe test-mode Invoice.create_preview response). Take the
+    latest line-item period end as the next billing date; fall back to the top-level field
+    only if there are somehow no line items.
+    """
+    lines = ((preview.get("lines") or {}).get("data")) or []
+    ends = [line.get("period", {}).get("end") for line in lines if isinstance(line, dict)]
+    ends = [e for e in ends if e]
+    if ends:
+        return _current_period_end_dt(max(ends))
+    return _current_period_end_dt(preview.get("period_end"))
+
+
+@router.get("/subscription/preview-change", response_model=SubscriptionChangePreviewResponse)
+async def preview_subscription_change(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    plan: Annotated[BillingPlan, Query(description="Target plan to switch to")],
+    interval: Annotated[BillingInterval, Query(description="Billing interval")] = BillingInterval.annual,
+) -> SubscriptionChangePreviewResponse:
+    """Preview what an existing subscriber would owe today (upgrade) or when a plan swap
+    would land (downgrade), before they confirm via POST /subscription/change."""
+    latest_sub, resolved = await _require_active_subscription_for_change(db, current_user)
+    items = ((resolved.get("items") or {}).get("data") or [])
+    if not items:
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "STRIPE_UNAVAILABLE", "Could not read current subscription items.")
+    existing_item_id = items[0].get("id")
+    current_price_id = (items[0].get("price") or {}).get("id")
+
+    new_plan_slug = _plan_slug_for_metadata(plan.value)
+    new_price_id = _price_id_for_plan(plan, interval)
+    if not new_price_id:
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "BILLING_UNAVAILABLE", "That plan is not currently available.")
+
+    current_plan_slug, _, _ = _plan_slug_and_tier_for_price_id(current_price_id)
+    is_upgrade = _rank_amount_cents(new_plan_slug, BillingInterval.monthly) > _rank_amount_cents(current_plan_slug, BillingInterval.monthly)
+    new_recurring = _rank_amount_cents(new_plan_slug, interval)
+
+    if not settings.STRIPE_SECRET_KEY:
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "BILLING_UNAVAILABLE", "Billing services are temporarily unavailable.")
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+
+    if not is_upgrade:
+        return SubscriptionChangePreviewResponse(
+            is_upgrade=False,
+            plan_slug=new_plan_slug,
+            billing_interval=interval.value,
+            amount_due_today_cents=0,
+            new_recurring_amount_cents=new_recurring,
+            effective="next_period",
+            next_billing_date=_subscription_period_end_dt(resolved),
+            downgrade_notice=await _downgrade_over_quota_notice(db, current_user, new_plan_slug),
+        )
+
+    try:
+        # stripe.Invoice.upcoming was removed from the SDK; Invoice.create_preview is the
+        # current replacement. subscription_details.proration_behavior must match what
+        # POST /subscription/change actually does (always_invoice) or the previewed
+        # amount_due wouldn't match what's really charged.
+        upcoming = await asyncio.to_thread(
+            stripe.Invoice.create_preview,
+            customer=current_user.stripe_customer_id,
+            subscription=resolved.get("id"),
+            subscription_details={
+                "items": [{"id": existing_item_id, "price": new_price_id}],
+                "proration_behavior": "always_invoice",
+            },
+        )
+    except Exception as exc:
+        logger.warning("stripe_preview_change_failed", extra={"user_id": str(current_user.id), "error_type": type(exc).__name__})
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "STRIPE_UNAVAILABLE", "Could not compute today's charge.") from None
+    upcoming_dict = _stripe_object_as_dict(upcoming)
+    return SubscriptionChangePreviewResponse(
+        is_upgrade=True,
+        plan_slug=new_plan_slug,
+        billing_interval=interval.value,
+        amount_due_today_cents=int(upcoming_dict.get("amount_due") or 0),
+        new_recurring_amount_cents=new_recurring,
+        effective="immediately",
+        next_billing_date=_next_billing_date_from_preview(upcoming_dict),
+    )
+
+
+@router.post("/subscription/change", response_model=SubscriptionChangeResponse)
+async def change_subscription_plan(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    plan: Annotated[BillingPlan, Query(description="Target plan to switch to")],
+    interval: Annotated[BillingInterval, Query(description="Billing interval")] = BillingInterval.annual,
+) -> SubscriptionChangeResponse:
+    """Move an existing subscriber to a different tier.
+
+    Upgrades apply immediately: ``proration_behavior="always_invoice"`` both prorates AND
+    invoices the difference right away, so the customer is actually charged today (not just
+    credited unbilled line items that would otherwise sit silently until next month's
+    renewal). The immediate invoice fires ``invoice.payment_succeeded`` with
+    ``billing_reason="subscription_update"``, which triggers the upgrade receipt email. Local
+    entitlements sync right away too. Downgrades never touch the live price — they're
+    scheduled via a ``stripe.SubscriptionSchedule`` to swap at ``current_period_end`` with no
+    proration, so the member keeps what they already paid for until the period ends.
+    """
+    latest_sub, resolved = await _require_active_subscription_for_change(db, current_user)
+    items = ((resolved.get("items") or {}).get("data") or [])
+    if not items:
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "STRIPE_UNAVAILABLE", "Could not read current subscription items.")
+    existing_item_id = items[0].get("id")
+    current_price_id = (items[0].get("price") or {}).get("id")
+    stripe_sub_id = resolved.get("id")
+
+    new_plan_slug = _plan_slug_for_metadata(plan.value)
+    new_price_id = _price_id_for_plan(plan, interval)
+    if not new_price_id:
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "BILLING_UNAVAILABLE", "That plan is not currently available.")
+    if new_price_id == current_price_id:
+        raise _billing_error(status.HTTP_400_BAD_REQUEST, "SAME_PLAN", "You're already on this plan.")
+
+    current_plan_slug, _, _ = _plan_slug_and_tier_for_price_id(current_price_id)
+    is_upgrade = _rank_amount_cents(new_plan_slug, BillingInterval.monthly) > _rank_amount_cents(current_plan_slug, BillingInterval.monthly)
+
+    if not settings.STRIPE_SECRET_KEY:
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "BILLING_UNAVAILABLE", "Billing services are temporarily unavailable.")
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+
+    if is_upgrade:
+        try:
+            updated = await asyncio.to_thread(
+                stripe.Subscription.modify,
+                stripe_sub_id,
+                items=[{"id": existing_item_id, "price": new_price_id}],
+                proration_behavior="always_invoice",
+            )
+        except Exception as exc:
+            logger.warning("stripe_upgrade_failed", extra={"user_id": str(current_user.id), "error_type": type(exc).__name__})
+            raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "STRIPE_UNAVAILABLE", "Could not apply the upgrade.") from None
+        # Sync immediately so entitlements/quota reflect the new plan without waiting on the
+        # webhook; the webhook fires afterward and no-ops via existing BillingEvent dedupe.
+        await _sync_subscription_from_stripe_object(db, _stripe_object_as_dict(updated), authoritative_snapshot=True)
+        # An upgrade supersedes any previously scheduled downgrade.
+        if latest_sub.stripe_schedule_id:
+            try:
+                await asyncio.to_thread(stripe.SubscriptionSchedule.release, latest_sub.stripe_schedule_id)
+            except Exception as exc:
+                logger.warning("stripe_schedule_release_failed", extra={"user_id": str(current_user.id), "error_type": type(exc).__name__})
+        latest_sub.pending_plan_id = None
+        latest_sub.pending_price_id = None
+        latest_sub.pending_change_effective_at = None
+        latest_sub.stripe_schedule_id = None
+        db.add(latest_sub)
+        await db.commit()
+        return SubscriptionChangeResponse(is_upgrade=True, plan_slug=new_plan_slug, billing_interval=interval.value, effective="immediately")
+
+    new_plan_row = await db.scalar(select(Plan).where(Plan.slug == new_plan_slug).limit(1))
+    if new_plan_row is None:
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "BILLING_UNAVAILABLE", "That plan is not currently available.")
+
+    period_end_dt = _subscription_period_end_dt(resolved)
+    if period_end_dt is None:
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "STRIPE_UNAVAILABLE", "Could not determine the current billing period.")
+    period_end_ts = int(period_end_dt.timestamp())
+
+    try:
+        if latest_sub.stripe_schedule_id:
+            schedule = await asyncio.to_thread(stripe.SubscriptionSchedule.retrieve, latest_sub.stripe_schedule_id)
+        else:
+            schedule = await asyncio.to_thread(stripe.SubscriptionSchedule.create, from_subscription=stripe_sub_id)
+        schedule_dict = _stripe_object_as_dict(schedule)
+        phases = schedule_dict.get("phases") or []
+        current_phase_start = phases[0].get("start_date") if phases else None
+        updated_schedule = await asyncio.to_thread(
+            stripe.SubscriptionSchedule.modify,
+            schedule_dict.get("id"),
+            end_behavior="release",
+            phases=[
+                {"items": [{"price": current_price_id, "quantity": 1}], "start_date": current_phase_start, "end_date": period_end_ts},
+                {"items": [{"price": new_price_id, "quantity": 1}], "start_date": period_end_ts},
+            ],
+        )
+    except Exception as exc:
+        logger.warning("stripe_downgrade_schedule_failed", extra={"user_id": str(current_user.id), "error_type": type(exc).__name__})
+        raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "STRIPE_UNAVAILABLE", "Could not schedule the downgrade.") from None
+
+    latest_sub.pending_plan_id = new_plan_row.id
+    latest_sub.pending_price_id = new_price_id
+    latest_sub.pending_change_effective_at = period_end_dt
+    latest_sub.stripe_schedule_id = _stripe_object_as_dict(updated_schedule).get("id")
+    db.add(latest_sub)
+    await db.commit()
+    return SubscriptionChangeResponse(
+        is_upgrade=False,
+        plan_slug=new_plan_slug,
+        billing_interval=interval.value,
+        effective="next_period",
+        pending_change_effective_at=period_end_dt,
+    )
+
+
+@router.delete("/subscription/pending-change", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_pending_plan_change(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    """Cancel a scheduled downgrade before it lands, keeping the current plan."""
+    latest_sub = await _latest_subscription_row(db, current_user.id)
+    if latest_sub is None or not latest_sub.stripe_schedule_id:
+        return None
+    if settings.STRIPE_SECRET_KEY:
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        try:
+            await asyncio.to_thread(stripe.SubscriptionSchedule.release, latest_sub.stripe_schedule_id)
+        except Exception as exc:
+            logger.warning("stripe_schedule_release_failed", extra={"user_id": str(current_user.id), "error_type": type(exc).__name__})
+            raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "STRIPE_UNAVAILABLE", "Could not cancel the scheduled change.") from None
+    latest_sub.pending_plan_id = None
+    latest_sub.pending_price_id = None
+    latest_sub.pending_change_effective_at = None
+    latest_sub.stripe_schedule_id = None
+    db.add(latest_sub)
+    await db.commit()
+    return None
 
 
 @router.post("/subscription/sync")
@@ -1763,6 +2077,27 @@ async def _stripe_webhook_impl(
                         from tasks.email_tasks import send_renewal_receipt_task
 
                         send_renewal_receipt_task.delay(
+                            email=invoice_user.email,
+                            full_name=invoice_user.full_name,
+                            plan_name=plan_row.name,
+                            amount_cents=invoice_row.amount_paid_cents,
+                            currency=invoice_row.currency,
+                            next_billing_date_iso=(
+                                invoice_row.period_end.isoformat() if invoice_row.period_end else None
+                            ),
+                            invoice_id=str(invoice_id),
+                        )
+
+                # POST /subscription/change upgrades use proration_behavior="always_invoice",
+                # which makes Stripe immediately finalize and pay an invoice with
+                # billing_reason="subscription_update" — send the upgrade receipt off that,
+                # same idempotency guard as the renewal receipt above.
+                elif is_new_invoice_row and inv.get("billing_reason") == "subscription_update":
+                    plan_row = await db.scalar(select(Plan).where(Plan.slug == plan_slug).limit(1)) if plan_slug else None
+                    if plan_row is not None:
+                        from tasks.email_tasks import send_upgrade_receipt_task
+
+                        send_upgrade_receipt_task.delay(
                             email=invoice_user.email,
                             full_name=invoice_user.full_name,
                             plan_name=plan_row.name,

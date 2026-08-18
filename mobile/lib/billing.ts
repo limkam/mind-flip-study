@@ -14,6 +14,8 @@ import type {
   CreditUsageResponse,
   PurchaseHistoryResponse,
   SubscriptionCancelResponse,
+  SubscriptionChangePreviewResponse,
+  SubscriptionChangeResponse,
 } from "../types/api";
 import { mobileFeatures } from "./featureFlags";
 import { mobileQueryClient } from "./queryClient";
@@ -412,6 +414,79 @@ export function parseSubscriptionCancelResponse(raw: unknown): SubscriptionCance
 export async function cancelSubscriptionAtPeriodEnd(): Promise<SubscriptionCancelResponse> {
   const { data } = await api.post<unknown>("/billing/subscription/cancel");
   return parseSubscriptionCancelResponse(data);
+}
+
+function parseSubscriptionChangePreviewResponse(raw: unknown): SubscriptionChangePreviewResponse {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid preview response: expected plain object");
+  }
+  const record = raw as Record<string, unknown>;
+  if (typeof record.is_upgrade !== "boolean") {
+    throw new Error("Invalid preview response: is_upgrade must be boolean");
+  }
+  if (typeof record.amount_due_today_cents !== "number") {
+    throw new Error("Invalid preview response: amount_due_today_cents must be a number");
+  }
+  if (typeof record.new_recurring_amount_cents !== "number") {
+    throw new Error("Invalid preview response: new_recurring_amount_cents must be a number");
+  }
+  return {
+    is_upgrade: record.is_upgrade,
+    plan_slug: String(record.plan_slug || ""),
+    billing_interval: String(record.billing_interval || ""),
+    amount_due_today_cents: record.amount_due_today_cents,
+    new_recurring_amount_cents: record.new_recurring_amount_cents,
+    currency: String(record.currency || "usd"),
+    effective: record.effective === "immediately" ? "immediately" : "next_period",
+    next_billing_date: typeof record.next_billing_date === "string" ? record.next_billing_date : null,
+    downgrade_notice: typeof record.downgrade_notice === "string" ? record.downgrade_notice : null,
+  };
+}
+
+export async function previewSubscriptionChange(
+  planSlug: BillingPlanSlug,
+  interval: BillingInterval,
+): Promise<SubscriptionChangePreviewResponse> {
+  const alias = checkoutPlanForSlug(planSlug);
+  if (!alias) {
+    throw new Error("Free and unknown plans cannot be previewed");
+  }
+  const { data } = await api.get<unknown>("/billing/subscription/preview-change", {
+    params: { plan: alias, interval },
+  });
+  return parseSubscriptionChangePreviewResponse(data);
+}
+
+function parseSubscriptionChangeResponse(raw: unknown): SubscriptionChangeResponse {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Invalid change response: expected plain object");
+  }
+  const record = raw as Record<string, unknown>;
+  if (typeof record.is_upgrade !== "boolean") {
+    throw new Error("Invalid change response: is_upgrade must be boolean");
+  }
+  return {
+    is_upgrade: record.is_upgrade,
+    plan_slug: String(record.plan_slug || ""),
+    billing_interval: String(record.billing_interval || ""),
+    effective: record.effective === "immediately" ? "immediately" : "next_period",
+    pending_change_effective_at:
+      typeof record.pending_change_effective_at === "string" ? record.pending_change_effective_at : null,
+  };
+}
+
+export async function changeSubscriptionPlan(
+  planSlug: BillingPlanSlug,
+  interval: BillingInterval,
+): Promise<SubscriptionChangeResponse> {
+  const alias = checkoutPlanForSlug(planSlug);
+  if (!alias) {
+    throw new Error("Free and unknown plans cannot be changed to");
+  }
+  const { data } = await api.post<unknown>("/billing/subscription/change", null, {
+    params: { plan: alias, interval },
+  });
+  return parseSubscriptionChangeResponse(data);
 }
 
 export function parseCreditPricingResponse(raw: unknown): CreditPricingResponse {

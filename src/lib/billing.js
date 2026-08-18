@@ -31,6 +31,22 @@ export async function cancelSubscriptionAtPeriodEnd() {
   return data;
 }
 
+/** @param {'quick' | 'standard' | 'premium' | 'basic'} plan */
+export async function previewSubscriptionChange(plan, interval = "monthly") {
+  const { data } = await client.get("/billing/subscription/preview-change", {
+    params: { plan, interval },
+  });
+  return data;
+}
+
+/** @param {'quick' | 'standard' | 'premium' | 'basic'} plan */
+export async function changeSubscriptionPlan(plan, interval = "monthly") {
+  const { data } = await client.post("/billing/subscription/change", null, {
+    params: { plan, interval },
+  });
+  return data;
+}
+
 export async function syncSubscriptionFromStripe() {
   const { data } = await client.post("/billing/subscription/sync");
   return data;

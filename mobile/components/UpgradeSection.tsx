@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 
 import {
+  changeSubscriptionPlan,
   fetchBillingPricing,
   fetchEntitlementsSnapshot,
   formatUsd,
@@ -19,6 +20,7 @@ import {
   PLAN_LABELS,
   PLAN_ORDER,
   PLAN_TAGLINES,
+  previewSubscriptionChange,
   startCheckout,
   subscriptionLabel,
   subscriptionsEnabled,
@@ -179,6 +181,61 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
         }
       }
     }
+  };
+
+  // Existing subscribers switching plans must go through preview-change/change, not
+  // checkout (a new-subscription flow) — checkout throws ALREADY_SUBSCRIBED for anyone
+  // who already has an active subscription.
+  const changePlan = async (slug: BillingPlanSlug) => {
+    if (!isAuthenticated || !userId) {
+      router.push("/(auth)/login");
+      return;
+    }
+    if (isConflict || loadingSlug) return;
+
+    const label = PLAN_LABELS[slug] || slug;
+    setLoadingSlug(slug);
+    let preview;
+    try {
+      preview = await previewSubscriptionChange(slug, interval);
+    } catch (e: unknown) {
+      if (mountedRef.current) setLoadingSlug(null);
+      Alert.alert("Could not preview this change", getApiErrorMessage(e, "Please try again."));
+      return;
+    }
+    if (mountedRef.current) setLoadingSlug(null);
+
+    const message = preview.is_upgrade
+      ? `You'll be charged ${formatUsd(preview.amount_due_today_cents)} today (prorated for the rest of your billing period), then ${formatUsd(preview.new_recurring_amount_cents)} ${interval === "annual" ? "per year" : "per month"} going forward. Your plan changes immediately.`
+      : `This takes effect at the end of your current billing period${preview.next_billing_date ? ` on ${new Date(preview.next_billing_date).toLocaleDateString()}` : ""} — you won't be charged today, and you keep your current plan until then.${preview.downgrade_notice ? `\n\n${preview.downgrade_notice}` : ""}`;
+
+    Alert.alert(
+      preview.is_upgrade ? `Upgrade to ${label}?` : `Switch to ${label}?`,
+      message,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Confirm",
+          onPress: async () => {
+            setLoadingSlug(slug);
+            try {
+              const result = await changeSubscriptionPlan(slug, interval);
+              await refetchEntitlements();
+              Alert.alert(
+                result.is_upgrade ? "Upgraded" : "Downgrade scheduled",
+                result.is_upgrade
+                  ? `You're now on ${label}.`
+                  : `You'll switch to ${label} at the end of your current billing period.`,
+              );
+            } catch (e: unknown) {
+              Alert.alert("Could not change plan", getApiErrorMessage(e, "Please try again."));
+            } finally {
+              if (mountedRef.current) setLoadingSlug(null);
+            }
+          },
+        },
+      ],
+    );
   };
 
   if (!isEnabled) {
@@ -356,7 +413,6 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
             isFree ||
             !isAvailable ||
             rawFormatted === null ||
-            isPaidSubscriber ||
             isConflict ||
             isEntitlementsLoading;
 
@@ -366,7 +422,7 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
           } else if (isConflict) {
             buttonText = "Subscription conflict";
           } else if (isPaidSubscriber) {
-            buttonText = "Manage subscription";
+            buttonText = `Switch to ${label}`;
           } else if (isFree) {
             buttonText = "Included";
           } else if (!isAvailable || rawFormatted === null) {
@@ -422,7 +478,7 @@ export function UpgradeSection({ subscriptionTier, showAllPlans = false }: Props
                 disabled={isButtonDisabled}
                 onPress={() => {
                   void hapticImpact("light");
-                  void checkout(slug);
+                  void (isPaidSubscriber ? changePlan(slug) : checkout(slug));
                 }}
               >
                 {loadingSlug === slug ? (

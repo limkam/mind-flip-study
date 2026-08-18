@@ -83,3 +83,31 @@ class BillingPricingResponse(BaseModel):
 class SubscriptionCancelResponse(BaseModel):
     canceled_at_period_end: bool
     current_period_end: datetime | None = None
+
+
+class SubscriptionChangePreviewResponse(BaseModel):
+    is_upgrade: bool
+    plan_slug: str
+    billing_interval: str
+    amount_due_today_cents: int
+    new_recurring_amount_cents: int
+    currency: str = "usd"
+    effective: str = Field(..., description="'immediately' or 'next_period'")
+    next_billing_date: datetime | None = None
+    downgrade_notice: str | None = Field(
+        None,
+        description=(
+            "Set only for downgrades where current usage already meets or exceeds the "
+            "target plan's limits. Existing content is never removed on downgrade — this "
+            "just warns that new creation/activation will be blocked until usage is back "
+            "under the new limit."
+        ),
+    )
+
+
+class SubscriptionChangeResponse(BaseModel):
+    is_upgrade: bool
+    plan_slug: str
+    billing_interval: str
+    effective: str = Field(..., description="'immediately' or 'next_period'")
+    pending_change_effective_at: datetime | None = None

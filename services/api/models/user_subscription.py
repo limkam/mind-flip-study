@@ -39,3 +39,12 @@ class UserSubscription(Base):
     pause_collection: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     stripe_event_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # A scheduled downgrade (see POST /billing/subscription/change): Stripe applies the price
+    # swap at current_period_end via a SubscriptionSchedule, with no proration today. These are
+    # set immediately so the UI can show "downgrading to X on <date>" without waiting on a
+    # webhook, and cleared once the scheduled swap lands (see _sync_subscription_from_stripe_object).
+    pending_plan_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("plans.id", ondelete="SET NULL"), nullable=True)
+    pending_price_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pending_change_effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stripe_schedule_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

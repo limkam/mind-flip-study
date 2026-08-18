@@ -69,6 +69,7 @@ async def test_entitlements_snapshot_contains_raw_fields(monkeypatch):
     assert out.balances.purchased_used_credits == 2
     assert 'regeneration' in out.actions
     assert 'create_book' in out.actions
+    assert 'activate_shared_content' in out.actions
 
 
 @pytest.mark.asyncio
