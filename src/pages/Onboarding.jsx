@@ -18,6 +18,7 @@ export default function Onboarding() {
   const { user, refreshUser } = useAuth();
   const [name, setName] = useState(user?.full_name || "");
   const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState("");
   const [country, setCountry] = useState("");
   const [customCountry, setCustomCountry] = useState("");
   const [occupation, setOccupation] = useState("");
@@ -45,6 +46,7 @@ export default function Onboarding() {
       await client.post("/auth/onboarding", {
         full_name: name.trim() || null,
         date_of_birth: dateOfBirth,
+        gender: gender || null,
         country,
         custom_country: country === "Other" ? customCountry.trim() : null,
         occupation: occupation.trim(),
@@ -86,6 +88,17 @@ export default function Onboarding() {
             <Label htmlFor="date-of-birth">Date of birth</Label>
             <Input id="date-of-birth" type="date" value={dateOfBirth} onChange={(event) => setDateOfBirth(event.target.value)} max={new Date().toISOString().slice(0, 10)} required className="h-11" />
             <p className="text-xs text-muted-foreground">You must be at least 13 years old.</p>
+          </div>
+          <div className="space-y-2">
+            <Label>Gender <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Select value={gender} onValueChange={setGender}>
+              <SelectTrigger className="h-11"><SelectValue placeholder="Select gender" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="male">Male</SelectItem>
+                <SelectItem value="female">Female</SelectItem>
+                <SelectItem value="prefer_not_to_say">Prefer not to say</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label>Country</Label>

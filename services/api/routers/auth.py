@@ -519,6 +519,7 @@ async def complete_onboarding(
     if body.full_name and body.full_name.strip():
         current_user.full_name = body.full_name.strip()[:255]
     current_user.date_of_birth = body.date_of_birth
+    current_user.gender = body.gender
     current_user.country = body.country
     current_user.custom_country = body.custom_country if body.country == "Other" else None
     current_user.continent = continent_for_country(body.country, custom_country=body.custom_country)

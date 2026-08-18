@@ -6,6 +6,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { api } from "../api/client";
 import { MindFlipLogoMark } from "../components/brand/MindFlipBrand";
 import { DateOfBirthField } from "../components/DateOfBirthField";
+import { SelectField } from "../components/SelectField";
 import {
   AppBadge,
   AppButton,
@@ -23,6 +24,12 @@ import { TOKENS } from "../theme/tokens";
 
 import axios from "axios";
 
+const GENDER_OPTIONS: { value: "male" | "female" | "prefer_not_to_say"; label: string }[] = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+];
+
 export default function OnboardingScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ returnTo?: string }>();
@@ -30,6 +37,7 @@ export default function OnboardingScreen() {
   const { accessToken, user, setAuth } = useAuthStore();
   const [name, setName] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState<"male" | "female" | "prefer_not_to_say" | "">("");
   const [country, setCountry] = useState("");
   const [occupation, setOccupation] = useState("");
   const [jobTitle, setJobTitle] = useState("");
@@ -68,6 +76,7 @@ export default function OnboardingScreen() {
       const { data } = await api.post<User>("/auth/onboarding", {
         full_name: name.trim() || null,
         date_of_birth: dateOfBirth,
+        gender: gender || null,
         country: country.trim(),
         custom_country: null,
         occupation: occupation.trim(),
@@ -142,6 +151,14 @@ export default function OnboardingScreen() {
         />
 
         <DateOfBirthField label="Date of birth" value={dateOfBirth} onChange={(value) => { setDateOfBirth(value); setErrorMsg(null); }} />
+
+        <SelectField
+          label="Gender (optional)"
+          value={GENDER_OPTIONS.find((o) => o.value === gender)?.label || ""}
+          options={GENDER_OPTIONS.map((o) => o.label)}
+          placeholder="Select gender"
+          onChange={(label) => setGender(GENDER_OPTIONS.find((o) => o.label === label)?.value || "")}
+        />
 
         <AppTextInput label="Country" placeholder="Your country" value={country} onChangeText={setCountry} autoCapitalize="words" />
 

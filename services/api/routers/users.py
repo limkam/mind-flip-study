@@ -80,6 +80,8 @@ async def patch_current_user(
             current_user.date_of_birth = validate_date_of_birth(body.date_of_birth)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    if body.gender is not None:
+        current_user.gender = body.gender
     if body.occupation is not None:
         current_user.occupation = body.occupation
     if body.job_title is not None:

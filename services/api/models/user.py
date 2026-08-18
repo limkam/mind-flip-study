@@ -35,6 +35,7 @@ class User(Base):
     custom_country: Mapped[str | None] = mapped_column(String(128), nullable=True)
     continent: Mapped[str | None] = mapped_column(String(64), nullable=True)
     date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
+    gender: Mapped[str | None] = mapped_column(String(32), nullable=True)
     occupation: Mapped[str | None] = mapped_column(String(100), nullable=True)
     job_title: Mapped[str | None] = mapped_column(String(100), nullable=True)
     onboarding_completed: Mapped[bool] = mapped_column(

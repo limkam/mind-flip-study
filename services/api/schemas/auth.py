@@ -14,7 +14,9 @@ class RegisterRequest(BaseModel):
     email: AppEmail
     password: str = Field(..., min_length=8)
     full_name: str = Field(..., min_length=1, max_length=255)
-    date_of_birth: date
+    # Date of birth is no longer collected at signup — it's collected (and age-validated)
+    # at the in-app onboarding step instead. Kept optional here for compatibility.
+    date_of_birth: date | None = None
 
     @field_validator("full_name", mode="before")
     @classmethod
@@ -25,8 +27,8 @@ class RegisterRequest(BaseModel):
 
     @field_validator("date_of_birth")
     @classmethod
-    def valid_date_of_birth(cls, value: date) -> date:
-        return validate_registration_date_of_birth(value)
+    def valid_date_of_birth(cls, value: date | None) -> date | None:
+        return validate_registration_date_of_birth(value) if value is not None else None
 
 
 class LoginRequest(BaseModel):
@@ -122,6 +124,7 @@ class OnboardingRequest(BaseModel):
 
     full_name: str | None = Field(None, max_length=255)
     date_of_birth: date
+    gender: Literal["male", "female", "prefer_not_to_say"] | None = None
     country: str = Field(..., min_length=1, max_length=128)
     custom_country: str | None = Field(None, max_length=128)
     occupation: str = Field(..., min_length=1, max_length=100)

@@ -24,13 +24,16 @@ def test_register_accepts_user_older_than_thirteen() -> None:
     assert RegisterRequest(email="adult@example.com", password="password123", full_name="Adult", date_of_birth=_dob_for_age(30))
 
 
-def test_register_rejects_under_thirteen_and_missing_or_invalid_dob() -> None:
+def test_register_rejects_under_thirteen_and_invalid_dob() -> None:
     with pytest.raises(ValidationError, match="13 and above"):
         RegisterRequest(email="young@example.com", password="password123", full_name="Young", date_of_birth=_dob_for_age(13, birthday_tomorrow=True))
     with pytest.raises(ValidationError):
-        RegisterRequest.model_validate({"email": "missing@example.com", "password": "password123", "full_name": "Missing"})
-    with pytest.raises(ValidationError):
         RegisterRequest.model_validate({"email": "bad@example.com", "password": "password123", "full_name": "Bad", "date_of_birth": "not-a-date"})
+
+
+def test_register_allows_missing_dob_since_it_is_collected_at_onboarding() -> None:
+    body = RegisterRequest.model_validate({"email": "missing@example.com", "password": "password123", "full_name": "Missing"})
+    assert body.date_of_birth is None
 
 
 def test_passwordless_backend_rejects_underage_dob_even_if_frontend_is_bypassed() -> None:

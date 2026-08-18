@@ -44,6 +44,41 @@ def test_onboarding_schema_rejects_future_dob() -> None:
         )
 
 
+def test_onboarding_schema_rejects_under_thirteen_dob() -> None:
+    """DOB collection moved from signup to this in-app step; age enforcement must stay here."""
+    from datetime import timedelta
+
+    tomorrow = date.today() + timedelta(days=1)
+    under_thirteen_dob = tomorrow.replace(year=tomorrow.year - 13)
+    with pytest.raises(ValidationError, match="13 and above"):
+        OnboardingRequest(
+            date_of_birth=under_thirteen_dob,
+            country="United States",
+            occupation="Student",
+        )
+
+
+def test_onboarding_schema_accepts_valid_gender_values() -> None:
+    for gender in ("male", "female", "prefer_not_to_say", None):
+        body = OnboardingRequest(
+            date_of_birth=date(2000, 1, 1),
+            gender=gender,
+            country="United States",
+            occupation="Student",
+        )
+        assert body.gender == gender
+
+
+def test_onboarding_schema_rejects_invalid_gender_value() -> None:
+    with pytest.raises(ValidationError):
+        OnboardingRequest(
+            date_of_birth=date(2000, 1, 1),
+            gender="not-a-real-option",
+            country="United States",
+            occupation="Student",
+        )
+
+
 @pytest.mark.asyncio
 async def test_onboarding_endpoint_sets_profile() -> None:
     user = _user(completed=False)
@@ -63,6 +98,7 @@ async def test_onboarding_endpoint_sets_profile() -> None:
                 "/auth/onboarding",
                 json={
                     "date_of_birth": "2004-06-08",
+                    "gender": "prefer_not_to_say",
                     "country": "United States",
                     "occupation": "Student",
                 },
@@ -71,6 +107,7 @@ async def test_onboarding_endpoint_sets_profile() -> None:
         data = r.json()
         assert data["onboarding_completed"] is True
         assert user.date_of_birth == date(2004, 6, 8)
+        assert user.gender == "prefer_not_to_say"
         assert user.country == "United States"
         assert user.occupation == "Student"
         assert user.continent == "North America"

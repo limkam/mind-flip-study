@@ -7,12 +7,10 @@ import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { api } from "../../api/client";
 import { MindFlipLogoMark } from "../../components/brand/MindFlipBrand";
-import { DateOfBirthField } from "../../components/DateOfBirthField";
 import { AppButton, AppScreen, AppTextInput, BrandSurface } from "../../components/ui";
 import { useTheme } from "../../hooks/useTheme";
 import { getApiErrorMessage } from "../../lib/apiErrors";
 import { hapticSelection } from "../../lib/haptics";
-import { calculateAge } from "../../lib/ageUtils";
 import { type User, useAuthStore } from "../../store/authStore";
 import { TOKENS } from "../../theme/tokens";
 
@@ -119,7 +117,6 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState("");
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
-  const [dateOfBirth, setDateOfBirth] = useState("");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [emailFieldError, setEmailFieldError] = useState<string | null>(null);
@@ -144,11 +141,6 @@ export default function LoginScreen() {
       setEmailFieldError("Enter a valid email address.");
       return;
     }
-    if (authMode === "signup" && (calculateAge(dateOfBirth) ?? -1) < 13) {
-      setFormError("MindFlip is only available to users aged 13 and above.");
-      return;
-    }
-
     emailSubmitLockRef.current = true;
     setEmailFieldError(null);
     setFormError(null);
@@ -161,7 +153,7 @@ export default function LoginScreen() {
       });
       router.push({
         pathname: "/(auth)/verify-email",
-        params: { email: normalizedEmail, challengeId: data.challenge_id, resendAfter: String(data.resend_after), dateOfBirth: authMode === "signup" ? dateOfBirth : "" },
+        params: { email: normalizedEmail, challengeId: data.challenge_id, resendAfter: String(data.resend_after) },
       });
     } catch (e: unknown) {
       setFormError(getApiErrorMessage(e, "MindFlip is having trouble sending your verification code. Please try again."));
@@ -248,8 +240,6 @@ export default function LoginScreen() {
           error={emailFieldError || undefined}
           containerStyle={styles.inputContainer}
         />
-
-        {authMode === "signup" ? <DateOfBirthField label="Date of birth (13+)" value={dateOfBirth} onChange={(value) => { setDateOfBirth(value); setFormError(null); }} /> : null}
 
         <AppButton
           label="Continue with Email"

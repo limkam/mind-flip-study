@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
@@ -27,6 +28,7 @@ class UserPublic(BaseModel):
     is_banned: bool = False
     preferences: dict = Field(default_factory=dict)
     date_of_birth: date | None = None
+    gender: str | None = None
     country: str | None = None
     custom_country: str | None = None
     continent: str | None = None
@@ -51,6 +53,7 @@ class UserSelfPatch(BaseModel):
     avatar_url: str | None = Field(None, max_length=1024)
     preferences: dict | None = None
     date_of_birth: date | None = None
+    gender: Literal["male", "female", "prefer_not_to_say"] | None = None
     occupation: str | None = Field(None, min_length=1, max_length=100)
     job_title: str | None = Field(None, min_length=1, max_length=100)
 
