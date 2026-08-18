@@ -19,6 +19,7 @@ export const routeModules = {
   challengeLeaderboard: () => import("@/pages/ChallengeLeaderboard"),
   studyGroups: () => import("@/pages/StudyGroups"),
   studyGroupDetail: () => import("@/pages/StudyGroupDetail"),
+  sharedStudySession: () => import("@/pages/SharedStudySession"),
   dailyReview: () => import("@/pages/DailyReview"),
   achievements: () => import("@/pages/Achievements"),
   scorecards: () => import("@/pages/Scorecards"),

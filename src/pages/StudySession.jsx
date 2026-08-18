@@ -103,9 +103,15 @@ export default function StudySession() {
     queryFn: fetchEntitlementsSnapshot,
   });
   const gameLimit = entitlements?.features?.games_limit ?? 2;
-  const canRegenerate = ["standard_15", "premium_30"].includes(
-    entitlements?.plan_slug,
-  );
+  // Regeneration mutates the underlying set, which is strictly owner-only server-side
+  // (activated Study Group content gives full study access but never edit rights) —
+  // mirror that here so the tab doesn't appear only to fail when clicked.
+  const isOwnContent = flashcardSet
+    ? String(flashcardSet.user_id) === String(user?.id)
+    : false;
+  const canRegenerate =
+    isOwnContent &&
+    ["standard_15", "premium_30"].includes(entitlements?.plan_slug);
 
   // Load card progress for this set
   useEffect(() => {

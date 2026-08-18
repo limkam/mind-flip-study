@@ -37,6 +37,7 @@ class Action(Enum):
     CREATE_STUDY_GROUP = "create_study_group"
     PRIORITY_PROCESSING = "priority_processing"
     DAILY_REVIEW = "daily_review"
+    ACTIVATE_SHARED_CONTENT = "activate_shared_content"
 
 
 async def _user_plan_slug(db: AsyncSession, user: User) -> str:
@@ -188,6 +189,17 @@ async def can_user_do(db: AsyncSession, user: User, action: Action, **kwargs: An
     # counted independently for each user.
     period_start = current_period_start(lifetime=plan_slug == "free")
 
+    # Intentional policy (over-quota-after-downgrade): downgrading to a lower max_books/
+    # max_sets never removes or locks a user's existing content — CREATE_BOOK/CREATE_SET/
+    # ACTIVATE_SHARED_CONTENT below only ever compare consumed_quantity() against the new,
+    # lower limit for NEW creation/activation. A user who had 5 books on Standard 15 and
+    # downgrades to Quick 7 (max 2) keeps all 5 and can still study/edit/delete them; they
+    # simply can't upload/generate/activate anything new until they're back under 2 (e.g.
+    # by deleting books, which is also never auto-refunded — see the permanent-ledger-charge
+    # policy note in ACTIVATE_SHARED_CONTENT below). This is deliberate, not an oversight:
+    # surprise deletions on downgrade would be far worse than a temporary creation block.
+    # Surfaced to the user ahead of time via the downgrade notice in
+    # GET /billing/subscription/preview-change (routers/billing.py).
     if action == Action.CREATE_BOOK:
         max_books = features.get("max_books")
         if max_books is not None:
@@ -201,6 +213,23 @@ async def can_user_do(db: AsyncSession, user: User, action: Action, **kwargs: An
         if max_sets is not None:
             n = await consumed_quantity(db, user.id, FLASHCARDS_GENERATED, period_start=period_start)
             if int(n or 0) >= int(max_sets):
+                return {"allowed": False, "reason": "set_limit"}
+        return {"allowed": True}
+
+    if action == Action.ACTIVATE_SHARED_CONTENT:
+        # Activating shared content spends the recipient's own max_books/max_sets slots,
+        # same pool and same permanent-charge model as self-uploaded content: the caller
+        # records usage in the append-only UsageEvent ledger on success (routers/study_groups.py),
+        # and deactivating never refunds it — same as deleting an owned book/set never does.
+        max_books = features.get("max_books")
+        max_sets = features.get("max_sets")
+        if max_books is not None:
+            owned_books = await consumed_quantity(db, user.id, BOOK_UPLOADED, period_start=period_start)
+            if int(owned_books or 0) >= int(max_books):
+                return {"allowed": False, "reason": "book_limit"}
+        if max_sets is not None:
+            owned_sets = await consumed_quantity(db, user.id, FLASHCARDS_GENERATED, period_start=period_start)
+            if int(owned_sets or 0) >= int(max_sets):
                 return {"allowed": False, "reason": "set_limit"}
         return {"allowed": True}
 

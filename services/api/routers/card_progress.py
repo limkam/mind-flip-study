@@ -13,6 +13,7 @@ from models.flashcard import Flashcard, FlashcardSet
 from models.quiz import CardProgress
 from models.user import User
 from schemas.quiz_api import CardProgressOut, CardProgressUpsert
+from services.content_access import accessible_set_ids_subquery
 
 router = APIRouter(tags=["card-progress"])
 
@@ -22,7 +23,14 @@ async def list_my_progress(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[CardProgress]:
-    r = await db.execute(select(CardProgress).where(CardProgress.user_id == current_user.id))
+    r = await db.execute(
+        select(CardProgress)
+        .join(Flashcard, Flashcard.id == CardProgress.card_id)
+        .where(
+            CardProgress.user_id == current_user.id,
+            Flashcard.set_id.in_(accessible_set_ids_subquery(current_user.id)),
+        ),
+    )
     return list(r.scalars().all())
 
 
@@ -38,7 +46,10 @@ async def upsert_progress_for_card(
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
     sr = await db.execute(
-        select(FlashcardSet).where(FlashcardSet.id == card.set_id, FlashcardSet.user_id == current_user.id),
+        select(FlashcardSet).where(
+            FlashcardSet.id == card.set_id,
+            FlashcardSet.id.in_(accessible_set_ids_subquery(current_user.id)),
+        ),
     )
     if sr.scalar_one_or_none() is None:
         raise HTTPException(status_code=403, detail="Not your flashcard")

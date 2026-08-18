@@ -38,6 +38,26 @@ async def test_consumed_quantity_includes_completed_and_inflight_without_content
 
 
 @pytest.mark.asyncio
+async def test_consumed_quantity_resource_type_filter_skips_reservations():
+    """Used by the billing overview breakdown to show how much of the (already-total) ledger
+    charge came from Study Group activations vs. direct uploads. Reservations have no
+    resource_type column, so filtering by resource_type must not try to add them in."""
+    db = AsyncMock()
+    db.scalar = AsyncMock(return_value=2)
+    used = await consumed_quantity(
+        db,
+        uuid4(),
+        BOOK_UPLOADED,
+        period_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        resource_type="study_group_material",
+    )
+    assert used == 2
+    assert db.scalar.await_count == 1
+    sql = str(db.scalar.await_args_list[0].args[0])
+    assert "resource_type" in sql
+
+
+@pytest.mark.asyncio
 async def test_record_usage_is_idempotent_for_same_operation():
     existing = MagicMock(spec=UsageEvent)
     db = AsyncMock()

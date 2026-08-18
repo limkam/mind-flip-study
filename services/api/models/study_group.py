@@ -114,3 +114,59 @@ class StudyGroupMaterial(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+
+class StudyGroupContentActivation(Base):
+    """A member's decision to spend their own plan quota on a book/set shared in a group.
+
+    Activating consumes 1 book slot + 1 set slot from the member's own max_books/max_sets,
+    the same as if they'd uploaded/generated the content themselves — a permanent charge to
+    the usage_events ledger (see Action.ACTIVATE_SHARED_CONTENT in services/entitlements.py
+    and record_usage() calls in routers/study_groups.py). `set_id` is snapshotted at
+    activation time and never re-resolved, so access and spaced-repetition progress stay
+    stable even if the sharer later regenerates their set. `deactivated_at` is purely a
+    visibility toggle — hides the material from the active study list without refunding the
+    ledger charge, same as deleting an owned book/set never refunds it. Reactivating the same
+    (user, material) pair afterward restores access for free; it never charges a second time.
+    """
+
+    __tablename__ = "study_group_content_activations"
+    __table_args__ = (UniqueConstraint("user_id", "material_id", name="uq_content_activation_user_material"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    material_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("study_group_materials.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    book_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("books.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    set_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("flashcard_sets.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    activated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    deactivated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )

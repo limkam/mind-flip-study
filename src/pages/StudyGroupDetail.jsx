@@ -70,6 +70,43 @@ export default function StudyGroupDetail() {
     },
   });
 
+  const deactivateMutation = useMutation({
+    mutationFn: async (materialId) => {
+      await client.post(`/study-groups/${id}/materials/${materialId}/deactivate`);
+    },
+    onSuccess: () => {
+      toast({ title: "Removed from your library", description: "It stays charged against your plan quota — that doesn't refund — but you can add it back for free anytime." });
+      queryClient.invalidateQueries({ queryKey: ["study-groups", id] });
+      queryClient.invalidateQueries({ queryKey: ["billing-overview"] });
+    },
+    onError: (err) => {
+      toast({
+        title: "Could not remove this material",
+        description: err.response?.data?.detail || "Try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const leaveMutation = useMutation({
+    mutationFn: async () => {
+      await client.post(`/study-groups/${id}/leave`);
+    },
+    onSuccess: () => {
+      toast({ title: "You've left the group", description: "Content you activated from it is hidden from your study list, but it's still charged against your plan quota — your progress on it is kept." });
+      queryClient.invalidateQueries({ queryKey: ["study-groups"] });
+      queryClient.invalidateQueries({ queryKey: ["billing-overview"] });
+      navigate("/study-groups");
+    },
+    onError: (err) => {
+      toast({
+        title: "Could not leave group",
+        description: err.response?.data?.detail || "Try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   if (isLoading) {
     return <p className="text-center text-muted-foreground py-16">Loading group…</p>;
   }
@@ -85,6 +122,11 @@ export default function StudyGroupDetail() {
 
   const existingBookIds = new Set((group.materials || []).map((m) => m.book_id));
   const availableBooks = books.filter((b) => !existingBookIds.has(b.id));
+  // weekly_card_goal is the group's combined target (see "X of Y cards reviewed this week"
+  // below), not a per-member one — each member's progress bar must be measured against their
+  // fair share of that goal, not the full group goal, or a balanced group where everyone
+  // pulls their weight would show every member's bar stuck near-empty.
+  const perMemberGoal = Math.max(group.weekly_card_goal / Math.max(group.member_count || 1, 1), 1);
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -105,14 +147,28 @@ export default function StudyGroupDetail() {
               <p className="text-sm text-muted-foreground mt-2">{group.description}</p>
             )}
           </div>
-          {group.code && (
-            <div className="text-right flex-shrink-0">
-              <p className="text-xs text-muted-foreground flex items-center gap-1 justify-end">
-                <Hash className="w-3 h-3" /> Invite code
-              </p>
-              <p className="font-mono text-lg font-bold text-primary tracking-widest">{group.code}</p>
-            </div>
-          )}
+          <div className="text-right flex-shrink-0 space-y-2">
+            {group.code && (
+              <div>
+                <p className="text-xs text-muted-foreground flex items-center gap-1 justify-end">
+                  <Hash className="w-3 h-3" /> Invite code
+                </p>
+                <p className="font-mono text-lg font-bold text-primary tracking-widest">{group.code}</p>
+              </div>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={leaveMutation.isPending}
+              onClick={() => {
+                if (window.confirm("Leave this group? Shared content you activated will be hidden from your study list — it stays charged against your plan quota (that doesn't refund), but your study progress on it is kept.")) {
+                  leaveMutation.mutate();
+                }
+              }}
+            >
+              {leaveMutation.isPending ? "Leaving…" : "Leave group"}
+            </Button>
+          </div>
         </div>
       </motion.div>
 
@@ -178,7 +234,7 @@ export default function StudyGroupDetail() {
           </div>
           <div className="space-y-2">
             {(group.members || []).map((m) => {
-              const pct = Math.min(100, Math.round(((m.cards_this_week || 0) / group.weekly_card_goal) * 100));
+              const pct = Math.min(100, Math.round(((m.cards_this_week || 0) / perMemberGoal) * 100));
               return (
                 <div key={m.user_id} className="p-4 rounded-xl bg-muted/40 border border-border">
                   <div className="flex justify-between items-center mb-2">
@@ -247,12 +303,42 @@ export default function StudyGroupDetail() {
             group.materials.map((mat) => (
               <Link
                 key={mat.id}
-                to={`/book/${mat.book_id}`}
+                to={`/study-groups/${id}/materials/${mat.id}/study`}
                 className="block p-4 rounded-xl bg-muted/40 border border-border hover:border-primary/30 hover:bg-primary/5 transition-colors"
               >
-                <p className="font-medium">{mat.title}</p>
-                <p className="text-sm text-muted-foreground">{mat.author}</p>
-                <p className="text-xs text-muted-foreground mt-1">Added by {mat.added_by_name}</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{mat.title}</p>
+                    <p className="text-sm text-muted-foreground">{mat.author}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Added by {mat.added_by_name}</p>
+                  </div>
+                  {mat.is_own ? (
+                    <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">Your book</span>
+                  ) : mat.activated ? (
+                    <div className="flex flex-col items-end gap-1.5">
+                      <span className="text-xs font-semibold text-emerald-600 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full whitespace-nowrap">
+                        In your library
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-auto py-0.5 px-2 text-xs text-muted-foreground hover:text-destructive"
+                        disabled={deactivateMutation.isPending}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          if (window.confirm(`Remove "${mat.title}" from your library? It stays charged against your plan quota (that doesn't refund), but you can add it back for free anytime.`)) {
+                            deactivateMutation.mutate(mat.id);
+                          }
+                        }}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="text-xs font-medium text-primary whitespace-nowrap">Add to library</span>
+                  )}
+                </div>
               </Link>
             ))
           )}

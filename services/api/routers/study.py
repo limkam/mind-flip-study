@@ -24,6 +24,7 @@ from services.spaced_rep import compute_sm2
 from services.engagement import EventInput, emit_trusted_event
 from services.celebration_events import events_for_trusted_row
 from services.scorecards import refresh_current_scorecards
+from services.content_access import accessible_set_ids_subquery
 
 from services.xp_service import is_card_mastered, process_card_mastery_xp, process_daily_review_completion_xp
 
@@ -48,7 +49,10 @@ async def post_study_progress(
     if card is None:
         raise HTTPException(status_code=404, detail="Card not found")
     sr = await db.execute(
-        select(FlashcardSet).where(FlashcardSet.id == card.set_id, FlashcardSet.user_id == current_user.id),
+        select(FlashcardSet).where(
+            FlashcardSet.id == card.set_id,
+            FlashcardSet.id.in_(accessible_set_ids_subquery(current_user.id)),
+        ),
     )
     flashcard_set = sr.scalar_one_or_none()
     if flashcard_set is None:
@@ -174,12 +178,14 @@ async def post_study_progress(
         if flashcard_set.book_id:
             total_in_course = int(await db.scalar(
                 select(func.count(Flashcard.id)).join(FlashcardSet, FlashcardSet.id == Flashcard.set_id).where(
-                    FlashcardSet.book_id == flashcard_set.book_id, FlashcardSet.user_id == current_user.id,
+                    FlashcardSet.book_id == flashcard_set.book_id,
+                    FlashcardSet.id.in_(accessible_set_ids_subquery(current_user.id)),
                 )
             ) or 0)
             reviewed_in_course = int(await db.scalar(
                 select(func.count(CardProgress.id)).join(Flashcard, Flashcard.id == CardProgress.card_id).join(FlashcardSet, FlashcardSet.id == Flashcard.set_id).where(
-                    FlashcardSet.book_id == flashcard_set.book_id, FlashcardSet.user_id == current_user.id,
+                    FlashcardSet.book_id == flashcard_set.book_id,
+                    FlashcardSet.id.in_(accessible_set_ids_subquery(current_user.id)),
                     CardProgress.user_id == current_user.id, CardProgress.last_reviewed_at.is_not(None),
                 )
             ) or 0)
@@ -205,9 +211,12 @@ async def get_due_cards(
     limit: int = Query(20, ge=1, le=100),
 ) -> list[DueFlashcardOut]:
     limit = adjusted_due_limit(limit, current_user.preferences)
-    # Same 404 whether the set is missing or not owned — avoids leaking set existence.
+    # Same 404 whether the set is missing, not owned, or not activated — avoids leaking set existence.
     own = await db.execute(
-        select(FlashcardSet.id).where(FlashcardSet.id == set_id, FlashcardSet.user_id == current_user.id),
+        select(FlashcardSet.id).where(
+            FlashcardSet.id == set_id,
+            FlashcardSet.id.in_(accessible_set_ids_subquery(current_user.id)),
+        ),
     )
     if own.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Set not found")
@@ -235,7 +244,7 @@ async def get_due_cards(
         )
         .where(
             Flashcard.set_id == set_id,
-            FlashcardSet.user_id == current_user.id,
+            FlashcardSet.id.in_(accessible_set_ids_subquery(current_user.id)),
             or_(
                 CardProgress.id.is_(None),
                 CardProgress.next_review_date.is_(None),
@@ -313,7 +322,7 @@ async def get_daily_review_queue(
             ),
         )
         .where(
-            FlashcardSet.user_id == current_user.id,
+            FlashcardSet.id.in_(accessible_set_ids_subquery(current_user.id)),
             or_(
                 CardProgress.id.is_(None),
                 CardProgress.next_review_date.is_(None),

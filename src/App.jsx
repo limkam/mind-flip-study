@@ -93,6 +93,7 @@ function AppRoutes() {
     analytics: Analytics, billingUsage: BillingUsage, settings: Settings, userManagement: UserManagement,
     profile: Profile, quizChallenges: QuizChallenges, folders: Folders, leaderboard: Leaderboard,
     challengeLeaderboard: ChallengeLeaderboard, studyGroups: StudyGroups, studyGroupDetail: StudyGroupDetail,
+    sharedStudySession: SharedStudySession,
     dailyReview: DailyReview, achievements: Achievements, scorecards: Scorecards, feedback: Feedback,
     guide: UserGuide, pricing: Pricing, onboarding: Onboarding, login: Login,
     emailVerification: EmailVerification, billingSuccess: BillingSuccess, creditBillingSuccess: CreditBillingSuccess, billingCancel: BillingCancel,
@@ -141,6 +142,7 @@ function AppRoutes() {
             />
             <Route path="/study-groups" element={<StudyGroups />} />
             <Route path="/study-groups/:id" element={<StudyGroupDetail />} />
+            <Route path="/study-groups/:groupId/materials/:materialId/study" element={<SharedStudySession />} />
             <Route path="/daily-review" element={<DailyReview />} />
             <Route path="/guide" element={<UserGuide />} />
             <Route path="/pricing" element={<Pricing />} />

@@ -26,12 +26,17 @@ async def consumed_quantity(
     *,
     period_start: datetime | None,
     include_reservations: bool = True,
+    resource_type: str | None = None,
 ) -> int:
     filters = [UsageEvent.user_id == user_id, UsageEvent.event_type == event_type]
     if period_start is not None:
         filters.append(UsageEvent.created_at >= period_start)
+    if resource_type is not None:
+        filters.append(UsageEvent.resource_type == resource_type)
     value = await db.scalar(select(func.coalesce(func.sum(UsageEvent.quantity), 0)).where(*filters))
-    if not include_reservations:
+    # UsageReservation has no resource_type to filter by; it only ever represents
+    # in-flight own-upload generation jobs, never shared-content activations.
+    if not include_reservations or resource_type is not None:
         return int(value or 0)
     reservation_filters = [
         UsageReservation.user_id == user_id,
