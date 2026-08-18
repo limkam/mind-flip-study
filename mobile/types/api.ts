@@ -175,6 +175,21 @@ export type FolderOut = {
   created_at: string;
 };
 
+export type ChallengeQuestionOut = {
+  question: string;
+  options: string[];
+  correct_answer: string;
+  chapter?: string | null;
+  difficulty?: string | null;
+  cognitive_level?: string | null;
+};
+
+export type ChallengeSessionOut = {
+  challenge_id: string;
+  set_title: string;
+  questions: ChallengeQuestionOut[];
+};
+
 export type QuizChallengeOut = {
   id: string;
   flashcard_set_id: string;

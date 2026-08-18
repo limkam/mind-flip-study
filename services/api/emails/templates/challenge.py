@@ -25,6 +25,6 @@ def challenge_alert_email(
       <p style="margin:24px 0;">
         <a href="{challenge_url}" style="{s['button']}">Accept the Challenge</a>
       </p>
-      <p style="{s['muted']}">Challenge expires in 48 hours.</p>
+      <p style="{s['muted']}">Challenge expires in 7 days.</p>
     """
     return wrap_email(body_html=body)

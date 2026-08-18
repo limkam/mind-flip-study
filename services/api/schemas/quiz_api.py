@@ -144,6 +144,25 @@ class QuizResultOut(BaseModel):
         )
 
 
+class ChallengeQuestionOut(BaseModel):
+    """A single server-derived quiz question — never the raw card back for cards outside the sample."""
+
+    question: str
+    options: list[str]
+    correct_answer: str
+    chapter: str | None = None
+    difficulty: str | None = None
+    cognitive_level: str | None = None
+
+
+class ChallengeSessionOut(BaseModel):
+    """Scoped play data for a challenge recipient — no raw deck, no card ids/metadata beyond a question."""
+
+    challenge_id: UUID
+    set_title: str
+    questions: list[ChallengeQuestionOut]
+
+
 class QuizChallengeCreate(BaseModel):
     flashcard_set_id: UUID
     opponent_email: str = Field(..., min_length=3, max_length=255)

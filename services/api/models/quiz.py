@@ -203,6 +203,10 @@ class QuizChallenge(Base):
         DateTime(timezone=True),
         nullable=False,
     )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     result_data: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,

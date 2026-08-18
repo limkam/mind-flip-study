@@ -284,6 +284,11 @@ class Settings(BaseSettings):
     #: Max credential-bearing auth attempts per client IP per window (0 = disable).
     AUTH_RATE_LIMIT_MAX_REQUESTS: int = 40
 
+    #: Max quiz challenges a single user may send per rolling 24h (0 = disable).
+    CHALLENGE_SEND_RATE_LIMIT_MAX_PER_DAY: int = 20
+    #: Max distinct recipients a single user may challenge per rolling 24h (0 = disable).
+    CHALLENGE_SEND_RATE_LIMIT_MAX_RECIPIENTS_PER_DAY: int = 10
+
     def validate_scorecard_share_policy(self) -> None:
         for name in ("PUBLIC_APP_URL", "PUBLIC_SHARE_BASE_URL"):
             value = getattr(self, name).rstrip("/")

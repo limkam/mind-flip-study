@@ -16,16 +16,17 @@ import {
 } from "react-native";
 
 import { EmptyState } from "../../components/EmptyState";
-import { ChallengeEntitlementGuard } from "../../components/ChallengeEntitlementGuard";
 import { QuizGame } from "../../components/games/QuizGame";
 import { PageHeader } from "../../components/PageHeader";
 import { Screen } from "../../components/Screen";
 import { api } from "../../api/client";
+import { fetchEntitlementsSnapshot } from "../../lib/billing";
 import { fetchFlashcardSetsList } from "../../lib/flashcardSets";
 import { useTheme } from "../../hooks/useTheme";
 import { hapticImpact, hapticSuccess } from "../../lib/haptics";
+import { emitUpgradeLimit } from "../../lib/upgradeLimitEvents";
 import { useAuthStore } from "../../store/authStore";
-import type { FlashcardOut, FlashcardSetOut, QuizChallengeOut } from "../../types/api";
+import type { ChallengeQuestionOut, ChallengeSessionOut, FlashcardOut, FlashcardSetOut, QuizChallengeOut } from "../../types/api";
 import type { GameRoundResult } from "../../components/games/types";
 
 type SendQuizState = {
@@ -36,7 +37,7 @@ type SendQuizState = {
 
 type ActiveChallengeState = {
   challenge: QuizChallengeOut;
-  cards: FlashcardOut[];
+  questions: ChallengeQuestionOut[];
 };
 
 export default function ChallengesTab() {
@@ -45,14 +46,12 @@ export default function ChallengesTab() {
   return (
     <>
       <Tabs.Screen options={{ tabBarStyle: { display: "none" } }} />
-      <ChallengeEntitlementGuard>
-        <ChallengesContent
-          onBack={() => {
-            if (router.canGoBack()) router.back();
-            else router.replace("/(tabs)");
-          }}
-        />
-      </ChallengeEntitlementGuard>
+      <ChallengesContent
+        onBack={() => {
+          if (router.canGoBack()) router.back();
+          else router.replace("/(tabs)");
+        }}
+      />
     </>
   );
 }
@@ -86,6 +85,12 @@ function ChallengesContent({ onBack }: { onBack: () => void }) {
     queryKey: ["flashcard-sets"],
     queryFn: fetchFlashcardSetsList,
   });
+
+  const { data: entitlements } = useQuery({
+    queryKey: ["billing-entitlements"],
+    queryFn: fetchEntitlementsSnapshot,
+  });
+  const isFreeSamplePlan = entitlements?.features.challenges !== true;
 
   const { pending, sent, completed } = useMemo(() => {
     const mine = challenges.filter(
@@ -149,15 +154,21 @@ function ChallengesContent({ onBack }: { onBack: () => void }) {
   const acceptChallenge = async (challenge: QuizChallengeOut) => {
     setLoadingQuiz(true);
     try {
-      const { data } = await api.get<FlashcardSetOut & { cards?: FlashcardOut[] }>(
-        `/flashcard-sets/${challenge.flashcard_set_id}`,
+      const { data } = await api.get<ChallengeSessionOut>(
+        `/quiz-challenges/${challenge.id}/session`,
       );
-      if (!data.cards?.length) {
-        Alert.alert("No cards", "Could not load flashcards for this challenge.");
+      if (!data.questions?.length) {
+        Alert.alert("No questions", "Could not load this challenge.");
         return;
       }
-      setActiveChallenge({ challenge, cards: data.cards });
-    } catch {
+      setActiveChallenge({ challenge, questions: data.questions });
+    } catch (err: any) {
+      if (err?.isPlanLimitError) return;
+      if (err?.response?.status === 410) {
+        Alert.alert("Challenge expired", "This challenge is no longer available to play.");
+        await queryClient.invalidateQueries({ queryKey: ["quiz-challenges"] });
+        return;
+      }
       Alert.alert("Could not start challenge", "Please try again.");
     } finally {
       setLoadingQuiz(false);
@@ -175,11 +186,16 @@ function ChallengesContent({ onBack }: { onBack: () => void }) {
         status: "completed",
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, { challenge }) => {
       setActiveChallenge(null);
       setCompletionNotice(true);
       void hapticSuccess();
       await queryClient.invalidateQueries({ queryKey: ["quiz-challenges"] });
+      if (isFreeSamplePlan) {
+        emitUpgradeLimit({
+          reason: `Loved "${challenge.set_title ?? "that deck"}"? Create your own deck and send challenges — upgrade to Quick 7 or higher.`,
+        });
+      }
     },
     onError: () => Alert.alert("Could not submit score", "Please try again."),
   });
@@ -237,7 +253,7 @@ function ChallengesContent({ onBack }: { onBack: () => void }) {
         </View>
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
           <QuizGame
-            cards={activeChallenge.cards}
+            questions={activeChallenge.questions}
             onComplete={(result) => completeMutation.mutate({ challenge: ch, result })}
           />
         </ScrollView>

@@ -5,17 +5,33 @@ import { buildMcq, formatMmSs, type QuizDifficultyMode } from "../../lib/gameUti
 import { hapticError, hapticImpact, hapticSuccess } from "../../lib/haptics";
 import { useTheme } from "../../hooks/useTheme";
 import type { GameProps } from "./types";
+import type { McqQuestion } from "./types";
+import type { ChallengeQuestionOut } from "../../types/api";
 import { DifficultyModePicker } from "./DifficultyModePicker";
 import { GameResult } from "./GameResult";
 import { McqOptions } from "./McqOptions";
 
-export function QuizGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
+type QuizGameProps = Omit<GameProps, "cards"> & {
+  cards?: GameProps["cards"];
+  questions?: ChallengeQuestionOut[];
+};
+
+export function QuizGame({ cards, questions: providedQuestions, onComplete, generationSeed = 0 }: QuizGameProps) {
   const { colors } = useTheme();
   const [mode, setMode] = useState<QuizDifficultyMode>("mixed");
-  const questions = useMemo(
-    () => buildMcq(cards, Math.min(20, cards.length), 4, generationSeed, mode),
-    [cards, generationSeed, mode],
-  );
+  const usingProvidedQuestions = Array.isArray(providedQuestions);
+  const questions: McqQuestion[] = useMemo(() => {
+    if (providedQuestions) {
+      return providedQuestions.map((q) => ({
+        question: q.question,
+        correct: q.correct_answer,
+        options: q.options,
+        chapter: q.chapter,
+        difficulty: q.difficulty,
+      }));
+    }
+    return buildMcq(cards ?? [], Math.min(20, cards?.length ?? 0), 4, generationSeed, mode);
+  }, [cards, providedQuestions, generationSeed, mode]);
   const [idx, setIdx] = useState(0);
   const [answeredCount, setAnsweredCount] = useState(0);
   const [score, setScore] = useState(0);
@@ -87,7 +103,9 @@ export function QuizGame({ cards, onComplete, generationSeed = 0 }: GameProps) {
 
   return (
     <View>
-      <DifficultyModePicker value={mode} onChange={setMode} disabled={answeredCount > 0} />
+      {!usingProvidedQuestions ? (
+        <DifficultyModePicker value={mode} onChange={setMode} disabled={answeredCount > 0} />
+      ) : null}
       <View style={styles.meta}>
         <Text style={{ color: colors.muted }}>{answeredCount} of {questions.length} answered</Text>
         {q?.difficulty ? (

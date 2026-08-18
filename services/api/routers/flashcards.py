@@ -16,9 +16,8 @@ from database_sync import sync_session
 from dependencies import get_current_user
 from generation_prompts import GENERATION_PIPELINE_VERSION
 from models.book import Book
-from models.enums import QuizChallengeStatus
 from models.flashcard import Flashcard, FlashcardSet
-from models.quiz import CardProgress, QuizChallenge
+from models.quiz import CardProgress
 from models.user import User
 from models.usage_event import UsageEvent, UsageReservation
 from scenario_regeneration import regenerate_all_scenarios_sync, replace_set_scenarios_in_description
@@ -30,6 +29,7 @@ from services.entitlements import (
     can_user_do,
 )
 from services.usage_events import FLASHCARDS_GENERATED, current_period_start, record_usage
+from services.content_access import accessible_set_ids_subquery
 from schemas.flashcards_api import (
     FlashcardOut,
     FlashcardSetCreate,
@@ -454,31 +454,19 @@ async def get_flashcard_set(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> FlashcardSetOut:
     r = await db.execute(
-        select(FlashcardSet).where(FlashcardSet.id == set_id, FlashcardSet.user_id == current_user.id),
+        select(FlashcardSet).where(
+            FlashcardSet.id == set_id,
+            FlashcardSet.id.in_(accessible_set_ids_subquery(current_user.id)),
+        ),
     )
     s = r.scalar_one_or_none()
-    if s is not None:
-        return await _serialize_set(
-            db, s, last_studied_at=await _last_studied_at(db, s.id, current_user.id),
-        )
-    # Opponent may read the challenger's deck while a challenge is pending/active.
-    ch_r = await db.execute(
-        select(QuizChallenge).where(
-            QuizChallenge.set_id == set_id,
-            QuizChallenge.challengee_id == current_user.id,
-            QuizChallenge.status.in_((QuizChallengeStatus.pending, QuizChallengeStatus.active)),
-        ).limit(1),
+    if s is None:
+        # Challenge recipients no longer read the raw deck here — see
+        # GET /quiz-challenges/{challenge_id}/session for the scoped, server-derived quiz view.
+        raise HTTPException(status_code=404, detail="Set not found")
+    return await _serialize_set(
+        db, s, last_studied_at=await _last_studied_at(db, s.id, current_user.id),
     )
-    ch = ch_r.scalar_one_or_none()
-    if ch is not None:
-        s2 = await db.get(FlashcardSet, set_id)
-        # Deck must belong to the challenger who created the challenge (no arbitrary set_id reads).
-        if s2 is None or s2.user_id != ch.challenger_id:
-            raise HTTPException(status_code=404, detail="Set not found")
-        return await _serialize_set(
-            db, s2, last_studied_at=await _last_studied_at(db, s2.id, current_user.id),
-        )
-    raise HTTPException(status_code=404, detail="Set not found")
 
 
 @router.put("/{set_id}", response_model=FlashcardSetOut)

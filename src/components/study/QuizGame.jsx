@@ -7,9 +7,10 @@ import { buildMcqQuestions, difficultyLabel, QUIZ_DIFFICULTY_MODES } from "@/lib
 import GameResultScreen from "@/components/games/GameResultScreen";
 import { useFinishOnce } from "@/lib/gameLifecycle";
 
-export default function QuizGame({ cards, setTitle, onComplete, generationSeed = 0, difficultyMode = "mixed" }) {
+export default function QuizGame({ cards, questions: providedQuestions, setTitle, onComplete, generationSeed = 0, difficultyMode = "mixed" }) {
   const finishGame = useFinishOnce(onComplete);
   const [mode, setMode] = useState(difficultyMode);
+  const usingProvidedQuestions = Array.isArray(providedQuestions);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answeredCount, setAnsweredCount] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
@@ -23,10 +24,19 @@ export default function QuizGame({ cards, setTitle, onComplete, generationSeed =
   const [maxStreak, setMaxStreak] = useState(0);
   const timerRef = useRef(null);
 
-  const questions = useMemo(
-    () => buildMcqQuestions(cards, { count: 20, seed: generationSeed, mode }),
-    [cards, generationSeed, mode],
-  );
+  const questions = useMemo(() => {
+    if (usingProvidedQuestions) {
+      return providedQuestions.map((q) => ({
+        question: q.question,
+        correctAnswer: q.correct_answer,
+        options: q.options,
+        chapter: q.chapter,
+        difficulty: q.difficulty || "medium",
+        cognitiveLevel: q.cognitive_level,
+      }));
+    }
+    return buildMcqQuestions(cards, { count: 20, seed: generationSeed, mode });
+  }, [cards, providedQuestions, usingProvidedQuestions, generationSeed, mode]);
 
   useEffect(() => {
     if (!questions.length) return;
@@ -132,19 +142,21 @@ export default function QuizGame({ cards, setTitle, onComplete, generationSeed =
 
   return (
     <div className="max-w-2xl mx-auto">
-      <div className="flex flex-wrap gap-2 mb-4">
-        {QUIZ_DIFFICULTY_MODES.map((m) => (
-          <Button
-            key={m}
-            size="sm"
-            variant={mode === m ? "default" : "outline"}
-            onClick={() => setMode(m)}
-            disabled={showResult}
-          >
-            {difficultyLabel(m)}
-          </Button>
-        ))}
-      </div>
+      {!usingProvidedQuestions && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {QUIZ_DIFFICULTY_MODES.map((m) => (
+            <Button
+              key={m}
+              size="sm"
+              variant={mode === m ? "default" : "outline"}
+              onClick={() => setMode(m)}
+              disabled={showResult}
+            >
+              {difficultyLabel(m)}
+            </Button>
+          ))}
+        </div>
+      )}
 
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">

@@ -129,7 +129,10 @@ function AppRoutes() {
             <Route path="/achievements" element={<Achievements />} />
             <Route path="/users" element={<UserManagement />} />
             <Route path="/profile" element={<Profile />} />
-            <Route path="/challenges" element={<RequireFeature feature="challenges"><QuizChallenges /></RequireFeature>} />
+            {/* Not gated by RequireFeature: recipients on any plan can view/play their free-sample
+                challenge; only sending (inside QuizChallenges) requires the Challenges plan. */}
+            <Route path="/challenges" element={<QuizChallenges />} />
+            <Route path="/challenges/:challengeId" element={<QuizChallenges />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/feedback" element={<Feedback />} />
             <Route path="/folders" element={<Folders />} />

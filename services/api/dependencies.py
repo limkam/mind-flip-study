@@ -25,6 +25,7 @@ __all__ = [
     "enforce_tier_limit",
     "enforce_auth_rate_limit",
     "enforce_scorecard_share_rate_limit",
+    "enforce_challenge_send_rate_limit",
 ]
 
 oauth2_scheme = HTTPBearer(auto_error=True)
@@ -82,6 +83,31 @@ def enforce_scorecard_share_rate_limit():
             await redis.expire(key, window)
         if count > maximum:
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many requests. Try again later.")
+    return _enforce
+
+
+def enforce_challenge_send_rate_limit():
+    """Bound quiz challenges sent per user per rolling 24h — same Redis INCR+expire shape as
+    enforce_auth_rate_limit/enforce_scorecard_share_rate_limit, keyed on user id instead of IP."""
+    async def _enforce(
+        current_user: Annotated[User, Depends(get_current_user)],
+        redis: Annotated[Redis, Depends(get_redis)],
+    ) -> None:
+        maximum = settings.CHALLENGE_SEND_RATE_LIMIT_MAX_PER_DAY
+        if maximum <= 0:
+            return
+        key = f"challenge-send:rl:{current_user.id}"
+        count = await redis.incr(key)
+        if count == 1:
+            await redis.expire(key, 86400)
+        if count > maximum:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "code": "CHALLENGE_SEND_LIMIT_REACHED",
+                    "message": "You've sent a lot of challenges today — try again tomorrow.",
+                },
+            )
     return _enforce
 
 

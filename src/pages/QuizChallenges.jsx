@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "@/api/client";
 import { motion } from "framer-motion";
@@ -32,9 +32,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import QuizGame from "@/components/study/QuizGame";
+import { fetchEntitlementsSnapshot } from "@/lib/billing";
+import { PLAN_LIMIT_EVENT } from "@/components/billing/UpgradeLimitDialog";
 
 export default function QuizChallenges() {
   const { user } = useOutletContext();
+  const { challengeId } = useParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -44,9 +48,9 @@ export default function QuizChallenges() {
   const [sending, setSending] = useState(false);
   const [sendQuiz, setSendQuiz] = useState(null);
   const [activeChallenge, setActiveChallenge] = useState(null);
-  const [activeChallengeCards, setActiveChallengeCards] = useState([]);
+  const [activeChallengeQuestions, setActiveChallengeQuestions] = useState([]);
 
-  const { data: challenges = [] } = useQuery({
+  const { data: challenges = [], isLoading: challengesLoading } = useQuery({
     queryKey: ["quiz-challenges"],
     queryFn: async () => {
       const { data } = await client.get("/quiz-challenges/");
@@ -63,6 +67,12 @@ export default function QuizChallenges() {
       return data;
     },
   });
+
+  const { data: entitlements } = useQuery({
+    queryKey: ["billing-entitlements"],
+    queryFn: fetchEntitlementsSnapshot,
+  });
+  const isFreeSamplePlan = entitlements?.features?.challenges !== true;
 
   const myChallenges = challenges.filter(
     (c) =>
@@ -145,17 +155,26 @@ export default function QuizChallenges() {
     if (acceptingId) return;
     setAcceptingId(challenge.id);
     try {
-      const { data: setData } = await client.get(
-        `/flashcard-sets/${challenge.flashcard_set_id}`,
+      const { data: session } = await client.get(
+        `/quiz-challenges/${challenge.id}/session`,
       );
-      if (setData?.cards) {
-        setActiveChallengeCards(setData.cards);
+      if (session?.questions?.length) {
+        setActiveChallengeQuestions(session.questions);
         setActiveChallenge(challenge);
       }
     } catch (err) {
       if (err?.response?.status === 402 || err?.isPlanLimitError) return;
+      if (err?.response?.status === 410) {
+        toast({
+          title: "Challenge expired",
+          description: "This challenge is no longer available to play.",
+          variant: "destructive",
+        });
+        queryClient.invalidateQueries({ queryKey: ["quiz-challenges"] });
+        return;
+      }
       toast({
-        title: "Could not load challenge cards",
+        title: "Could not load challenge",
         description: err.response?.data?.detail || err.message,
         variant: "destructive",
       });
@@ -163,6 +182,17 @@ export default function QuizChallenges() {
       setAcceptingId(null);
     }
   };
+
+  // Deep-link from the challenge email: /challenges/:challengeId opens that challenge directly.
+  useEffect(() => {
+    if (!challengeId || challengesLoading || activeChallenge || sendQuiz) return;
+    const match = pending.find((c) => c.id === challengeId);
+    if (match) {
+      handleAcceptChallenge(match);
+    }
+    navigate("/challenges", { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [challengeId, challengesLoading, pending]);
 
   const handleChallengeComplete = async (result) => {
     await client.patch(`/quiz-challenges/${activeChallenge.id}`, {
@@ -177,13 +207,23 @@ export default function QuizChallenges() {
       (result.percentage === activeChallenge.challenger_percentage &&
         result.time_taken_seconds <
           (activeChallenge.challenger_time_seconds || 9999));
+    const completedSetTitle = activeChallenge.set_title;
     setActiveChallenge(null);
-    setActiveChallengeCards([]);
+    setActiveChallengeQuestions([]);
     toast({
       title: beatThem
         ? "🏆 You won the challenge!"
         : "Challenge completed — better luck next time!",
     });
+    if (isFreeSamplePlan) {
+      window.dispatchEvent(
+        new CustomEvent(PLAN_LIMIT_EVENT, {
+          detail: {
+            reason: `Loved "${completedSetTitle}"? Create your own deck and send challenges — upgrade to Quick 7 or higher.`,
+          },
+        }),
+      );
+    }
   };
 
   const getResultForChallenge = (c) => {
@@ -246,7 +286,7 @@ export default function QuizChallenges() {
           </Button>
         </div>
         <QuizGame
-          cards={activeChallengeCards}
+          questions={activeChallengeQuestions}
           setTitle={activeChallenge.set_title}
           onComplete={handleChallengeComplete}
         />
