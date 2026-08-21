@@ -100,28 +100,20 @@ def _price_id_for_plan(plan: BillingPlan, interval: BillingInterval) -> str:
     )
 
 
-_CREDIT_MAX_QUANTITY = 10_000
-
-
-def _credit_unit_price_cents() -> int:
-    return max(1, int(settings.CREDIT_UNIT_PRICE_CENTS))
-
-
 def _credit_currency() -> str:
     return (settings.CREDIT_CURRENCY or "usd").lower()
 
 
-def _credit_checkout_line_item(quantity: int) -> dict:
-    unit_price_id = settings.STRIPE_PRICE_ID_CREDIT_UNIT.strip()
-    if unit_price_id:
-        return {"price": unit_price_id, "quantity": quantity}
+def _credit_checkout_line_item(credits: int, price_cents: int, price_id: str | None = None) -> dict:
+    if price_id:
+        return {"price": price_id, "quantity": 1}
     return {
         "price_data": {
             "currency": _credit_currency(),
-            "unit_amount": _credit_unit_price_cents(),
-            "product_data": {"name": "MindFlip Credits"},
+            "unit_amount": price_cents,
+            "product_data": {"name": f"Bilkeys Credits ({credits})"},
         },
-        "quantity": quantity,
+        "quantity": 1,
     }
 
 
@@ -1556,10 +1548,10 @@ async def verify_checkout_session(
 async def create_credit_checkout_session(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    quantity: Annotated[int, Query(ge=1, le=_CREDIT_MAX_QUANTITY, description="Number of credits to purchase")],
+    credits: Annotated[int, Query(ge=1, description="Credit pack size — must match a configured tier")],
     client: Annotated[CheckoutClient, Query(description="Client platform ('web' or 'mobile')")] = CheckoutClient.web,
 ) -> CheckoutUrlResponse:
-    """Create a one-time Stripe Checkout session for quantity-based credit purchase.
+    """Create a one-time Stripe Checkout session for a configured extra-credit pack tier.
 
     Requires a valid Bearer access token (``HTTPBearer`` on ``get_current_user``).
     """
@@ -1568,6 +1560,13 @@ async def create_credit_checkout_session(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Stripe billing is not configured",
         )
+    price_cents = credits_service.credit_tier_price_cents(credits)
+    if price_cents is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Not a valid credit pack size.",
+        )
+    price_id = credits_service.credit_tier_price_id(credits)
     stripe.api_key = settings.STRIPE_SECRET_KEY
 
     # Serialize customer creation: row lock + Stripe idempotency key avoids duplicate Customers.
@@ -1577,7 +1576,7 @@ async def create_credit_checkout_session(
         customer = stripe.Customer.create(
             email=user_row.email,
             metadata={"user_id": str(user_row.id)},
-            idempotency_key=f"mindflip:user:{user_row.id}:customer",
+            idempotency_key=f"bilkeys:user:{user_row.id}:customer",
         )
         user_row.stripe_customer_id = customer.id
         await db.commit()
@@ -1588,7 +1587,7 @@ async def create_credit_checkout_session(
         base_cancel = getattr(settings, "MOBILE_CREDIT_CHECKOUT_CANCEL_URL", None)
         if not base_success or not base_cancel:
             # Fallback to credit-specific endpoints under MOBILE_CHECKOUT_SUCCESS_URL host if available
-            default_mobile_base = settings.MOBILE_CHECKOUT_SUCCESS_URL.rsplit("/mobile/", 1)[0] if "/mobile/" in settings.MOBILE_CHECKOUT_SUCCESS_URL else "https://mindflip.app"
+            default_mobile_base = settings.MOBILE_CHECKOUT_SUCCESS_URL.rsplit("/mobile/", 1)[0] if "/mobile/" in settings.MOBILE_CHECKOUT_SUCCESS_URL else "https://bilkeys.app"
             base_success = base_success or f"{default_mobile_base}/mobile/billing/credits/success"
             base_cancel = base_cancel or f"{default_mobile_base}/mobile/billing/credits/cancel"
 
@@ -1609,30 +1608,29 @@ async def create_credit_checkout_session(
         success_url = f"{base_success}?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = base_cancel
 
-    unit_price_cents = _credit_unit_price_cents()
     session = stripe.checkout.Session.create(
         customer=user_row.stripe_customer_id,
         mode="payment",
-        line_items=[_credit_checkout_line_item(quantity)],
+        line_items=[_credit_checkout_line_item(credits, price_cents, price_id)],
         success_url=success_url,
         cancel_url=cancel_url,
         client_reference_id=str(user_row.id),
         metadata={
             "user_id": str(user_row.id),
-            "credit_quantity": str(quantity),
-            "unit_price_cents": str(unit_price_cents),
+            "credit_quantity": str(credits),
+            "credit_pack_price_cents": str(price_cents),
             "currency": _credit_currency(),
         },
         payment_intent_data={
             "receipt_email": user_row.email,
             "metadata": {
                 "user_id": str(user_row.id),
-                "credit_quantity": str(quantity),
+                "credit_quantity": str(credits),
                 "currency": _credit_currency(),
             },
         },
         invoice_creation={"enabled": True},
-        idempotency_key=f"mindflip:credits_checkout:{user_row.id}:{uuid.uuid4().hex}",
+        idempotency_key=f"bilkeys:credits_checkout:{user_row.id}:{uuid.uuid4().hex}",
     )
     url = session.url
     if not url:
@@ -1868,13 +1866,13 @@ async def _stripe_webhook_impl(
                         except (TypeError, ValueError):
                             quantity = 0
 
-                        unit_price_raw = meta.get("unit_price_cents") if isinstance(meta, dict) else None
-                        try:
-                            unit_price_cents = int(unit_price_raw) if unit_price_raw is not None else _credit_unit_price_cents()
-                        except (TypeError, ValueError):
-                            unit_price_cents = _credit_unit_price_cents()
-
-                        expected_amount_cents = quantity * unit_price_cents
+                        # Expected amount is always derived from the server-side configured tier
+                        # list (never trusted from client/metadata) — this both guards against a
+                        # tampered Stripe amount and rejects any quantity that isn't one of the
+                        # configured pack sizes.
+                        tier_price_cents = credits_service.credit_tier_price_cents(quantity)
+                        expected_amount_cents = tier_price_cents if tier_price_cents is not None else -1
+                        unit_price_cents = (tier_price_cents // quantity) if (tier_price_cents is not None and quantity > 0) else 0
                         amount_total = session.get("amount_total")
                         try:
                             amount_paid_cents = int(amount_total) if amount_total is not None else expected_amount_cents
@@ -1884,12 +1882,12 @@ async def _stripe_webhook_impl(
                         session_currency = str(session.get("currency") or (meta.get("currency") if isinstance(meta, dict) else None) or _credit_currency()).lower()
                         expected_currency = _credit_currency().lower()
 
-                        # Validate payment integrity: mode == "payment", status == "paid", valid quantity, total amount match, matching currency
+                        # Validate payment integrity: mode == "payment", status == "paid", valid tier, total amount match, matching currency
                         is_valid_payment = (
                             str(session.get("mode")) == "payment"
                             and payment_status == "paid"
                             and etype != "checkout.session.async_payment_failed"
-                            and 1 <= quantity <= _CREDIT_MAX_QUANTITY
+                            and tier_price_cents is not None
                             and amount_paid_cents == expected_amount_cents
                             and session_currency == expected_currency
                         )
@@ -1949,10 +1947,11 @@ async def _stripe_webhook_impl(
                             await db.flush()
                         elif quantity > 0:
                             amount_total = session.get("amount_total")
+                            fallback_expected = tier_price_cents if tier_price_cents is not None else 0
                             try:
-                                amount_paid_cents = int(amount_total) if amount_total is not None else quantity * _credit_unit_price_cents()
+                                amount_paid_cents = int(amount_total) if amount_total is not None else fallback_expected
                             except (TypeError, ValueError):
-                                amount_paid_cents = quantity * _credit_unit_price_cents()
+                                amount_paid_cents = fallback_expected
                             invoice_id = session.get("invoice")
                             if isinstance(invoice_id, dict):
                                 invoice_id = invoice_id.get("id")
@@ -1960,7 +1959,7 @@ async def _stripe_webhook_impl(
                             purchase.quantity = quantity
                             purchase.amount_paid_cents = amount_paid_cents
                             purchase.currency = str(session.get("currency") or _credit_currency()).lower()
-                            purchase.unit_price_cents = _credit_unit_price_cents()
+                            purchase.unit_price_cents = unit_price_cents
                             purchase.stripe_event_id = event_id
                             purchase.stripe_session_id = session_id
                             purchase.stripe_payment_intent_id = session.get("payment_intent") if isinstance(session.get("payment_intent"), str) else None

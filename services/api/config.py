@@ -77,11 +77,34 @@ class Settings(BaseSettings):
     STRIPE_PRICE_ID_QUICK7_YEARLY: str = ""
     STRIPE_PRICE_ID_PREMIUM_MONTHLY: str = ""
     STRIPE_PRICE_ID_PREMIUM_ANNUAL: str = ""
-    #: Optional Stripe unit-price id for quantity-based credit purchases.
-    STRIPE_PRICE_ID_CREDIT_UNIT: str = ""
-    #: Fallback when ``STRIPE_PRICE_ID_CREDIT_UNIT`` is not set.
-    CREDIT_UNIT_PRICE_CENTS: int = 80
     CREDIT_CURRENCY: str = "usd"
+    #: Discrete extra-credit pack tiers, as a JSON array of {"credits", "price_cents"}
+    #: objects. Editing the ladder (adding/adjusting a tier) only needs this env var
+    #: changed, never a code change to the pricing/checkout logic itself.
+    CREDIT_PACK_TIERS_JSON: str = (
+        '[{"credits":3,"price_cents":399},'
+        '{"credits":6,"price_cents":799},'
+        '{"credits":9,"price_cents":1197},'
+        '{"credits":12,"price_cents":1596},'
+        '{"credits":18,"price_cents":2394},'
+        '{"credits":21,"price_cents":2793},'
+        '{"credits":24,"price_cents":3192},'
+        '{"credits":27,"price_cents":3591},'
+        '{"credits":33,"price_cents":4389}]'
+    )
+    #: Per-tier Stripe Price id (under the "BILKEYS CREDITS" product), one named var per
+    #: tier size to match the STRIPE_PRICE_ID_* naming convention used for subscriptions
+    #: above. Real values live in .env only — checkout falls back to an inline price for
+    #: any tier left blank here, so this is optional, not required to function.
+    STRIPE_PRICE_ID_CREDIT_3: str = ""
+    STRIPE_PRICE_ID_CREDIT_6: str = ""
+    STRIPE_PRICE_ID_CREDIT_9: str = ""
+    STRIPE_PRICE_ID_CREDIT_12: str = ""
+    STRIPE_PRICE_ID_CREDIT_18: str = ""
+    STRIPE_PRICE_ID_CREDIT_21: str = ""
+    STRIPE_PRICE_ID_CREDIT_24: str = ""
+    STRIPE_PRICE_ID_CREDIT_27: str = ""
+    STRIPE_PRICE_ID_CREDIT_33: str = ""
     BILLING_PRICE_CENTS_QUICK_MONTHLY: int = 399
     BILLING_PRICE_CENTS_QUICK_ANNUAL: int = 2400
     BILLING_PRICE_CENTS_STANDARD_MONTHLY: int = 699

@@ -5,6 +5,7 @@ Provides helpers to read balances, consume credits, and award monthly allowances
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
@@ -13,10 +14,55 @@ from fastapi import HTTPException, status
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from models.credit_ledger import CreditLedger
 from models.plan import Plan
 from models.user import User
 from models.user_subscription import UserSubscription
+
+
+def credit_pack_tiers() -> list[dict]:
+    """Configured extra-credit pack tiers: [{"credits", "price_cents", "price_id"}, ...].
+
+    The ladder (credits/price_cents) is sourced from CREDIT_PACK_TIERS_JSON so adding
+    or adjusting a tier only ever needs a config change, never a code change to the
+    pricing/checkout logic that reads it. Each tier's "price_id" (a Stripe Price id) is
+    read from a separate STRIPE_PRICE_ID_CREDIT_<credits> setting, matching the
+    STRIPE_PRICE_ID_* naming convention used for subscriptions — it's optional, and
+    checkout falls back to an inline price for any tier left unconfigured.
+    """
+    try:
+        raw = json.loads(settings.CREDIT_PACK_TIERS_JSON)
+    except (TypeError, ValueError):
+        return []
+    tiers: list[dict] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        credits = item.get("credits")
+        price_cents = item.get("price_cents")
+        if isinstance(credits, int) and isinstance(price_cents, int) and credits > 0 and price_cents > 0:
+            price_id = getattr(settings, f"STRIPE_PRICE_ID_CREDIT_{credits}", "")
+            tiers.append({
+                "credits": credits,
+                "price_cents": price_cents,
+                "price_id": price_id if isinstance(price_id, str) and price_id else None,
+            })
+    return tiers
+
+
+def credit_tier_price_cents(credits: int) -> int | None:
+    for tier in credit_pack_tiers():
+        if tier["credits"] == credits:
+            return tier["price_cents"]
+    return None
+
+
+def credit_tier_price_id(credits: int) -> str | None:
+    for tier in credit_pack_tiers():
+        if tier["credits"] == credits:
+            return tier["price_id"]
+    return None
 
 
 async def _now() -> datetime:
