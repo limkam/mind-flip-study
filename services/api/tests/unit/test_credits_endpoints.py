@@ -73,9 +73,11 @@ async def test_get_credit_packages():
     assert response.status_code == 200
     data = response.json()
     assert "pricing" in data
-    assert data["pricing"]["unit_price_cents"] == 80
     assert data["pricing"]["currency"] == "usd"
-    assert data["pricing"]["minimum_quantity"] == 1
+    tiers = data["pricing"]["tiers"]
+    assert {"credits": 3, "price_cents": 399, "price_usd": 3.99} in tiers
+    assert {"credits": 6, "price_cents": 799, "price_usd": 7.99} in tiers
+    assert all(tier["credits"] >= 3 for tier in tiers)
 
 
 @pytest.mark.asyncio

@@ -26,7 +26,7 @@ def test_pdf_is_likely_image_only_rejects_blank_pdf():
 
 
 def test_pdf_is_likely_image_only_accepts_text_pdf(monkeypatch):
-    long_text = "MindFlip extractable chapter text. " * 30
+    long_text = "Bilkeys extractable chapter text. " * 30
 
     class FakePage:
         def extract_text(self):

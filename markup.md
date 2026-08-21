@@ -1,4 +1,4 @@
-# MindFlip — Pricing & Unit Economics (markup)
+# Bilkeys — Pricing & Unit Economics (markup)
 
 Research date: **May 2026**  
 Stack: **AWS** (hosting, S3, Secrets Manager) + **Anthropic Claude** (Sonnet 4) + **Stripe** (subscriptions) + **Resend** (email)
@@ -19,7 +19,7 @@ This document answers whether **$3.99/mo (Student)** and **$7.99/mo (Premium)** 
 
 ---
 
-## What MindFlip charges today (in code)
+## What Bilkeys charges today (in code)
 
 | Surface | Plans | Notes |
 |---------|-------|-------|
@@ -91,7 +91,7 @@ Official Sonnet 4.x API pricing (May 2026): **$3 / MTok input**, **$15 / MTok ou
 
 ## Variable cost #2 — AWS & adjacent services
 
-MindFlip’s architecture (from `docker-compose.yml` + `INTEGRATIONS.md`): **FastAPI**, **Celery worker**, **Postgres**, **Redis**, **S3** (PDFs), optional **CloudFront**, **Secrets Manager** for Anthropic key in prod.
+Bilkeys’s architecture (from `docker-compose.yml` + `INTEGRATIONS.md`): **FastAPI**, **Celery worker**, **Postgres**, **Redis**, **S3** (PDFs), optional **CloudFront**, **Secrets Manager** for Anthropic key in prod.
 
 ### Scenario A — Lean launch (recommended 0–500 users)
 
@@ -243,7 +243,7 @@ Intro promo: **$3.99 for 3 months** → renew at $4.99 is a common pattern.
 | Neon Postgres plans | https://neon.com/pricing |
 | Resend email pricing | https://resend.com/pricing |
 | AWS cost-optimized SaaS reference | https://www.factualminds.com/blog/cost-optimized-saas-stack-aws-end-to-end/ |
-| MindFlip integrations | `INTEGRATIONS.md` |
+| Bilkeys integrations | `INTEGRATIONS.md` |
 | Token cost constants in repo | `services/api/token_usage_log.py` |
 | AI job implementation | `services/api/tasks/ai_tasks.py` |
 

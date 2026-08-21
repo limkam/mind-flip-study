@@ -51,7 +51,7 @@ async def _require_challenge_access(db: AsyncSession, user: User) -> None:
     if not decision.get("allowed"):
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail={"code": "UPGRADE_REQUIRED", "message": "Quiz challenges require a Quick 7, Standard 15, or Premium 30 plan."},
+            detail={"code": "UPGRADE_REQUIRED", "message": "Quiz challenges require a Standard 15 or Premium 30 plan."},
         )
 
 
@@ -72,10 +72,10 @@ async def _challenge_completion_eligibility(db: AsyncSession, user: User) -> dic
     """Can `user` (the challengee) play/complete a challenge right now? Checked at session-start
     (get_challenge_session, before time is invested) and re-checked at PATCH-completion time.
 
-    Recipients whose own plan already grants can_send_challenges (Quick 7+/Standard 15+/
-    Premium 30) get their normal plan-level access — no sample cap — but still spend 1 purchased
-    credit per completion, unchanged from before. Free-plan recipients get a bounded number of
-    free completions per month instead of any credit charge.
+    Recipients whose own plan already grants can_send_challenges (Standard 15+/Premium 30)
+    get their normal plan-level access — no sample cap — but still spend 1 purchased
+    credit per completion, unchanged from before. Free-plan (and Quick 7) recipients get a
+    bounded number of free completions per month instead of any credit charge.
     """
     decision = await can_user_do(db, user, Action.SEND_CHALLENGE)
     if decision.get("allowed"):

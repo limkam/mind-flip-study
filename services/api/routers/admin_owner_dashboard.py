@@ -327,7 +327,7 @@ async def weekly_report(
             minimal_pdf(markdown),
             media_type="application/pdf",
             headers={
-                "Content-Disposition": "attachment; filename=mindflip-weekly-report.pdf"
+                "Content-Disposition": "attachment; filename=bilkeys-weekly-report.pdf"
             },
         )
     if format == "csv":
@@ -342,13 +342,13 @@ async def weekly_report(
             content,
             media_type="text/csv",
             headers={
-                "Content-Disposition": "attachment; filename=mindflip-weekly-report.csv"
+                "Content-Disposition": "attachment; filename=bilkeys-weekly-report.csv"
             },
         )
     return Response(
         markdown,
         media_type="text/markdown",
         headers={
-            "Content-Disposition": "attachment; filename=mindflip-weekly-report.md"
+            "Content-Disposition": "attachment; filename=bilkeys-weekly-report.md"
         },
     )

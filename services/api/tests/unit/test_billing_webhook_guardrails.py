@@ -56,10 +56,10 @@ async def test_webhook_unpaid_payment_does_not_award_credits(monkeypatch):
                     "metadata": {
                         "user_id": str(user.id),
                         "credit_quantity": "3",
-                        "unit_price_cents": "80",
+                        "credit_pack_price_cents": "399",
                         "currency": "usd",
                     },
-                    "amount_total": 240,
+                    "amount_total": 399,
                     "currency": "usd",
                     "payment_intent": "pi_unpaid",
                 }
@@ -73,6 +73,63 @@ async def test_webhook_unpaid_payment_does_not_award_credits(monkeypatch):
     out = await billing.stripe_webhook(_Req(), db=db, redis=redis)
     assert out == {"received": True}
     award_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_webhook_payment_failed_handles_nested_parent_subscription_shape(monkeypatch):
+    """Confirmed live against a real Stripe test-mode account: on this API version, an
+    Invoice's `subscription` field is null at the top level — the real reference lives at
+    `parent.subscription_details.subscription`. The naive `inv.get("subscription")` silently
+    dropped both the status reconciliation and the payment-failed email on every real renewal
+    failure until this used the same version-tolerant `_invoice_subscription_id` helper
+    `invoice.payment_succeeded` already relies on."""
+    user = SimpleNamespace(id=uuid4(), email="u@example.com", full_name="User", stripe_customer_id="cus_1")
+    db = AsyncMock()
+    db.add = lambda *_args, **_kwargs: None
+    db.flush = AsyncMock()
+    db.commit = AsyncMock()
+    db.scalar = AsyncMock(side_effect=[None, user, SimpleNamespace(current_period_end=None)])
+    redis = AsyncMock()
+    redis.set = AsyncMock(return_value=True)
+
+    monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
+    monkeypatch.setattr(
+        billing.stripe.Webhook,
+        "construct_event",
+        lambda payload, sig, secret: {
+            "id": "evt_payment_failed_nested",
+            "type": "invoice.payment_failed",
+            "data": {
+                "object": {
+                    "id": "in_1",
+                    "subscription": None,
+                    "parent": {
+                        "type": "subscription_details",
+                        "subscription_details": {"subscription": "sub_real_1"},
+                    },
+                    "customer": "cus_1",
+                    "amount_due": 399,
+                    "currency": "usd",
+                }
+            },
+        },
+    )
+
+    reconcile_mock = AsyncMock(return_value=True)
+    monkeypatch.setattr(billing, "_reconcile_canonical_subscription", reconcile_mock)
+
+    import tasks.email_tasks as email_tasks
+    delay_mock = MagicMock()
+    monkeypatch.setattr(email_tasks.send_payment_failed_task, "delay", delay_mock)
+
+    out = await billing.stripe_webhook(_Req(), db=db, redis=redis)
+
+    assert out == {"received": True}
+    reconcile_mock.assert_awaited_once()
+    assert reconcile_mock.await_args.args[1] == "sub_real_1"
+    delay_mock.assert_called_once()
+    assert delay_mock.call_args.kwargs["email"] == "u@example.com"
+    assert delay_mock.call_args.kwargs["amount_cents"] == 399
 
 
 @pytest.mark.asyncio
@@ -235,8 +292,8 @@ async def test_credit_webhook_rejects_inconsistent_ownership(monkeypatch, case):
         "data": {"object": {
             "id": f"cs_owner_{case}", "mode": "payment", "payment_status": "paid",
             "client_reference_id": str(client_ref), "customer": customer,
-            "metadata": {"user_id": str(metadata_user), "credit_quantity": "3", "unit_price_cents": "80", "currency": "usd"},
-            "amount_total": 240, "currency": "usd",
+            "metadata": {"user_id": str(metadata_user), "credit_quantity": "3", "credit_pack_price_cents": "399", "currency": "usd"},
+            "amount_total": 399, "currency": "usd",
         }},
     }
     monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
@@ -261,8 +318,8 @@ async def test_delayed_credit_payment_fulfills_pending_purchase_once(monkeypatch
     base_session = {
         "id": "cs_delayed", "mode": "payment", "customer": "cus_1",
         "client_reference_id": str(user.id),
-        "metadata": {"user_id": str(user.id), "credit_quantity": "3", "unit_price_cents": "80", "currency": "usd"},
-        "amount_total": 240, "currency": "usd", "payment_intent": "pi_delayed",
+        "metadata": {"user_id": str(user.id), "credit_quantity": "3", "credit_pack_price_cents": "399", "currency": "usd"},
+        "amount_total": 399, "currency": "usd", "payment_intent": "pi_delayed",
     }
     current_event = {"id": "evt_pending", "type": "checkout.session.completed", "data": {"object": {**base_session, "payment_status": "unpaid"}}}
     monkeypatch.setattr(billing.settings, "STRIPE_WEBHOOK_SECRET", "whsec_test")
@@ -452,10 +509,10 @@ async def test_webhook_existing_purchase_session_is_idempotent(monkeypatch):
                     "metadata": {
                         "user_id": str(user.id),
                         "credit_quantity": "3",
-                        "unit_price_cents": "80",
+                        "credit_pack_price_cents": "399",
                         "currency": "usd",
                     },
-                    "amount_total": 240,
+                    "amount_total": 399,
                     "currency": "usd",
                     "payment_intent": "pi_paid",
                 }
@@ -503,10 +560,10 @@ async def test_webhook_second_successful_purchase_triggers_upsell(monkeypatch):
                     "metadata": {
                         "user_id": str(user.id),
                         "credit_quantity": "3",
-                        "unit_price_cents": "80",
+                        "credit_pack_price_cents": "399",
                         "currency": "usd",
                     },
-                    "amount_total": 240,
+                    "amount_total": 399,
                     "currency": "usd",
                     "payment_intent": "pi_paid_2",
                 }

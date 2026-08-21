@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from repositories.owner_dashboard_repository import OwnerDashboardRepository
-from services.financial_metrics_service import FinancialMetricsService
+from services.financial_metrics_service import FinancialMetricsService, calculate_monthly_churn
 
 
 def recognized_cents(invoice, start, end):
@@ -111,6 +111,8 @@ class OwnerDashboardService:
             / 100
         )
         _, failed_payments, _, _ = await self.repo.operational_counts(start)
+        churn_now = await calculate_monthly_churn(self.repo.db, period_start=start, now=now)
+        churn_prev = await calculate_monthly_churn(self.repo.db, period_start=prev_start, now=prev_end)
         defs = [
             (
                 "mrr",
@@ -259,10 +261,10 @@ class OwnerDashboardService:
             (
                 "monthly_churn",
                 "Monthly Churn",
-                None,
-                None,
+                churn_now.churn_rate_pct,
+                churn_prev.churn_rate_pct,
                 "percent",
-                "Canonical subscription status history is required for a reliable churn rate.",
+                "Distinct customers who canceled this month divided by distinct customers already subscribed at month start.",
             ),
             (
                 "failed_payments",
@@ -302,7 +304,6 @@ class OwnerDashboardService:
             "revenue_growth": "Like-for-like recognized-revenue comparison is unavailable.",
             "avg_ai_document": "Canonical document-level AI attribution is not stored.",
             "avg_ai_chapter": "Canonical chapter-level AI attribution is not stored.",
-            "monthly_churn": "Canonical subscription-transition history is not stored.",
         }
         estimated = {
             "avg_margin",

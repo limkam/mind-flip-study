@@ -27,7 +27,7 @@ def upgrade():
     # Repair databases that were stamped before the original backfill was present.
     op.execute(sa.text("""INSERT INTO support_conversations
       (id,user_id,status,created_at,updated_at,last_message_at,last_user_message_at,admin_unread_count,user_unread_count)
-      SELECT md5('mindflip-support:' || user_id::text)::uuid,user_id,'open',min(created_at),max(updated_at),max(created_at),max(created_at),count(*)::int,0
+      SELECT md5('bilkeys-support:' || user_id::text)::uuid,user_id,'open',min(created_at),max(updated_at),max(created_at),max(created_at),count(*)::int,0
       FROM feedbacks GROUP BY user_id ON CONFLICT (user_id) DO NOTHING"""))
     op.execute(sa.text("""INSERT INTO support_messages
       (id,conversation_id,sender_type,sender_user_id,body,category,client_message_id,created_at)

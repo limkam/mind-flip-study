@@ -266,7 +266,7 @@ class DecisionIntelligenceService:
         forecast = await self.dashboard.forecasts()
         decisions = await self.decision_center()
         lines = [
-            "# MindFlip Weekly Executive Report",
+            "# Bilkeys Weekly Executive Report",
             "",
             f"Generated: {datetime.now(UTC).isoformat()}",
             "",

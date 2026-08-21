@@ -7,7 +7,7 @@ export function normalizeColorScheme(value) {
 }
 
 export function colorSchemeStorageKey(userId) {
-  return `mindflip:color-scheme:${userId}`;
+  return `bilkeys:color-scheme:${userId}`;
 }
 
 export function readColorScheme(user) {

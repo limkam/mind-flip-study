@@ -30,7 +30,7 @@ function initialErrorCopy(error: unknown): { title: string; message: string } {
   if (error instanceof StudyGroupDetailContractError) {
     return {
       title: "Could not display group",
-      message: "MindFlip couldn't display this group's details. Please try again.",
+      message: "Bilkeys couldn't display this group's details. Please try again.",
     };
   }
   const status = axios.isAxiosError(error) ? error.response?.status : undefined;
@@ -45,7 +45,7 @@ function initialErrorCopy(error: unknown): { title: string; message: string } {
 
 function retainedErrorMessage(error: unknown): string {
   if (error instanceof StudyGroupDetailContractError) {
-    return "MindFlip couldn't refresh this group. The last available details are still shown.";
+    return "Bilkeys couldn't refresh this group. The last available details are still shown.";
   }
   const status = axios.isAxiosError(error) ? error.response?.status : undefined;
   if (status && status >= 500) return "This group couldn't be refreshed right now. The last available details are still shown.";

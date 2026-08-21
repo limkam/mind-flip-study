@@ -90,11 +90,11 @@ def init_engine(database_url: str):
     # Aggregate timings are associated with the current request via a ContextVar.
     @event.listens_for(engine.sync_engine, "before_cursor_execute")
     def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
-        conn.info.setdefault("mindflip_query_started", []).append(time.perf_counter())
+        conn.info.setdefault("bilkeys_query_started", []).append(time.perf_counter())
 
     @event.listens_for(engine.sync_engine, "after_cursor_execute")
     def _after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
-        starts = conn.info.get("mindflip_query_started") or []
+        starts = conn.info.get("bilkeys_query_started") or []
         if not starts:
             return
         from middleware.performance_timing import record_sql

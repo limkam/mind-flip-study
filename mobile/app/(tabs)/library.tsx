@@ -343,7 +343,7 @@ export default function LibraryTab() {
         updatedSet.tags.every((t) => typeof t === "string");
 
       if (!updatedSet || typeof updatedSet !== "object" || updatedSet.id !== targetSetId || !validTags) {
-        Alert.alert("Tags not saved", "MindFlip couldn't save those tags. Please try again.");
+        Alert.alert("Tags not saved", "Bilkeys couldn't save those tags. Please try again.");
         return;
       }
 

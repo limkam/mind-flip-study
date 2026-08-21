@@ -43,6 +43,12 @@ class NativeRefreshSession(Base):
         String(32),
         nullable=True,
     )
+    # Not populated by any client yet — readiness for a future crash-free-sessions-by-version
+    # metric once the mobile app starts sending it.
+    app_version: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

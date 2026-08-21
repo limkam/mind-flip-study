@@ -105,7 +105,7 @@ export default function InstallPrompt() {
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-semibold text-sm">Add MindFlip to your home screen</p>
+          <p className="font-semibold text-sm">Add Bilkeys to your home screen</p>
           <p className="text-xs text-muted-foreground mt-1">
             {showIosHint && !deferredPrompt
               ? 'In Safari: tap Share, then “Add to Home Screen”. Offline study works in the installed app.'

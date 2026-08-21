@@ -47,7 +47,7 @@ _MAX_IMAGE_CHECK_PAGES = 12
 
 IMAGE_ONLY_PDF_MESSAGE = (
     "This document appears to be scanned photos or an image-only document. "
-    "MindFlip cannot process image documents yet — please upload a text-based document "
+    "Bilkeys cannot process image documents yet — please upload a text-based document "
     "(for example, standard PDF, Word .docx, PowerPoint .pptx, or Google Docs export)."
 )
 

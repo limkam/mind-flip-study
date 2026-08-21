@@ -2,7 +2,7 @@ import { StyleSheet, View } from "react-native";
 
 import { useTheme } from "../../../hooks/useTheme";
 
-/** Soft off-canvas colour orbs — MindFlip's signature depth texture on brand surfaces. */
+/** Soft off-canvas colour orbs — Bilkeys's signature depth texture on brand surfaces. */
 export function Orbit() {
   const { colors } = useTheme();
 

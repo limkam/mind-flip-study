@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const PREFIX = "@mindflip-app:";
+const PREFIX = "@bilkeys-app:";
 
 const cache = new Map<string, string>();
 

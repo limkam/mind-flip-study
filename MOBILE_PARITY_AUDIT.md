@@ -577,7 +577,7 @@ This baseline was collected on 2026-08-03 before any parity implementation. The 
 | Backend unit tests | `services/api/.venv/bin/pytest services/api/tests/unit -q -x` | **Fail.** 38 passed, then `test_book_deletion.py::test_collects_linked_and_resource_and_orphan_sets` failed because `_flashcard_set_ids_for_book` reads `book.title` from a fixture without that attribute (`services/api/services/book_deletion.py:70`). |
 | Backend integration tests | `services/api/.venv/bin/pytest services/api/tests/integration -q -x` | **Inconclusive.** One test passed, nine skipped, then the run stalled and was interrupted. DB-dependent test infrastructure must be started/diagnosed before using this as a gate. |
 
-The precise post-change baseline for mobile tickets is therefore `cd mobile && npm run typecheck`; route/native-module changes additionally require `cd mobile && npx expo export --platform android --output-dir /tmp/mindflip-parity-export`. Ticket-specific backend tests are listed below. Existing web type-check/lint failures must not be attributed to mobile parity changes unless their output changes.
+The precise post-change baseline for mobile tickets is therefore `cd mobile && npm run typecheck`; route/native-module changes additionally require `cd mobile && npx expo export --platform android --output-dir /tmp/bilkeys-parity-export`. Ticket-specific backend tests are listed below. Existing web type-check/lint failures must not be attributed to mobile parity changes unless their output changes.
 
 ## 10. Critical and High-risk evidence dossiers
 
@@ -594,7 +594,7 @@ These dossiers supersede any less-specific wording in sections 4.1–4.29. Line 
 - **Proof:** The mobile source itself notes cookie handling is uncertain (`mobile/api/client.ts:9-12`). The only backend refresh input is an httpOnly cookie; no native refresh-token response field or body schema exists. Mobile also never server-revalidates persisted `user` at bootstrap and cannot clear the root QueryClient from `useLogout`.
 - **Authority conflict:** Web intends refresh-cookie rotation; backend supports only cookies. A secure native refresh design cannot be inferred. **Blocked by ambiguity** for refresh-token redesign, but startup `/users/me` validation and cache clearing are confirmed safe gaps.
 - **Smallest safe unit:** Add authenticated startup `/users/me` revalidation and QueryClient clearing on logout without changing refresh transport. Handle expired refresh failure by routing to login.
-- **Validation:** `cd mobile && npm run typecheck`; `cd mobile && npx expo export --platform android --output-dir /tmp/mindflip-auth-export`; add/run mobile Axios/store tests once a test runner exists; backend reference test `services/api/.venv/bin/pytest services/api/tests/integration/test_auth.py services/api/tests/unit/test_passwordless_auth.py -q`.
+- **Validation:** `cd mobile && npm run typecheck`; `cd mobile && npx expo export --platform android --output-dir /tmp/bilkeys-auth-export`; add/run mobile Axios/store tests once a test runner exists; backend reference test `services/api/.venv/bin/pytest services/api/tests/integration/test_auth.py services/api/tests/unit/test_passwordless_auth.py -q`.
 
 ### 10.2 Onboarding navigation — section 4.3
 

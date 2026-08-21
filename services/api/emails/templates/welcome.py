@@ -12,7 +12,7 @@ def welcome_email(full_name: str, email: str) -> str:
     body = f"""
       <h1 style="{s['h1']}">You're in, {name}.</h1>
       <p style="{s['p']}">
-        MindFlip turns your PDFs into flashcard games in 30 seconds.
+        Bilkeys turns your PDFs into flashcard games in 30 seconds.
         Here's how to get started:
       </p>
       <ol style="{s['p']}">

@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/components/ui/use-toast";
 import { fetchAllBooksPages } from "@/lib/fetchAllBooksPages";
 import { fetchEntitlementsSnapshot } from "@/lib/billing";
+import { getApiErrorMessage } from "@/lib/apiError";
 
 export default function StudyGroups() {
   const { toast } = useToast();
@@ -67,10 +68,9 @@ export default function StudyGroups() {
       queryClient.invalidateQueries({ queryKey: ["study-groups"] });
     },
     onError: (err) => {
-      if (err?.response?.status === 402) return;
       toast({
         title: "Could not join",
-        description: err.response?.data?.detail || "Check the code and try again.",
+        description: getApiErrorMessage(err, "Check the code and try again."),
         variant: "destructive",
       });
     },

@@ -4,7 +4,7 @@ import { PricingSection } from '@/components/PricingSection';
 import { FAQ } from '@/components/FAQ';
 import { CTABanner } from '@/components/CTABanner';
 
-export const metadata: Metadata = { title: 'Pricing', description: 'Flexible Mindflip plans for everyday learning and serious exam preparation.', alternates: { canonical: 'https://mindflip.io/pricing' } };
+export const metadata: Metadata = { title: 'Pricing', description: 'Flexible Bilkeys plans for everyday learning and serious exam preparation.', alternates: { canonical: 'https://bilkeys.io/pricing' } };
 
 const faqs=[
   {q:'Can I start without a card?',a:'Yes. The Free plan lets you experience the core learning workflow without entering payment details.'},

@@ -4,7 +4,7 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'mindflip.io',
+        hostname: 'bilkeys.io',
       },
     ],
   },

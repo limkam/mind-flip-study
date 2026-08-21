@@ -1,6 +1,6 @@
 import React from "react";
 
-const ICON_SRC = "/mindflip-icon.png";
+const ICON_SRC = "/bilkeys-icon.png";
 
 const MARK_SIZES = {
   sm: "h-8 w-8 text-xs",
@@ -29,19 +29,19 @@ function BrandMark({ size = "md", surface = "on-dark", showText = true }) {
         className={`grid ${iconClass} place-items-center rounded-xl bg-indigo-600 shadow-md shadow-indigo-500/30 transition-transform duration-300 group-hover:scale-110 flex-shrink-0 select-none rotate-[30deg] my-1 ml-1`}
       >
         <span className="-rotate-[30deg] font-heading font-black text-white">
-          M
+          B
         </span>
       </span>
       {showText && (
         <span className={`font-heading font-bold tracking-tight ${textClass} ${textColor}`}>
-          MindFlip
+          Bilkeys
         </span>
       )}
     </div>
   );
 }
 
-export default function MindFlipLogo({ className = "", alt = "MindFlip", compact = false, surface = "on-dark" }) {
+export default function BilkeysLogo({ className = "", alt = "Bilkeys", compact = false, surface = "on-dark" }) {
   return (
     <div className={className} aria-label={alt}>
       <BrandMark size={compact ? "sm" : "md"} surface={surface} />
@@ -49,21 +49,21 @@ export default function MindFlipLogo({ className = "", alt = "MindFlip", compact
   );
 }
 
-export function MindFlipLogoMark({ className = "", size = "md", surface: _surface = "on-dark" }) {
+export function BilkeysLogoMark({ className = "", size = "md", surface: _surface = "on-dark" }) {
   const iconClass = MARK_SIZES[size] || MARK_SIZES.md;
   return (
     <span
-      aria-label="MindFlip"
+      aria-label="Bilkeys"
       className={`grid ${iconClass} place-items-center rounded-xl bg-indigo-600 shadow-md shadow-indigo-500/30 flex-shrink-0 select-none rotate-[30deg] my-1 ${className}`}
     >
       <span className="-rotate-[30deg] font-heading font-black text-white">
-        M
+        B
       </span>
     </span>
   );
 }
 
-export function MindFlipBrand({
+export function BilkeysBrand({
   collapsed = false,
   centered = false,
   showTagline = true,
@@ -74,7 +74,7 @@ export function MindFlipBrand({
   if (collapsed) {
     return (
       <div className={`flex justify-center ${className}`}>
-        <MindFlipLogoMark size="md" surface={surface} />
+        <BilkeysLogoMark size="md" surface={surface} />
       </div>
     );
   }

@@ -37,7 +37,7 @@ export const demoData = {
     xpNeededToOvertake: 31, // 520 + 31 = 551 > 550
   },
   challengeDemo: {
-    opponentEmail: "haja.kabba@mindflip.io",
+    opponentEmail: "haja.kabba@bilkeys.io",
     targetTopic: "Cognitive Psychology Ch.4",
     userScore: "9 / 10",
     userTime: "1m 42s",

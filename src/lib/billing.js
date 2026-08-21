@@ -78,12 +78,28 @@ export async function openCustomerPortal() {
   window.open(data.checkout_url, "_blank", "noopener,noreferrer");
 }
 
+/** Deep-links straight to the Customer Portal's card-update screen. */
+export async function openUpdatePaymentMethod() {
+  const { data } = await client.post("/billing/customer-portal", null, {
+    params: { flow: "payment_method_update" },
+  });
+  if (!data?.checkout_url) throw new Error("Stripe did not return a portal URL");
+  window.open(data.checkout_url, "_blank", "noopener,noreferrer");
+}
+
+/** Attempts to pay off a past-due invoice immediately with the current default payment
+ * method — called after returning from a payment-method update. */
+export async function retryPastDuePayment() {
+  const { data } = await client.post("/billing/subscription/retry-payment");
+  return data;
+}
+
 export async function fetchBillingPricing() {
   const { data } = await client.get("/billing/pricing");
   return data;
 }
 
-export async function startCreditCheckout(quantity) {
+export async function startCreditCheckout(credits) {
   // Open synchronously while the click is still an active user gesture so the
   // browser does not mistake the Stripe tab for an unsolicited popup.
   const checkoutTab = window.open("", "_blank");
@@ -94,7 +110,7 @@ export async function startCreditCheckout(quantity) {
 
   try {
     const { data } = await client.post("/billing/checkout/credits", null, {
-      params: { quantity: Number(quantity) },
+      params: { credits: Number(credits) },
     });
     if (!data?.checkout_url) {
       throw new Error("Stripe did not return a checkout URL");

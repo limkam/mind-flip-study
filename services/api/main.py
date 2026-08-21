@@ -4,6 +4,8 @@ import re
 
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -21,6 +23,7 @@ from middleware.performance_timing import PerformanceTimingMiddleware
 from s3_service import S3ConfigurationError, validate_s3_configuration
 from routers.admin import router as admin_router
 from routers.admin_owner_dashboard import router as admin_owner_dashboard_router
+from routers.owner_console import router as owner_console_router
 from routers.achievements import router as achievements_router
 from routers.ai import router as ai_router
 from routers.analytics import router as analytics_router
@@ -80,6 +83,7 @@ logging.getLogger("uvicorn.access").addFilter(_PublicShareAccessLogFilter())
 async def lifespan(app: FastAPI):
     settings.validate_refresh_cookie_policy()
     settings.validate_email_policy()
+    settings.validate_slack_policy()
     settings.validate_automation_policy()
     settings.validate_scorecard_share_policy()
     try:
@@ -107,7 +111,7 @@ async def lifespan(app: FastAPI):
         await redis.aclose()
 
 
-app = FastAPI(title="MindFlip API", lifespan=lifespan)
+app = FastAPI(title="Bilkeys API", lifespan=lifespan)
 
 app.add_middleware(IPCaptureMiddleware)
 app.add_middleware(OnboardingGateMiddleware)
@@ -133,6 +137,28 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         status_code=500,
         content={"error": "internal_server_error", "detail": detail},
     )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    from age_utils import UNDERAGE_MESSAGE
+
+    if any(UNDERAGE_MESSAGE in str(err.get("msg", "")) for err in exc.errors()):
+        try:
+            from database_sync import sync_session
+            from models.security_events import SystemSecurityEvent
+
+            with sync_session() as db:
+                db.add(
+                    SystemSecurityEvent(
+                        event_type="underage_signup_blocked",
+                        ip_address=request.client.host if request.client else None,
+                    )
+                )
+                db.commit()
+        except Exception:
+            logger.exception("failed to log underage_signup_blocked event")
+    return await request_validation_exception_handler(request, exc)
 
 
 @app.get("/health", tags=["health"])
@@ -161,7 +187,7 @@ async def sentry_verify(body: SentryVerifyIn) -> dict[str, bool]:
         )
     if not settings.SENTRY_VERIFY_SECRET or body.secret != settings.SENTRY_VERIFY_SECRET:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid verify secret")
-    sentry_sdk.capture_exception(RuntimeError("MindFlip Sentry connectivity verify (FastAPI)"))
+    sentry_sdk.capture_exception(RuntimeError("Bilkeys Sentry connectivity verify (FastAPI)"))
     return {"ok": True}
 
 
@@ -174,6 +200,7 @@ app.include_router(public_scorecards_router)
 app.include_router(admin_router, prefix="/admin")
 app.include_router(admin_control_router, prefix="/admin/control")
 app.include_router(admin_owner_dashboard_router, prefix="/admin/owner-dashboard")
+app.include_router(owner_console_router, prefix="/admin/owner-console")
 app.include_router(analytics_router, prefix="/analytics")
 app.include_router(activity_router, prefix="/activity")
 app.include_router(billing_router, prefix="/billing")

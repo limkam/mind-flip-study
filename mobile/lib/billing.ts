@@ -82,7 +82,7 @@ export const PLAN_LABELS: Record<BillingPlanSlug, string> = {
 };
 
 export const PLAN_TAGLINES: Record<BillingPlanSlug, string> = {
-  free: "Best for trying MindFlip once and exploring the study flow.",
+  free: "Best for trying Bilkeys once and exploring the study flow.",
   quick_72: "For light weekly study and faster AI-powered review.",
   standard_15: "For consistent coursework, exam prep, and active group study.",
   premium_30: "For power users who want the highest limits and fastest processing.",
@@ -169,6 +169,7 @@ export function parseBillingPricingResponse(raw: unknown): BillingPricingRespons
       annual_savings_cents: parseCentVal(planObj.annual_savings_cents),
       stripe_price_id_monthly: parseStripeId(planObj.stripe_price_id_monthly),
       stripe_price_id_annual: parseStripeId(planObj.stripe_price_id_annual),
+      most_popular: planObj.most_popular === true,
     };
   }
 
@@ -331,6 +332,7 @@ export function parseCheckoutVerificationResponse(raw: unknown): CheckoutVerific
       interval: (record.interval as any) || null,
       credit_quantity: null,
       unit_price_cents: null,
+      amount_paid_cents: null,
       currency: null,
     };
   } else {
@@ -349,6 +351,9 @@ export function parseCheckoutVerificationResponse(raw: unknown): CheckoutVerific
     const price = record.unit_price_cents;
     const unit_price_cents = typeof price === "number" && Number.isInteger(price) && price > 0 ? price : null;
 
+    const paid = record.amount_paid_cents;
+    const amount_paid_cents = typeof paid === "number" && Number.isInteger(paid) && paid > 0 ? paid : null;
+
     const curr = record.currency;
     const currency = typeof curr === "string" && curr.trim() ? curr.trim().toLowerCase() : null;
 
@@ -362,6 +367,7 @@ export function parseCheckoutVerificationResponse(raw: unknown): CheckoutVerific
       interval: null,
       credit_quantity,
       unit_price_cents,
+      amount_paid_cents,
       currency,
     };
   }
@@ -499,25 +505,27 @@ export function parseCreditPricingResponse(raw: unknown): CreditPricingResponse 
   }
   const pricing = record.pricing as Record<string, unknown>;
 
-  if (typeof pricing.unit_price_cents !== "number" || !Number.isInteger(pricing.unit_price_cents) || pricing.unit_price_cents < 1) {
-    throw new Error("Invalid credit pricing response: unit_price_cents must be a positive integer");
-  }
   if (typeof pricing.currency !== "string" || !pricing.currency.trim()) {
     throw new Error("Invalid credit pricing response: currency must be a non-empty string");
   }
-  if (typeof pricing.unit_price_usd !== "number" || !Number.isFinite(pricing.unit_price_usd) || pricing.unit_price_usd <= 0) {
-    throw new Error("Invalid credit pricing response: unit_price_usd must be a positive finite number");
+  if (!Array.isArray(pricing.tiers)) {
+    throw new Error("Invalid credit pricing response: tiers must be an array");
   }
-  if (typeof pricing.minimum_quantity !== "number" || !Number.isInteger(pricing.minimum_quantity) || pricing.minimum_quantity < 1) {
-    throw new Error("Invalid credit pricing response: minimum_quantity must be a positive integer");
-  }
+
+  const tiers = pricing.tiers.reduce<{ credits: number; price_cents: number; price_usd: number }[]>((acc, item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return acc;
+    const row = item as Record<string, unknown>;
+    if (typeof row.credits !== "number" || !Number.isInteger(row.credits) || row.credits < 1) return acc;
+    if (typeof row.price_cents !== "number" || !Number.isInteger(row.price_cents) || row.price_cents < 1) return acc;
+    if (typeof row.price_usd !== "number" || !Number.isFinite(row.price_usd) || row.price_usd <= 0) return acc;
+    acc.push({ credits: row.credits, price_cents: row.price_cents, price_usd: row.price_usd });
+    return acc;
+  }, []);
 
   return {
     pricing: {
-      unit_price_cents: pricing.unit_price_cents,
+      tiers,
       currency: pricing.currency.trim().toLowerCase(),
-      unit_price_usd: pricing.unit_price_usd,
-      minimum_quantity: pricing.minimum_quantity,
     },
   };
 }
@@ -528,18 +536,18 @@ export async function fetchCreditPricing(): Promise<CreditPricingResponse> {
 }
 
 export async function startCreditCheckout(
-  quantity: number,
+  credits: number,
   expectedUserId: string,
 ): Promise<void> {
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10000) {
-    throw new Error("Quantity must be an integer between 1 and 10,000");
+  if (!Number.isInteger(credits) || credits < 1) {
+    throw new Error("Credits must be a positive integer");
   }
   const currentUser = useAuthStore.getState().user;
   if (!currentUser?.id || currentUser.id !== expectedUserId) {
     throw new Error("User session changed before initiating credit checkout");
   }
 
-  const { data } = await api.post<{ checkout_url?: string }>(`/billing/checkout/credits?quantity=${quantity}&client=mobile`);
+  const { data } = await api.post<{ checkout_url?: string }>(`/billing/checkout/credits?credits=${credits}&client=mobile`);
 
   if (useAuthStore.getState().user?.id !== expectedUserId) {
     throw new Error("User identity changed during credit checkout request");

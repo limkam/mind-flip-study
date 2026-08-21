@@ -98,6 +98,16 @@ def _set_refresh_cookie(response: Response, value: str, *, remember_me: bool = T
     response.set_cookie(_REFRESH_COOKIE_NAME, value, **_refresh_cookie_kwargs(remember_me=remember_me))
 
 
+async def _log_login_failed(
+    db: AsyncSession, *, email: str, request: Request | None = None, user_id: UUID | None = None
+) -> None:
+    from models.security_events import SystemSecurityEvent
+
+    client_ip = request.client.host if request and request.client else None
+    db.add(SystemSecurityEvent(event_type="login_failed", user_id=user_id, email=email, ip_address=client_ip))
+    await db.commit()
+
+
 def _clear_refresh_cookie(response: Response) -> None:
     response.delete_cookie(
         key=_REFRESH_COOKIE_NAME,
@@ -151,6 +161,11 @@ async def _get_or_create_google_user(
     email: str,
     full_name: str,
     avatar_url: str | None,
+    *,
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    utm_campaign: str | None = None,
+    referral_code: str | None = None,
 ) -> User:
     email = email.strip().lower()
     result = await db.execute(select(User).where(User.email == email))
@@ -180,6 +195,10 @@ async def _get_or_create_google_user(
         auth_provider="google",
         preferences={},
         subscription_tier="free",
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+        referral_code=referral_code,
     )
     db.add(user)
     try:
@@ -198,17 +217,21 @@ async def _get_or_create_google_user(
     return user
 
 
-async def _get_or_create_email_user(db: AsyncSession, email: str, date_of_birth=None) -> tuple[User, bool]:
+async def _get_or_create_email_user(
+    db: AsyncSession,
+    email: str,
+    date_of_birth=None,
+    *,
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    utm_campaign: str | None = None,
+    referral_code: str | None = None,
+) -> tuple[User, bool]:
     normalized = email.strip().lower()
     result = await db.execute(select(User).where(User.email == normalized))
     existing = result.scalar_one_or_none()
     if existing is not None:
         return existing, False
-    if date_of_birth is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Date of birth is required to create an account. MindFlip is available to users aged 13 and above.",
-        )
 
     user = User(
         email=normalized,
@@ -219,6 +242,10 @@ async def _get_or_create_email_user(db: AsyncSession, email: str, date_of_birth=
         preferences={},
         subscription_tier="free",
         date_of_birth=date_of_birth,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+        referral_code=referral_code,
     )
     db.add(user)
     try:
@@ -259,7 +286,7 @@ async def start_email_auth(
         await run_in_threadpool(
             send_email_or_raise,
             email,
-            "Your MindFlip Verification Code",
+            "Your Bilkeys Verification Code",
             sign_in_code_email(code),
         )
     except EmailDeliveryError:
@@ -296,7 +323,15 @@ async def verify_email_auth(
         )
     email, claim_token = claim
     try:
-        user, created = await _get_or_create_email_user(db, email, body.date_of_birth)
+        user, created = await _get_or_create_email_user(
+            db,
+            email,
+            body.date_of_birth,
+            utm_source=body.utm_source,
+            utm_medium=body.utm_medium,
+            utm_campaign=body.utm_campaign,
+            referral_code=body.referral_code,
+        )
     except Exception:
         await release_email_challenge_claim(redis, body.challenge_id, claim_token)
         raise
@@ -322,6 +357,11 @@ async def _get_or_create_apple_user(
     db: AsyncSession,
     claims: dict,
     full_name_override: str | None,
+    *,
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    utm_campaign: str | None = None,
+    referral_code: str | None = None,
 ) -> User:
     sub = str(claims.get("sub") or "").strip()
     if not sub:
@@ -363,6 +403,10 @@ async def _get_or_create_apple_user(
             oauth_apple_sub=sub,
             auth_provider="apple",
             subscription_tier="free",
+            utm_source=utm_source,
+            utm_medium=utm_medium,
+            utm_campaign=utm_campaign,
+            referral_code=referral_code,
         )
         db.add(user)
         try:
@@ -423,7 +467,16 @@ async def google_login(
     full_name = str(idinfo.get("name") or "").strip()
     avatar_url = str(idinfo.get("picture") or "").strip() or None
     email_norm = str(email).strip().lower()
-    user = await _get_or_create_google_user(db, email_norm, full_name, avatar_url)
+    user = await _get_or_create_google_user(
+        db,
+        email_norm,
+        full_name,
+        avatar_url,
+        utm_source=body.utm_source,
+        utm_medium=body.utm_medium,
+        utm_campaign=body.utm_campaign,
+        referral_code=body.referral_code,
+    )
     return await _issue_login_response(
         user=user,
         response=response,
@@ -458,7 +511,15 @@ async def apple_login(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Apple token") from exc
-    user = await _get_or_create_apple_user(db, claims, body.full_name)
+    user = await _get_or_create_apple_user(
+        db,
+        claims,
+        body.full_name,
+        utm_source=body.utm_source,
+        utm_medium=body.utm_medium,
+        utm_campaign=body.utm_campaign,
+        referral_code=body.referral_code,
+    )
     return await _issue_login_response(
         user=user,
         response=response,
@@ -484,6 +545,10 @@ async def register(body: RegisterRequest, db: Annotated[AsyncSession, Depends(ge
         preferences={},
         subscription_tier="free",
         date_of_birth=body.date_of_birth,
+        utm_source=body.utm_source,
+        utm_medium=body.utm_medium,
+        utm_campaign=body.utm_campaign,
+        referral_code=body.referral_code,
     )
     db.add(user)
     try:
@@ -652,6 +717,7 @@ async def login(
     result = await db.execute(select(User).where(User.email == str(body.email)))
     user = result.scalar_one_or_none()
     if user is None:
+        await _log_login_failed(db, email=str(body.email), request=request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -662,6 +728,7 @@ async def login(
             detail="This account uses Google or Apple sign-in.",
         )
     if not verify_password(body.password, user.hashed_password):
+        await _log_login_failed(db, email=str(body.email), user_id=user.id, request=request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",

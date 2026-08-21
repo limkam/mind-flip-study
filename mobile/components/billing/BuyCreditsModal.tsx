@@ -8,7 +8,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
@@ -27,7 +26,7 @@ export function BuyCreditsModal({ visible, onClose }: BuyCreditsModalProps) {
   const { colors } = useTheme();
   const user = useAuthStore((state) => state.user);
 
-  const [quantity, setQuantity] = useState<string>("5");
+  const [selectedCredits, setSelectedCredits] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -40,20 +39,11 @@ export function BuyCreditsModal({ visible, onClose }: BuyCreditsModalProps) {
 
   if (!visible) return null;
 
-  const isStrictDigits = /^[0-9]+$/.test(quantity.trim());
-  const parsedQuantity = isStrictDigits ? parseInt(quantity.trim(), 10) : NaN;
-  const minQty = pricingData?.pricing.minimum_quantity || 1;
-  const unitPriceCents = pricingData?.pricing.unit_price_cents || 80;
+  const tiers = pricingData?.pricing.tiers || [];
   const currencyStr = (pricingData?.pricing.currency || "usd").toUpperCase();
+  const activeCredits = selectedCredits ?? tiers[0]?.credits ?? null;
+  const activeTier = tiers.find((t) => t.credits === activeCredits) || null;
 
-  const isValidQuantity =
-    isStrictDigits &&
-    !Number.isNaN(parsedQuantity) &&
-    Number.isInteger(parsedQuantity) &&
-    parsedQuantity >= minQty &&
-    parsedQuantity <= 10000;
-
-  const totalCents = isValidQuantity ? unitPriceCents * parsedQuantity : 0;
   const formatCurrency = (cents: number) => {
     try {
       return new Intl.NumberFormat("en-US", { style: "currency", currency: currencyStr }).format(cents / 100);
@@ -62,36 +52,12 @@ export function BuyCreditsModal({ visible, onClose }: BuyCreditsModalProps) {
     }
   };
 
-  const formattedTotal = formatCurrency(totalCents);
-  const formattedUnitPrice = formatCurrency(unitPriceCents);
-
-  const handleQuantityChange = (text: string) => {
-    // Strictly accept digit-only text
-    const cleaned = text.replace(/[^0-9]/g, "");
-    setQuantity(cleaned);
-    setErrorMessage(null);
-  };
-
-  const handleIncrement = () => {
-    const current = Number.isNaN(parsedQuantity) ? 0 : parsedQuantity;
-    if (current < 10000) {
-      setQuantity(String(current + 1));
-      setErrorMessage(null);
-    }
-  };
-
-  const handleDecrement = () => {
-    const current = Number.isNaN(parsedQuantity) ? minQty : parsedQuantity;
-    if (current > minQty) {
-      setQuantity(String(current - 1));
-      setErrorMessage(null);
-    }
-  };
+  const formattedTotal = activeTier ? formatCurrency(activeTier.price_cents) : null;
 
   const handleSubmit = async () => {
-    if (!isValidQuantity || !user?.id || isSubmitting) return;
+    if (!activeTier || !user?.id || isSubmitting) return;
 
-    const attempt = claimCheckoutAttempt("credit_purchase", user.id, { quantity: parsedQuantity });
+    const attempt = claimCheckoutAttempt("credit_purchase", user.id, { quantity: activeTier.credits });
     if (!attempt) {
       setErrorMessage("Another checkout attempt is already in progress.");
       return;
@@ -101,7 +67,7 @@ export function BuyCreditsModal({ visible, onClose }: BuyCreditsModalProps) {
     setErrorMessage(null);
 
     try {
-      await startCreditCheckout(parsedQuantity, user.id);
+      await startCreditCheckout(activeTier.credits, user.id);
       onClose();
     } catch (err: unknown) {
       releaseCheckoutAttempt(attempt.attemptId, user.id);
@@ -143,7 +109,7 @@ export function BuyCreditsModal({ visible, onClose }: BuyCreditsModalProps) {
               <ActivityIndicator size="small" color={colors.primary} />
               <Text style={[styles.loadingText, { color: colors.muted }]}>Loading credit pricing...</Text>
             </View>
-          ) : isPricingError ? (
+          ) : isPricingError || tiers.length === 0 ? (
             <View style={[styles.errorBox, { backgroundColor: `${colors.danger}15`, borderColor: colors.danger }]}>
               <Ionicons name="warning" size={18} color={colors.danger} />
               <Text style={[styles.errorText, { color: colors.danger }]}>Could not load credit pricing catalog.</Text>
@@ -153,63 +119,38 @@ export function BuyCreditsModal({ visible, onClose }: BuyCreditsModalProps) {
             </View>
           ) : (
             <View style={styles.formContainer}>
-              <View style={styles.pricingRow}>
-                <Text style={[styles.pricingLabel, { color: colors.muted }]}>Unit Price:</Text>
-                <Text style={[styles.pricingValue, { color: colors.text }]}>
-                  {formattedUnitPrice} / credit ({currencyStr})
-                </Text>
+              <Text style={[styles.fieldLabel, { color: colors.text }]}>Choose a credit pack</Text>
+
+              <View style={styles.tierGrid}>
+                {tiers.map((tier) => {
+                  const selected = activeCredits === tier.credits;
+                  return (
+                    <Pressable
+                      key={tier.credits}
+                      style={[
+                        styles.tierCard,
+                        { borderColor: selected ? colors.primary : colors.border, backgroundColor: colors.background },
+                        selected && { backgroundColor: `${colors.primary}15` },
+                      ]}
+                      onPress={() => {
+                        setSelectedCredits(tier.credits);
+                        setErrorMessage(null);
+                      }}
+                      disabled={isSubmitting}
+                    >
+                      <Text style={[styles.tierCredits, { color: colors.text }]}>{tier.credits} credits</Text>
+                      <Text style={[styles.tierPrice, { color: colors.muted }]}>{formatCurrency(tier.price_cents)}</Text>
+                    </Pressable>
+                  );
+                })}
               </View>
 
-              <Text style={[styles.fieldLabel, { color: colors.text }]}>Quantity (1 – 10,000)</Text>
-
-              <View style={styles.stepperRow}>
-                <Pressable
-                  style={[
-                    styles.stepperButton,
-                    { backgroundColor: colors.surface, borderColor: colors.border },
-                    (parsedQuantity <= minQty || isSubmitting) && styles.disabledStepper,
-                  ]}
-                  onPress={handleDecrement}
-                  disabled={parsedQuantity <= minQty || isSubmitting}
-                >
-                  <Ionicons name="remove" size={18} color={parsedQuantity <= minQty ? colors.muted : colors.text} />
-                </Pressable>
-
-                <TextInput
-                  style={[
-                    styles.quantityInput,
-                    { backgroundColor: colors.background, color: colors.text, borderColor: colors.border },
-                    !isValidQuantity && { borderColor: colors.danger },
-                  ]}
-                  keyboardType="number-pad"
-                  value={quantity}
-                  onChangeText={handleQuantityChange}
-                  editable={!isSubmitting}
-                />
-
-                <Pressable
-                  style={[
-                    styles.stepperButton,
-                    { backgroundColor: colors.surface, borderColor: colors.border },
-                    (parsedQuantity >= 10000 || isSubmitting) && styles.disabledStepper,
-                  ]}
-                  onPress={handleIncrement}
-                  disabled={parsedQuantity >= 10000 || isSubmitting}
-                >
-                  <Ionicons name="add" size={18} color={parsedQuantity >= 10000 ? colors.muted : colors.text} />
-                </Pressable>
-              </View>
-
-              {!isValidQuantity && quantity.length > 0 && (
-                <Text style={[styles.fieldError, { color: colors.danger }]}>
-                  Please enter a valid integer quantity between {minQty} and 10,000.
-                </Text>
-              )}
-
-              <View style={[styles.totalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Text style={[styles.totalLabel, { color: colors.muted }]}>Total Due:</Text>
-                <Text style={[styles.totalAmount, { color: colors.primary }]}>{formattedTotal}</Text>
-              </View>
+              {formattedTotal ? (
+                <View style={[styles.totalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <Text style={[styles.totalLabel, { color: colors.muted }]}>Total Due:</Text>
+                  <Text style={[styles.totalAmount, { color: colors.primary }]}>{formattedTotal}</Text>
+                </View>
+              ) : null}
 
               {errorMessage && (
                 <View style={[styles.errorBox, { backgroundColor: `${colors.danger}15`, borderColor: colors.danger }]}>
@@ -231,15 +172,17 @@ export function BuyCreditsModal({ visible, onClose }: BuyCreditsModalProps) {
                   style={[
                     styles.submitButton,
                     { backgroundColor: colors.primary },
-                    (!isValidQuantity || isSubmitting) && styles.disabledSubmit,
+                    (!activeTier || isSubmitting) && styles.disabledSubmit,
                   ]}
                   onPress={handleSubmit}
-                  disabled={!isValidQuantity || isSubmitting}
+                  disabled={!activeTier || isSubmitting}
                 >
                   {isSubmitting ? (
                     <ActivityIndicator size="small" color={colors.onPrimary} />
                   ) : (
-                    <Text style={[styles.submitText, { color: colors.onPrimary }]}>Checkout {formattedTotal}</Text>
+                    <Text style={[styles.submitText, { color: colors.onPrimary }]}>
+                      Checkout {formattedTotal || ""}
+                    </Text>
                   )}
                 </Pressable>
               </View>
@@ -325,51 +268,30 @@ const styles = StyleSheet.create({
   formContainer: {
     gap: 12,
   },
-  pricingRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  pricingLabel: {
-    fontSize: 13,
-  },
-  pricingValue: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
   fieldLabel: {
     fontSize: 14,
     fontWeight: "600",
   },
-  stepperRow: {
+  tierGrid: {
     flexDirection: "row",
-    alignItems: "center",
+    flexWrap: "wrap",
     gap: 8,
   },
-  stepperButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 8,
+  tierCard: {
+    width: "31%",
+    borderRadius: 10,
     borderWidth: 1,
-    justifyContent: "center",
+    paddingVertical: 12,
     alignItems: "center",
+    gap: 2,
   },
-  disabledStepper: {
-    opacity: 0.4,
+  tierCredits: {
+    fontSize: 14,
+    fontWeight: "700",
   },
-  quantityInput: {
-    flex: 1,
-    height: 42,
-    borderRadius: 8,
-    borderWidth: 1,
-    textAlign: "center",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  fieldError: {
+  tierPrice: {
     fontSize: 12,
-    marginTop: -4,
+    fontWeight: "500",
   },
   totalCard: {
     flexDirection: "row",

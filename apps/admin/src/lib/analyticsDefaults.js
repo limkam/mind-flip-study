@@ -91,7 +91,7 @@ export const EMPTY_METRICS = {
   onboarding_started_30d: 0,
   onboarding_completed_30d: 0,
   onboarding_rate_pct: 0,
-  churned_users_30d: 0,
+  churned_users_mtd: 0,
   churn_rate_pct: 0,
   usage_by_feature: [],
   ai_cost_daily: Array.from({ length: 30 }, (_, i) => {
@@ -99,6 +99,108 @@ export const EMPTY_METRICS = {
     d.setDate(d.getDate() - (29 - i));
     return { date: d.toISOString().slice(0, 10), ai_cost_usd: 0, ai_calls: 0 };
   }),
+};
+
+export const EMPTY_REVENUE = {
+  mrr_usd: 0,
+  arr_usd: 0,
+  mrr_movements: lastNMonths(6).map((month) => ({
+    month,
+    new_mrr_usd: 0,
+    expansion_mrr_usd: 0,
+    contraction_mrr_usd: 0,
+    churned_mrr_usd: 0,
+    net_mrr_usd: 0,
+  })),
+  plan_mix: [],
+  billing_interval_mix: [],
+  extra_credit_revenue_usd: 0,
+  extra_credit_pct_of_mrr: 0,
+  extra_credit_alert: false,
+};
+
+export const EMPTY_CASH = {
+  cash_available: 0,
+  deferred_revenue: 0,
+  refund_dispute_reserve: 0,
+  tax_reserve: 0,
+  operating_liabilities: 0,
+  payroll_reserve: 0,
+  infrastructure_reserve: 0,
+  minimum_cash_buffer: 0,
+  estimated_spendable_cash: 0,
+  cash_runway_months: 0,
+  assumptions: [],
+  upcoming_renewals: [],
+  upcoming_renewals_total_usd: 0,
+  dunning_pipeline: [],
+};
+
+export const EMPTY_UNIT_ECONOMICS = {
+  margin_target_pct: 70,
+  plan_margins: [],
+  channel_economics: [],
+  cac_note: '',
+  assumed_vs_measured: [],
+};
+
+export const EMPTY_RETENTION = {
+  monthly_churn_rate_pct: 0,
+  cancellation_reasons: [],
+  day2_review_by_channel: [],
+  cohort_retention: [],
+  streak_distribution: [],
+  lapsed_user_backlog: 0,
+  lapsed_to_renewed_60d_pct: 0,
+};
+
+export const EMPTY_ATTRIBUTION = {
+  funnel_window_days: 90,
+  funnel_by_channel: [],
+  cost_per_channel: [],
+  cost_note: '',
+  campaign_performance: [],
+};
+
+export const EMPTY_TECHNICAL = {
+  ai_cost_by_provider: [],
+  ai_cost_alert_threshold_usd: 0.15,
+  guardrail_events: [],
+  ai_spend_vs_revenue: [],
+  conversion_success: [],
+  processing_time: { p50_seconds: 0, p95_seconds: 0, sample_size: 0 },
+  operational_health: { error_rate_pct: 0, queue_depth: 0, uptime_note: '' },
+  crash_free_sessions_note: '',
+  security_events: [],
+  revoked_sessions: { revoked_7d: 0, active_sessions: 0 },
+  duplicate_ip_signals: [],
+  infra_spend: { infra_spend_usd: 0, revenue_usd: 0, note: '' },
+};
+
+export const EMPTY_COMPLIANCE = {
+  dmca_queue: [],
+  content_flags: [],
+  content_flags_total: 0,
+  privacy_requests: [],
+  underage_blocked_trend: [],
+  chargeback_rate_pct: 0,
+  chargeback_alert: false,
+  trial_reminder_note: '',
+  trial_reminder_log: [],
+};
+
+export const EMPTY_ALERTS = {
+  slack_delivery_mode: 'disabled',
+  thresholds: [],
+  recent_breaches: [],
+};
+
+export const EMPTY_GOVERNANCE = {
+  total_audit_log_entries: 0,
+  entries_30d: 0,
+  top_actions_30d: [],
+  most_active_admins_30d: [],
+  admin_role_counts: [],
 };
 
 export const EMPTY_FINANCIAL = {

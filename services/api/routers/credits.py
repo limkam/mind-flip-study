@@ -31,12 +31,17 @@ class CreditBalance(BaseModel):
     purchased_position: dict[str, int]
 
 
+class CreditPackTier(BaseModel):
+    """A single purchasable extra-credit pack tier."""
+    credits: int
+    price_cents: int
+    price_usd: float
+
+
 class CreditPricing(BaseModel):
-    """Quantity-based credit pricing configuration."""
-    unit_price_cents: int
+    """Discrete extra-credit pack tier list."""
+    tiers: list[CreditPackTier]
     currency: str
-    unit_price_usd: float
-    minimum_quantity: int
 
 
 class CreditPurchaseRecord(BaseModel):
@@ -106,15 +111,20 @@ async def get_credit_balance(
 
 @router.get("/pricing", response_model=CreditPricingResponse, status_code=status.HTTP_200_OK)
 async def get_credit_pricing() -> CreditPricingResponse:
-    """Get current quantity-based credit pricing."""
-    unit_price_cents = max(1, int(settings.CREDIT_UNIT_PRICE_CENTS))
+    """Get the configured extra-credit pack tiers."""
     currency = (settings.CREDIT_CURRENCY or "usd").lower()
+    tiers = [
+        CreditPackTier(
+            credits=tier["credits"],
+            price_cents=tier["price_cents"],
+            price_usd=round(tier["price_cents"] / 100.0, 2),
+        )
+        for tier in sorted(credits_service.credit_pack_tiers(), key=lambda t: t["credits"])
+    ]
     return CreditPricingResponse(
         pricing=CreditPricing(
-            unit_price_cents=unit_price_cents,
+            tiers=tiers,
             currency=currency,
-            unit_price_usd=round(unit_price_cents / 100.0, 2),
-            minimum_quantity=1,
         )
     )
 

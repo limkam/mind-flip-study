@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle, ArrowUpRight, BookOpen, Check, CreditCard,
@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import BuyCreditsModal from "@/components/billing/BuyCreditsModal";
-import { cancelSubscriptionAtPeriodEnd, fetchBillingInvoices, fetchBillingOverview, fetchBillingPaymentMethod, fetchCreditPurchaseHistory, openCustomerPortal, syncSubscriptionFromStripe } from "@/lib/billing";
+import { cancelSubscriptionAtPeriodEnd, fetchBillingInvoices, fetchBillingOverview, fetchBillingPaymentMethod, fetchCreditPurchaseHistory, openCustomerPortal, openUpdatePaymentMethod, retryPastDuePayment, syncSubscriptionFromStripe } from "@/lib/billing";
 import { planLabelFromSlug } from "@/lib/plans";
 import { annualSavings, formatBillingDate, formatMoney, remainingAllowance, usageLevel, usagePercentage } from "@/lib/billingView";
 import { getApiErrorMessage } from "@/lib/apiError";
@@ -29,6 +29,7 @@ const REASON_LABELS = {
   create_book: "Book processed",
   create_set: "Flashcard set generated",
   regen: "Content regenerated",
+  activate_shared_content: "Shared study group material added",
 };
 const ACTIVITY_FILTERS = [
   { value: "all", label: "All activity" },
@@ -92,8 +93,10 @@ export default function BillingUsage() {
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalError, setPortalError] = useState("");
   const [canceling, setCanceling] = useState(false);
+  const [updatingPaymentMethod, setUpdatingPaymentMethod] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const overview = useQuery({
     queryKey: ["billing-overview"],
@@ -125,6 +128,45 @@ export default function BillingUsage() {
   });
 
   useEffect(() => { trackClientEvent("billing_page_viewed"); }, []);
+
+  useEffect(() => {
+    if (searchParams.get("payment_method_updated") !== "1") return;
+    setSearchParams((next) => { next.delete("payment_method_updated"); return next; }, { replace: true });
+    retryPastDuePayment()
+      .then((result) => {
+        if (result?.resolved) {
+          toast({ title: "Payment successful", description: "Your subscription is active again." });
+        } else if (result?.had_past_due_invoice) {
+          toast({
+            title: "Payment method updated",
+            description: "We'll retry the failed payment shortly. If it fails again you'll get another email.",
+          });
+        } else {
+          toast({ title: "Payment method updated" });
+        }
+        queryClient.invalidateQueries({ queryKey: ["billing-overview"] });
+        queryClient.invalidateQueries({ queryKey: ["billing-payment-method"] });
+        queryClient.invalidateQueries({ queryKey: ["billing-invoices"] });
+      })
+      .catch(() => {
+        queryClient.invalidateQueries({ queryKey: ["billing-overview"] });
+        queryClient.invalidateQueries({ queryKey: ["billing-payment-method"] });
+      });
+    // Only ever fires once per return trip from the portal.
+  }, [searchParams]);
+
+  const updatePaymentMethod = async () => {
+    setUpdatingPaymentMethod(true);
+    setPortalError("");
+    trackClientEvent("payment_method_update_opened");
+    try {
+      await openUpdatePaymentMethod();
+    } catch (err) {
+      setPortalError(getApiErrorMessage(err, "Could not open the payment method update page. Please try again."));
+    } finally {
+      setUpdatingPaymentMethod(false);
+    }
+  };
 
   useQuery({
     queryKey: ["billing-subscription-sync"], queryFn: async () => {
@@ -204,6 +246,23 @@ export default function BillingUsage() {
         <div className="flex flex-wrap gap-3">{paid || conflict ? <Button onClick={manage} disabled={portalLoading}>{portalLoading ? "Opening…" : "Manage subscription"}<ArrowUpRight className="ml-2 h-4 w-4" /></Button> : <Button asChild><Link to="/pricing">Upgrade plan</Link></Button>}{!conflict ? <Button variant="outline" asChild><Link to="/pricing">Compare plans</Link></Button> : null}</div>
       </header>
 
+      {!conflict && sub.status === "past_due" ? (
+        <div className="rounded-2xl border border-destructive/25 bg-destructive/10 p-5" role="alert">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+              <div>
+                <h2 className="font-semibold">Your last payment failed</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Update your payment method to keep your subscription active. Stripe will keep retrying automatically, but updating now resolves it immediately.</p>
+              </div>
+            </div>
+            <Button variant="outline" className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive shrink-0" onClick={updatePaymentMethod} disabled={updatingPaymentMethod}>
+              {updatingPaymentMethod ? "Opening…" : "Update payment method"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {conflict ? <div className="rounded-2xl border border-destructive/25 bg-destructive/10 p-5" role="alert"><div className="flex gap-3"><AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" /><div><h2 className="font-semibold">Multiple active subscriptions need review</h2><p className="mt-1 text-sm text-muted-foreground">We found {sub.conflict_count} active subscription records. Renewal dates and pricing are hidden to avoid showing misleading information. Open Stripe billing management or contact support before starting another checkout.</p></div></div></div> : null}
       {portalError ? <div className="rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-sm" role="alert">{portalError}</div> : null}
 
@@ -260,9 +319,9 @@ export default function BillingUsage() {
 
       <section className="rounded-3xl border border-border/70 bg-card p-6"><h2 className="font-heading text-xl font-bold">Credit purchase history</h2><p className="text-sm text-muted-foreground">Authoritative one-time Stripe purchases, separate from subscription invoices.</p><div className="mt-5 space-y-3">{purchaseHistory.isLoading ? <Skeleton className="h-24 rounded-2xl" /> : purchaseHistory.isError ? <div className="rounded-2xl border border-destructive/20 p-5"><p>Purchase history is unavailable.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => purchaseHistory.refetch()}>Retry</Button></div> : purchaseHistory.data.purchases.map((purchase) => <div key={purchase.id} className="flex flex-col gap-3 rounded-2xl border border-border/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{purchase.quantity} {purchase.quantity === 1 ? "credit" : "credits"}</p><p className="text-sm text-muted-foreground">{formatBillingDate(purchase.created_at)} · {formatMoney(purchase.amount_paid_cents, purchase.currency)}</p></div><div className="flex items-center gap-2"><Badge variant="secondary" className="capitalize">{purchase.status}</Badge>{purchase.receipt_url ? <Button variant="outline" size="sm" asChild><a href={purchase.receipt_url} target="_blank" rel="noreferrer">View receipt</a></Button> : null}</div></div>)}{purchaseHistory.isSuccess && !purchaseHistory.data.purchases.length ? <div className="rounded-2xl bg-muted/40 py-10 text-center"><CreditCard className="mx-auto h-8 w-8 text-muted-foreground/40" /><p className="mt-2 font-medium">No credit purchases yet</p></div> : null}</div></section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]"><div className="rounded-3xl border border-border/70 bg-card p-6"><h2 className="font-heading text-xl font-bold">Payment &amp; invoice history</h2><div className="mt-5 space-y-3">{invoices.isLoading ? <Skeleton className="h-28 rounded-2xl" /> : invoices.isError ? <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="font-medium">Invoice history is unavailable</p><p className="mt-1 text-sm text-muted-foreground">Your subscription and credits are unaffected.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => invoices.refetch()}>Retry</Button></div> : invoices.data.map((invoice) => <div key={invoice.id} className="flex flex-col gap-3 rounded-2xl border border-border/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{planName} subscription</p><p className="text-sm text-muted-foreground">{formatBillingDate(invoice.created_at)} · {formatMoney(invoice.amount_cents, invoice.currency)}</p></div><div className="flex items-center gap-2"><Badge variant="secondary" className="capitalize">{invoice.status}</Badge>{invoice.hosted_invoice_url || invoice.invoice_pdf ? <Button variant="outline" size="sm" asChild><a href={invoice.hosted_invoice_url || invoice.invoice_pdf} target="_blank" rel="noreferrer">View invoice</a></Button> : null}</div></div>)}{invoices.isSuccess && !invoices.data.length ? <div className="rounded-2xl bg-muted/40 py-10 text-center"><FileText className="mx-auto h-8 w-8 text-muted-foreground/40" /><p className="mt-2 font-medium">No invoices available</p><p className="text-sm text-muted-foreground">Verified Stripe invoices will appear here.</p></div> : null}</div></div><div className="rounded-3xl border border-border/70 bg-card p-6"><h2 className="font-heading text-xl font-bold">Payment method</h2>{paymentMethod.isLoading ? <Skeleton className="mt-5 h-24 rounded-2xl" /> : paymentMethod.isError ? <div className="mt-5 rounded-2xl border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="font-medium">Payment method is unavailable</p><Button variant="outline" size="sm" className="mt-3" onClick={() => paymentMethod.refetch()}>Retry</Button></div> : paymentMethod.data ? <div className="mt-5 flex items-center gap-4 rounded-2xl bg-muted/50 p-4"><span className="rounded-xl bg-background p-3"><CreditCard className="h-6 w-6" /></span><div><p className="font-semibold capitalize">{paymentMethod.data.brand} •••• {paymentMethod.data.last4}</p><p className="text-sm text-muted-foreground">Expires {paymentMethod.data.exp_month}/{paymentMethod.data.exp_year}</p></div></div> : <div className="mt-5 rounded-2xl bg-muted/40 p-5 text-center"><LockKeyhole className="mx-auto h-7 w-7 text-muted-foreground/50" /><p className="mt-2 font-medium">Managed securely by Stripe</p><p className="text-sm text-muted-foreground">Payment details are not stored by MindFlip.</p></div>} {paid ? <Button variant="outline" className="mt-5 w-full" onClick={manage}>Update in Stripe</Button> : null}</div></section>
+      <section className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]"><div className="rounded-3xl border border-border/70 bg-card p-6"><h2 className="font-heading text-xl font-bold">Payment &amp; invoice history</h2><div className="mt-5 space-y-3">{invoices.isLoading ? <Skeleton className="h-28 rounded-2xl" /> : invoices.isError ? <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="font-medium">Invoice history is unavailable</p><p className="mt-1 text-sm text-muted-foreground">Your subscription and credits are unaffected.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => invoices.refetch()}>Retry</Button></div> : invoices.data.map((invoice) => <div key={invoice.id} className="flex flex-col gap-3 rounded-2xl border border-border/70 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{planName} subscription</p><p className="text-sm text-muted-foreground">{formatBillingDate(invoice.created_at)} · {formatMoney(invoice.amount_cents, invoice.currency)}</p></div><div className="flex items-center gap-2"><Badge variant="secondary" className="capitalize">{invoice.status}</Badge>{invoice.hosted_invoice_url || invoice.invoice_pdf ? <Button variant="outline" size="sm" asChild><a href={invoice.hosted_invoice_url || invoice.invoice_pdf} target="_blank" rel="noreferrer">View invoice</a></Button> : null}</div></div>)}{invoices.isSuccess && !invoices.data.length ? <div className="rounded-2xl bg-muted/40 py-10 text-center"><FileText className="mx-auto h-8 w-8 text-muted-foreground/40" /><p className="mt-2 font-medium">No invoices available</p><p className="text-sm text-muted-foreground">Verified Stripe invoices will appear here.</p></div> : null}</div></div><div className="rounded-3xl border border-border/70 bg-card p-6"><h2 className="font-heading text-xl font-bold">Payment method</h2>{paymentMethod.isLoading ? <Skeleton className="mt-5 h-24 rounded-2xl" /> : paymentMethod.isError ? <div className="mt-5 rounded-2xl border border-destructive/20 bg-destructive/5 p-5 text-center"><p className="font-medium">Payment method is unavailable</p><Button variant="outline" size="sm" className="mt-3" onClick={() => paymentMethod.refetch()}>Retry</Button></div> : paymentMethod.data ? <div className="mt-5 flex items-center gap-4 rounded-2xl bg-muted/50 p-4"><span className="rounded-xl bg-background p-3"><CreditCard className="h-6 w-6" /></span><div><p className="font-semibold capitalize">{paymentMethod.data.brand} •••• {paymentMethod.data.last4}</p><p className="text-sm text-muted-foreground">Expires {paymentMethod.data.exp_month}/{paymentMethod.data.exp_year}</p></div></div> : <div className="mt-5 rounded-2xl bg-muted/40 p-5 text-center"><LockKeyhole className="mx-auto h-7 w-7 text-muted-foreground/50" /><p className="mt-2 font-medium">Managed securely by Stripe</p><p className="text-sm text-muted-foreground">Payment details are not stored by Bilkeys.</p></div>} {paid ? <Button variant="outline" className="mt-5 w-full" onClick={updatePaymentMethod} disabled={updatingPaymentMethod}>{updatingPaymentMethod ? "Opening…" : "Update payment method"}</Button> : null}</div></section>
 
-      <section className="flex flex-col gap-4 rounded-3xl border border-primary/15 bg-primary/[0.045] p-6 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-heading text-xl font-bold">Need different limits?</h2><p className="mt-1 text-sm text-muted-foreground">Compare monthly and annual plans. Standard 15 is the most popular option.</p>{data.subscription.plan_slug === "quick_72" ? <p className="mt-2 text-xs text-muted-foreground">Annual Quick 7 saves {formatMoney(annualSavings(399, 2400))} compared with 12 monthly payments.</p> : null}</div><Button asChild><Link to="/pricing">Compare all plans <ArrowUpRight className="ml-2 h-4 w-4" /></Link></Button></section>
+      <section className="flex flex-col gap-4 rounded-3xl border border-primary/15 bg-primary/[0.045] p-6 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-heading text-xl font-bold">Need different limits?</h2><p className="mt-1 text-sm text-muted-foreground">Compare monthly and annual plans. Standard 15 is the most popular option.</p>{data.subscription.plan_slug === "quick_72" ? <p className="mt-2 text-xs text-muted-foreground">Annual Quick 7 saves {formatMoney(annualSavings(499, 3900))} compared with 12 monthly payments.</p> : null}</div><Button asChild><Link to="/pricing">Compare all plans <ArrowUpRight className="ml-2 h-4 w-4" /></Link></Button></section>
       <BuyCreditsModal open={buying} onClose={() => setBuying(false)} />
     </div>
   );

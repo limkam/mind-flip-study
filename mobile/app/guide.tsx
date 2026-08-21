@@ -182,7 +182,7 @@ export default function MobileUserGuideScreen() {
               </View>
             )}
 
-            {/* Try This in MindFlip Action CTA */}
+            {/* Try This in Bilkeys Action CTA */}
             {selectedArticle.action ? (
               <Pressable
                 onPress={() => router.push(selectedArticle.action!.mobileRoute as any)}
@@ -190,7 +190,7 @@ export default function MobileUserGuideScreen() {
               >
                 <Ionicons name="sparkles" size={16} color="#ffffff" />
                 <Text style={styles.ctaBtnText}>
-                  {selectedArticle.action.label || "Try This in MindFlip"}
+                  {selectedArticle.action.label || "Try This in Bilkeys"}
                 </Text>
               </Pressable>
             ) : null}

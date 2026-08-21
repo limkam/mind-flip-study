@@ -35,6 +35,7 @@ class Action(Enum):
     START_GAME = "start_game"
     SEND_CHALLENGE = "send_challenge"
     CREATE_STUDY_GROUP = "create_study_group"
+    JOIN_STUDY_GROUP = "join_study_group"
     PRIORITY_PROCESSING = "priority_processing"
     DAILY_REVIEW = "daily_review"
     ACTIVATE_SHARED_CONTENT = "activate_shared_content"
@@ -75,10 +76,10 @@ DEFAULT_PLAN_FEATURES = {
         "max_sets": 1,
         "max_cards_per_set": 5,
         "games_limit": 2,
-        "daily_review_limit": 20,
+        "daily_review_limit": 5,
         "can_send_challenges": False,
         "can_create_study_group": False,
-        "can_join_study_group": True,
+        "max_joined_study_groups": 1,
         "priority_processing": False,
         "games_allowed": True,
     },
@@ -88,9 +89,9 @@ DEFAULT_PLAN_FEATURES = {
         "daily_review_limit": None,
         "max_cards_per_set": 20,
         "games_limit": 3,
-        "can_send_challenges": True,
+        "can_send_challenges": False,
         "can_create_study_group": False,
-        "can_join_study_group": True,
+        "max_joined_study_groups": None,
         "priority_processing": False,
         "games_allowed": True,
     },
@@ -102,7 +103,7 @@ DEFAULT_PLAN_FEATURES = {
         "daily_review_limit": None,
         "can_send_challenges": True,
         "can_create_study_group": True,
-        "can_join_study_group": True,
+        "max_joined_study_groups": None,
         "priority_processing": False,
         "games_allowed": True,
     },
@@ -114,7 +115,7 @@ DEFAULT_PLAN_FEATURES = {
         "daily_review_limit": None,
         "can_send_challenges": True,
         "can_create_study_group": True,
-        "can_join_study_group": True,
+        "max_joined_study_groups": None,
         "priority_processing": True,
         "games_allowed": True,
     },
@@ -132,7 +133,7 @@ async def _plan_features(db: AsyncSession, plan_slug: str) -> dict:
     defaults = DEFAULT_PLAN_FEATURES.get(plan_slug, DEFAULT_PLAN_FEATURES["free"])  # type: ignore[index]
     features: dict = dict(defaults)
     # optional attributes that may be added to Plan later
-    for key in ("max_books", "max_sets", "max_cards_per_set", "games_limit", "daily_review_limit", "can_send_challenges", "can_create_study_group", "can_join_study_group", "priority_processing", "games_allowed"):
+    for key in ("max_books", "max_sets", "max_cards_per_set", "games_limit", "daily_review_limit", "can_send_challenges", "can_create_study_group", "max_joined_study_groups", "priority_processing", "games_allowed"):
         if hasattr(p, key):
             val = getattr(p, key)
             # Only accept simple scalar values from DB model fields; avoid accepting
@@ -145,93 +146,59 @@ async def _plan_features(db: AsyncSession, plan_slug: str) -> dict:
 async def can_user_do(db: AsyncSession, user: User, action: Action, **kwargs: Any) -> dict:
     """Return entitlement decision and metadata for the caller to act on.
 
-    For `REGENERATE`:
-      - Standard_15: do not allow regen from monthly content allowance; only allow
-        if regen purchased credits exist (balance in regen pool > 0). If denied,
-        include upgrade_hook {"free_on_premium_30": True}.
-      - Premium_30: allow if monthly_regen_allowance > 0 (monthly) or purchased
-        regen credits exist; indicate whether to consume from 'regen' pool.
-      - Free: similar to Standard unless purchased regen credits exist.
+    For `REGENERATE`: regenerating a scenario always costs a purchased extra
+    credit, on every plan (including premium_30) — there is no monthly/free
+    allowance for it. Allowed only if the user holds >=1 purchased regen credit.
     """
     if action == Action.REGENERATE:
         # set_id may be passed in kwargs but not required here
-        # Check regen pool balances
-        monthly, purchased = await credits._split_pool_balances(db, user.id, pool="regen")
-        total = monthly + purchased
-        plan_slug = await _user_plan_slug(db, user)
-        features = await _plan_features(db, plan_slug)
+        _monthly, purchased = await credits._split_pool_balances(db, user.id, pool="regen")
 
-        if plan_slug == "standard_15":
-            # Standard never gets monthly regen allowance; only allow if purchased credits exist
-            if purchased >= 1:
-                return {"allowed": True, "reason": "purchased_regen", "consume": {"pool": "regen", "amount": 1}}
-            return {"allowed": False, "reason": "no_regen", "upgrade_hook": {"free_on_premium_30": True}}
-
-        if plan_slug == "premium_30":
-            # allow if monthly or purchased present; prefer monthly
-            if monthly >= 1:
-                return {"allowed": True, "reason": "monthly_regen", "consume": {"pool": "regen", "amount": 1, "from": "monthly"}}
-            if purchased >= 1:
-                return {"allowed": True, "reason": "purchased_regen", "consume": {"pool": "regen", "amount": 1, "from": "purchased"}}
-            # no credits
-            return {"allowed": False, "reason": "no_regen", "upgrade_hook": {"free_on_premium_30": False}}
-
-        # Free and other tiers: only allow if purchased regen credits exist
         if purchased >= 1:
             return {"allowed": True, "reason": "purchased_regen", "consume": {"pool": "regen", "amount": 1}}
-        return {"allowed": False, "reason": "no_regen", "upgrade_hook": {"free_on_premium_30": True}}
+        return {"allowed": False, "reason": "no_regen"}
 
     # Other actions: implement specific checks
     plan_slug = await _user_plan_slug(db, user)
     features = await _plan_features(db, plan_slug)
 
-    # Free allowances are lifetime. Paid allowances reset monthly and are
-    # counted independently for each user.
-    period_start = current_period_start(lifetime=plan_slug == "free")
-
-    # Intentional policy (over-quota-after-downgrade): downgrading to a lower max_books/
-    # max_sets never removes or locks a user's existing content — CREATE_BOOK/CREATE_SET/
-    # ACTIVATE_SHARED_CONTENT below only ever compare consumed_quantity() against the new,
-    # lower limit for NEW creation/activation. A user who had 5 books on Standard 15 and
-    # downgrades to Quick 7 (max 2) keeps all 5 and can still study/edit/delete them; they
-    # simply can't upload/generate/activate anything new until they're back under 2 (e.g.
-    # by deleting books, which is also never auto-refunded — see the permanent-ledger-charge
-    # policy note in ACTIVATE_SHARED_CONTENT below). This is deliberate, not an oversight:
-    # surprise deletions on downgrade would be far worse than a temporary creation block.
-    # Surfaced to the user ahead of time via the downgrade notice in
-    # GET /billing/subscription/preview-change (routers/billing.py).
+    # Content credits (monthly plan allowance, then shared purchased credits) are the real
+    # gate for creating/activating books and flashcard sets — see credits.consume_credits,
+    # which spends monthly content credits first and falls back to purchased credits once
+    # the monthly allowance is exhausted. usage_events (consumed_quantity/record_usage)
+    # remains the append-only audit/idempotency ledger for reporting, but it must never be
+    # the thing that blocks a user who still holds purchased credits: running out of the
+    # included monthly allowance is not a hard wall as long as they can afford it.
+    #
+    # Downgrading to a lower monthly_content_allowance never removes or locks a user's
+    # existing content — it only affects the size of the next monthly grant. A user who
+    # spent all of a higher plan's credits this period keeps everything they already made
+    # and can still study/edit/delete it; they just draw on purchased credits (or wait for
+    # the next grant) to make anything new. Surfaced ahead of time via the downgrade notice
+    # in GET /billing/subscription/preview-change (routers/billing.py).
     if action == Action.CREATE_BOOK:
-        max_books = features.get("max_books")
-        if max_books is not None:
-            n = await consumed_quantity(db, user.id, BOOK_UPLOADED, period_start=period_start)
-            if int(n or 0) >= int(max_books):
-                return {"allowed": False, "reason": "book_limit"}
-        return {"allowed": True}
+        balance = await credits.get_user_balance(db, user.id, pool="content")
+        if balance < 1:
+            return {"allowed": False, "reason": "book_limit"}
+        return {"allowed": True, "consume": {"pool": "content", "amount": 1}}
 
     if action == Action.CREATE_SET:
-        max_sets = features.get("max_sets")
-        if max_sets is not None:
-            n = await consumed_quantity(db, user.id, FLASHCARDS_GENERATED, period_start=period_start)
-            if int(n or 0) >= int(max_sets):
-                return {"allowed": False, "reason": "set_limit"}
-        return {"allowed": True}
+        balance = await credits.get_user_balance(db, user.id, pool="content")
+        if balance < 1:
+            return {"allowed": False, "reason": "set_limit"}
+        return {"allowed": True, "consume": {"pool": "content", "amount": 1}}
 
     if action == Action.ACTIVATE_SHARED_CONTENT:
-        # Activating shared content spends the recipient's own max_books/max_sets slots,
-        # same pool and same permanent-charge model as self-uploaded content: the caller
-        # records usage in the append-only UsageEvent ledger on success (routers/study_groups.py),
-        # and deactivating never refunds it — same as deleting an owned book/set never does.
-        max_books = features.get("max_books")
-        max_sets = features.get("max_sets")
-        if max_books is not None:
-            owned_books = await consumed_quantity(db, user.id, BOOK_UPLOADED, period_start=period_start)
-            if int(owned_books or 0) >= int(max_books):
-                return {"allowed": False, "reason": "book_limit"}
-        if max_sets is not None:
-            owned_sets = await consumed_quantity(db, user.id, FLASHCARDS_GENERATED, period_start=period_start)
-            if int(owned_sets or 0) >= int(max_sets):
-                return {"allowed": False, "reason": "set_limit"}
-        return {"allowed": True}
+        # Activating shared content spends the recipient's own content credits — the same
+        # 2 credits (1 book-equivalent + 1 set-equivalent) it would cost to upload the book
+        # and generate the set themselves, consumed in the same monthly-then-purchased order.
+        # The caller (routers/study_groups.py) both spends the credits and records usage in
+        # the append-only UsageEvent ledger on success; deactivating never refunds either —
+        # same as deleting an owned book/set never does.
+        balance = await credits.get_user_balance(db, user.id, pool="content")
+        if balance < 2:
+            return {"allowed": False, "reason": "content_credits_exhausted"}
+        return {"allowed": True, "consume": {"pool": "content", "amount": 2}}
 
     if action == Action.START_GAME:
         if not features.get("games_allowed", True):
@@ -247,6 +214,15 @@ async def can_user_do(db: AsyncSession, user: User, action: Action, **kwargs: An
         if not features.get("can_create_study_group", False):
             return {"allowed": False, "reason": "study_group_create_disabled"}
         return {"allowed": True}
+
+    if action == Action.JOIN_STUDY_GROUP:
+        limit = features.get("max_joined_study_groups")
+        if limit is None:
+            return {"allowed": True}
+        count = int(kwargs.get("count", 0))
+        if count < int(limit):
+            return {"allowed": True}
+        return {"allowed": False, "reason": "study_group_join_limit_reached", "limit": limit}
 
     if action == Action.PRIORITY_PROCESSING:
         if not features.get("priority_processing", False):

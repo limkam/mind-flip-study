@@ -210,7 +210,7 @@ export default function VerifyEmailScreen() {
       } else if (isNetworkError) {
         setErrorMsg("You're offline. Check your connection and try again.");
       } else if (status && status >= 500) {
-        setErrorMsg("MindFlip is having trouble signing you in right now. Please try again.");
+        setErrorMsg("Bilkeys is having trouble signing you in right now. Please try again.");
       } else {
         setErrorMsg(getApiErrorMessage(error, "We couldn't verify that code. Please try again."));
       }

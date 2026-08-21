@@ -15,8 +15,8 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "masked-icon.svg"],
       manifest: {
-        name: "MindFlip",
-        short_name: "MindFlip",
+        name: "Bilkeys",
+        short_name: "Bilkeys",
         description: "AI-powered flashcard study app",
         theme_color: "#6366f1",
         background_color: "#ffffff",
@@ -44,7 +44,7 @@ export default defineConfig({
             handler: "NetworkOnly",
           },
           {
-            urlPattern: /^https:\/\/api\.mindflip\.io\/flashcard-sets/,
+            urlPattern: /^https:\/\/api\.bilkeys\.io\/flashcard-sets/,
             handler: "NetworkFirst",
             options: {
               cacheName: "api-flashcard-sets",

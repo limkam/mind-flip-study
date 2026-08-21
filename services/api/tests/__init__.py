@@ -1,1 +1,1 @@
-"""MindFlip API automated tests."""
+"""Bilkeys API automated tests."""

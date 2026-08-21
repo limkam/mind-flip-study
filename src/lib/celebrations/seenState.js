@@ -1,5 +1,5 @@
 const VERSION = 1, MAX_ENTRIES = 200, DEFAULT_RETENTION = 90;
-export const seenStorageKey = (namespace) => `mindflip:celebrations:v${VERSION}:${namespace || "anonymous"}`;
+export const seenStorageKey = (namespace) => `bilkeys:celebrations:v${VERSION}:${namespace || "anonymous"}`;
 /** @param {{storage?: Storage | {getItem(key: string): string | null, setItem(key: string, value: string): void}, namespace?: string, retentionDays?: number, now?: () => number}=} options */
 export function createSeenState({ storage, namespace = "anonymous", retentionDays = DEFAULT_RETENTION, now = () => Date.now() } = {}) {
   const target = storage || (typeof localStorage === "undefined" ? null : localStorage); const key = seenStorageKey(namespace);

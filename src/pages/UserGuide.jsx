@@ -102,9 +102,9 @@ export default function UserGuide() {
             <HelpCircle className="w-3.5 h-3.5" />
             <span>Interactive Platform Guide</span>
           </div>
-          <h1 className="font-heading text-3xl font-bold tracking-tight">MindFlip Knowledge Base</h1>
+          <h1 className="font-heading text-3xl font-bold tracking-tight">Bilkeys Knowledge Base</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Learn how to get the most from MindFlip with visual walkthroughs, interactive diagrams, and reference guides.
+            Learn how to get the most from Bilkeys with visual walkthroughs, interactive diagrams, and reference guides.
           </p>
         </div>
 
@@ -184,7 +184,7 @@ export default function UserGuide() {
             </motion.div>
           )}
 
-          {/* Try This in MindFlip Action CTA */}
+          {/* Try This in Bilkeys Action CTA */}
           {selectedArticle.action && (
             <div className="pt-2">
               <Button
@@ -193,7 +193,7 @@ export default function UserGuide() {
                 className="w-full h-12 text-sm font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-md rounded-xl flex items-center justify-center gap-2"
               >
                 <Sparkles className="w-4 h-4" />
-                {selectedArticle.action.label || "Try This in MindFlip"}
+                {selectedArticle.action.label || "Try This in Bilkeys"}
               </Button>
             </div>
           )}

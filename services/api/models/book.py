@@ -57,3 +57,6 @@ class Book(Base):
         server_default=func.now(),
         nullable=False,
     )
+    # Stamped whenever status lands on ready/error (book_tasks.py's TOC pipeline,
+    # ai_generation.py's mark_book_ai_finished) — processing time = this minus created_at.
+    processing_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

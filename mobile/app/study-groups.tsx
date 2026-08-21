@@ -72,7 +72,7 @@ function parseSearchResults(value: unknown): StudyGroup[] {
 
 function parseJoinedGroup(value: unknown): StudyGroup {
   if (!isStudyGroup(value) || value.is_member !== true) {
-    throw new Error("MindFlip couldn't open the group you joined. Please try again.");
+    throw new Error("Bilkeys couldn't open the group you joined. Please try again.");
   }
   return value;
 }
@@ -200,7 +200,7 @@ export default function StudyGroupsScreen() {
       joiningCodeRef.current = null;
       if (!mountedRef.current || useAuthStore.getState().user?.id !== variables.expectedUserId) return;
       const status = axios.isAxiosError(error) ? error.response?.status : undefined;
-      if (status === 401 || status === 402) return;
+      if (status === 401) return;
       setJoinError(getApiErrorMessage(error, "The group could not be joined."));
     },
   });

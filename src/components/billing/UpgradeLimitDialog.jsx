@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import BuyCreditsModal from "@/components/billing/BuyCreditsModal";
 
-export const PLAN_LIMIT_EVENT = "mindflip:plan-limit";
+export const PLAN_LIMIT_EVENT = "bilkeys:plan-limit";
 
 function friendlyLimitMessage(reason) {
   const text = String(reason || "").toLowerCase();

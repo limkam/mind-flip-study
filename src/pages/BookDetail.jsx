@@ -242,7 +242,7 @@ export default function BookDetail() {
       toast({
         title: "Generation started",
         description:
-          "Creating summary, flashcards, and scenarios in the background. You can keep browsing MindFlip.",
+          "Creating summary, flashcards, and scenarios in the background. You can keep browsing Bilkeys.",
         dedupeKey: "generation-started",
       });
     } catch (e) {
@@ -664,7 +664,7 @@ export default function BookDetail() {
           <div className="mb-6 rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2">
             <p className="text-sm font-medium">Generating flashcards…</p>
             <p className="text-xs text-muted-foreground">
-              This may take a few moments. You may continue using MindFlip while
+              This may take a few moments. You may continue using Bilkeys while
               generation completes.
             </p>
             <GenerateProgressBar

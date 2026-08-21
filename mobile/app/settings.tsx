@@ -191,7 +191,7 @@ export default function SettingsScreen() {
             queryClient.setQueryData<User>(["me"], parseResult.user);
             studySuccess = true;
           } else if (!parseResult.valid) {
-            studyErrorMsg = "MindFlip couldn't load your updated study settings. Please try again.";
+            studyErrorMsg = "Bilkeys couldn't load your updated study settings. Please try again.";
           }
         } catch (e) {
           studyErrorMsg = getApiErrorMessage(e, "Could not save study settings.");
@@ -223,7 +223,7 @@ export default function SettingsScreen() {
             );
             engagementSuccess = true;
           } else if (!parseResult.valid) {
-            engagementErrorMsg = "MindFlip couldn't load your updated engagement preferences. Please try again.";
+            engagementErrorMsg = "Bilkeys couldn't load your updated engagement preferences. Please try again.";
           }
         } catch (e) {
           engagementErrorMsg = getApiErrorMessage(e, "Could not save engagement preferences.");
@@ -292,7 +292,7 @@ export default function SettingsScreen() {
     <Screen>
       {header}
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <PageHeader title="Settings" subtitle="Customize your MindFlip experience" />
+        <PageHeader title="Settings" subtitle="Customize your Bilkeys experience" />
 
         {/* Loading and Error Indicators */}
         {meQuery.isError || engagementQuery.isError ? (
@@ -444,7 +444,7 @@ export default function SettingsScreen() {
               <Text style={{ color: colors.primary, fontWeight: "700" }}>Open Settings</Text>
             </Pressable>
           </View>
-          <Text style={[styles.preferenceNote, { color: colors.textSecondary }]}>MindFlip preferences</Text>
+          <Text style={[styles.preferenceNote, { color: colors.textSecondary }]}>Bilkeys preferences</Text>
           <ToggleRow
             label="In-app notifications"
             description="Enable in-app nudges and alerts"

@@ -43,14 +43,49 @@ async def test_monthly_grant_is_idempotent_for_same_user_and_period(monkeypatch)
     db.get = AsyncMock(return_value=SimpleNamespace(
         slug="quick_72", monthly_content_allowance=7, monthly_regen_allowance=0,
     ))
-    db.scalar = AsyncMock(side_effect=[None, None, uuid4(), uuid4()])
+    monkeypatch.setattr(credits, "_active_subscription_period_end", AsyncMock(return_value=None))
+    monkeypatch.setattr(credits, "_now", AsyncMock(return_value=datetime(2026, 8, 15, tzinfo=timezone.utc)))
+    # 1st call: nothing granted yet this period (sum=0) -> shortfall=7, no existing grant row -> grants once.
+    # 2nd call: 7 already granted this period (sum=7) -> shortfall=0 -> returns before re-granting.
+    db.scalar = AsyncMock(side_effect=[0, None, 7])
     added = []
     db.add = added.append
     db.flush = AsyncMock()
-    monkeypatch.setattr(credits, "_now", AsyncMock(return_value=datetime(2026, 8, 15, tzinfo=timezone.utc)))
 
     await credits.award_monthly_allowance_for_user(db, user_id, plan_id)
     await credits.award_monthly_allowance_for_user(db, user_id, plan_id)
 
     assert len(added) == 1
-    assert added[0].idempotency_key == f"monthly:{user_id}:content:2026-08"
+    assert added[0].amount == 7
+    assert added[0].idempotency_key == f"monthly:{user_id}:content:2026-08:7"
+
+
+@pytest.mark.asyncio
+async def test_monthly_grant_tops_up_on_mid_cycle_upgrade(monkeypatch):
+    """Upgrading mid-cycle must top up the same period's grant to the new, higher plan
+    allowance instead of being skipped by an idempotency key that only knows about the
+    smaller amount already granted at the start of the period."""
+    user_id = uuid4()
+    old_plan_id = uuid4()
+    new_plan_id = uuid4()
+    db = AsyncMock()
+    db.get = AsyncMock(side_effect=[
+        SimpleNamespace(slug="quick_72", monthly_content_allowance=7, monthly_regen_allowance=0),
+        SimpleNamespace(slug="standard_15", monthly_content_allowance=15, monthly_regen_allowance=0),
+    ])
+    monkeypatch.setattr(credits, "_active_subscription_period_end", AsyncMock(return_value=None))
+    monkeypatch.setattr(credits, "_now", AsyncMock(return_value=datetime(2026, 8, 15, tzinfo=timezone.utc)))
+    # 1st call (quick_72, target=7): sum=0 -> shortfall=7 -> grants 7, no existing idempotency row.
+    # 2nd call (standard_15, target=15): sum=7 (the earlier grant) -> shortfall=8 -> tops up by 8.
+    db.scalar = AsyncMock(side_effect=[0, None, 7, None])
+    added = []
+    db.add = added.append
+    db.flush = AsyncMock()
+
+    await credits.award_monthly_allowance_for_user(db, user_id, old_plan_id)
+    await credits.award_monthly_allowance_for_user(db, user_id, new_plan_id)
+
+    assert len(added) == 2
+    assert added[0].amount == 7
+    assert added[1].amount == 8
+    assert added[1].idempotency_key == f"monthly:{user_id}:content:2026-08:15"

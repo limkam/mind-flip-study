@@ -9,7 +9,7 @@ export default function NotFound() {
           This page has wandered off.
         </h1>
         <p className="mt-5 text-lg leading-8 text-gray-600">
-          Head back home or continue exploring how Mindflip works.
+          Head back home or continue exploring how Bilkeys works.
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link href="/" className="button-primary">Back home</Link>

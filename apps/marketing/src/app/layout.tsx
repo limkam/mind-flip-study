@@ -7,10 +7,10 @@ import '@/styles/globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://mindflip.io'),
+  metadataBase: new URL('https://bilkeys.io'),
   title: {
-    default: 'Mindflip: Turn Any Textbook Into a Study Game',
-    template: '%s | Mindflip',
+    default: 'Bilkeys: Turn Any Textbook Into a Study Game',
+    template: '%s | Bilkeys',
   },
   description:
     'Upload a PDF, get AI-generated flashcards and 8 study games in 30 seconds. The smarter Anki alternative.',
@@ -23,15 +23,15 @@ export const metadata: Metadata = {
   ],
   openGraph: {
     type: 'website',
-    siteName: 'Mindflip',
+    siteName: 'Bilkeys',
     images: [{ url: '/og-image.png', width: 1200, height: 630 }],
   },
   twitter: {
     card: 'summary_large_image',
-    site: '@mindflipapp',
+    site: '@bilkeysapp',
     images: ['/og-image.png'],
   },
-  alternates: { canonical: 'https://mindflip.io' },
+  alternates: { canonical: 'https://bilkeys.io' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

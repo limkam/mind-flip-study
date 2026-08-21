@@ -51,7 +51,7 @@
         "webRoute": "/library",
         "mobileRoute": "/(tabs)/library",
         "marketingAction": "get_started",
-        "label": "Try This in MindFlip: Upload & Build Set"
+        "label": "Try This in Bilkeys: Upload & Build Set"
       },
       "steps": [
         {
@@ -78,7 +78,7 @@
         {
           "id": "generate",
           "title": "AI Generation & Instant Study",
-          "description": "MindFlip AI extracts key terms, definitions, and quiz scenarios in seconds.",
+          "description": "Bilkeys AI extracts key terms, definitions, and quiz scenarios in seconds.",
           "visualType": "ai_generation_demo",
           "platformText": {
             "web": "Click 'Generate Flashcards' to launch your new study set.",
@@ -89,7 +89,7 @@
       "sections": [
         {
           "heading": "Creating a Set from Uploaded PDF or Notes",
-          "body": "Navigate to the Library page and upload a PDF textbook or document (.pdf, .docx, .pptx). MindFlip's AI automatically parses chapter structure and generates key term-definition pairs."
+          "body": "Navigate to the Library page and upload a PDF textbook or document (.pdf, .docx, .pptx). Bilkeys's AI automatically parses chapter structure and generates key term-definition pairs."
         },
         {
           "heading": "Chapter-Specific AI Generation",
@@ -112,12 +112,12 @@
         "webRoute": "/daily-review",
         "mobileRoute": "/daily-review",
         "marketingAction": "get_started",
-        "label": "Try This in MindFlip: Start Daily Review"
+        "label": "Try This in Bilkeys: Start Daily Review"
       },
       "sections": [
         {
           "heading": "How Spaced Repetition Works",
-          "body": "Every card in MindFlip tracks an Ease Factor and Interval. When you rate your recall performance (1 to 5), our smart algorithm computes when you should next review the card to lock it into long-term memory."
+          "body": "Every card in Bilkeys tracks an Ease Factor and Interval. When you rate your recall performance (1 to 5), our smart algorithm computes when you should next review the card to lock it into long-term memory."
         },
         {
           "heading": "Daily Review Queue",
@@ -138,7 +138,7 @@
         "webRoute": "/leaderboard",
         "mobileRoute": "/leaderboard",
         "marketingAction": "get_started",
-        "label": "Try This in MindFlip: View Leaderboard & Earn XP"
+        "label": "Try This in Bilkeys: View Leaderboard & Earn XP"
       },
       "sections": [
         {
@@ -166,7 +166,7 @@
         "webRoute": "/leaderboard",
         "mobileRoute": "/leaderboard",
         "marketingAction": "get_started",
-        "label": "Try This in MindFlip: Check Your Rank"
+        "label": "Try This in Bilkeys: Check Your Rank"
       },
       "sections": [
         {
@@ -175,7 +175,7 @@
         },
         {
           "heading": "Global Top 25 & Around You View",
-          "body": "Global scope displays the Top 25 learners across MindFlip. If you are outside the Top 25, the 'Around You' card shows your exact rank and competitors directly above and below you."
+          "body": "Global scope displays the Top 25 learners across Bilkeys. If you are outside the Top 25, the 'Around You' card shows your exact rank and competitors directly above and below you."
         },
         {
           "heading": "Friends & Groups Scope",
@@ -201,7 +201,7 @@
         "webRoute": "/challenges",
         "mobileRoute": "/(tabs)/challenges",
         "marketingAction": "get_started",
-        "label": "Try This in MindFlip: Challenge a Friend"
+        "label": "Try This in Bilkeys: Challenge a Friend"
       },
       "steps": [
         {
@@ -248,7 +248,7 @@
         "webRoute": "/pricing",
         "mobileRoute": "/pricing",
         "marketingAction": "get_started",
-        "label": "Try This in MindFlip: View Plans & Credits"
+        "label": "Try This in Bilkeys: View Plans & Credits"
       },
       "sections": [
         {

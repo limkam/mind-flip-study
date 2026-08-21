@@ -12,7 +12,7 @@ export interface SeenEntry {
 }
 
 export function seenStorageKey(userId: string): string {
-  return `mindflip:celebrations:v${VERSION}:user:${userId}`;
+  return `bilkeys:celebrations:v${VERSION}:user:${userId}`;
 }
 
 export interface SeenState {

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,9 +27,9 @@ import { getApiErrorMessage } from "@/lib/apiError";
 import { useAuth } from "@/lib/AuthContext";
 import SubscriptionChangeDialog from "@/components/billing/SubscriptionChangeDialog";
 
-export default function PricingPlans({ compact = false }) {
+export default function PricingPlans({ compact = false, initialPlan = null, initialInterval = null }) {
   const [loadingPlan, setLoadingPlan] = useState(null);
-  const [interval, setInterval] = useState("monthly");
+  const [interval, setInterval] = useState(initialInterval === "monthly" || initialInterval === "annual" ? initialInterval : "annual");
   const [changeDialogPlan, setChangeDialogPlan] = useState(null);
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
@@ -39,6 +39,14 @@ export default function PricingPlans({ compact = false }) {
     queryKey: ["billing-pricing"],
     queryFn: fetchBillingPricing,
   });
+
+  const defaultIntervalAppliedRef = useRef(Boolean(initialInterval));
+  useEffect(() => {
+    if (pricing?.default_interval && !defaultIntervalAppliedRef.current) {
+      defaultIntervalAppliedRef.current = true;
+      setInterval(pricing.default_interval);
+    }
+  }, [pricing]);
 
   const {
     data: entitlements,
@@ -62,6 +70,7 @@ export default function PricingPlans({ compact = false }) {
       })),
       priceCents: priceForPlan(pricing, slug, interval),
       stripePriceId: priceIdForPlan(pricing, slug, interval),
+      mostPopular: Boolean(pricing?.plans?.[slug]?.most_popular),
     }));
   }, [pricing, interval]);
 
@@ -147,20 +156,28 @@ export default function PricingPlans({ compact = false }) {
       >
         {plans.map((plan) => {
           const isCurrent = plan.slug === currentPlan;
-          const isRecommended = plan.slug === RECOMMENDED_PLAN_SLUG;
+          const isRecommended = plan.mostPopular;
           const isFree = plan.slug === "free";
+          const isPreselected = initialPlan === plan.slug;
           const priceAmount = isFree
             ? "$0"
-            : `${formatUsd(plan.priceCents)}`;
+            : interval === "annual"
+              ? formatUsd(plan.priceCents / 12)
+              : formatUsd(plan.priceCents);
 
           return (
             <div
               key={plan.slug}
-              className={`relative flex h-full min-h-[640px] flex-col rounded-lg border bg-card p-5 shadow-sm transition-all ${isRecommended ? "border-primary shadow-lg shadow-primary/10 ring-1 ring-primary/15" : "border-border/70"} ${isCurrent ? "bg-primary/[0.045]" : ""}`}
+              className={`relative flex h-full min-h-[640px] flex-col rounded-lg border bg-card p-5 shadow-sm transition-all ${isRecommended ? "border-primary shadow-lg shadow-primary/10 ring-1 ring-primary/15" : "border-border/70"} ${isCurrent ? "bg-primary/[0.045]" : ""} ${isPreselected ? "ring-2 ring-emerald-500 ring-offset-2 ring-offset-background" : ""}`}
             >
               {isRecommended ? (
                 <div className="absolute left-6 top-0 -translate-y-1/2 rounded-full bg-primary px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-primary-foreground">
                   Most popular
+                </div>
+              ) : null}
+              {isPreselected ? (
+                <div className="absolute right-6 top-0 -translate-y-1/2 rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-white">
+                  Selected
                 </div>
               ) : null}
               <div className="flex items-start justify-between gap-3">
@@ -185,9 +202,14 @@ export default function PricingPlans({ compact = false }) {
                     {priceAmount}
                   </span>
                   <span className="pb-1 text-sm text-muted-foreground">
-                    {interval === "annual" ? "/year" : "/month"}
+                    /month
                   </span>
                 </div>
+                {!isFree && interval === "annual" ? (
+                  <p className="mt-1 text-xs font-medium text-muted-foreground">
+                    Billed at {formatUsd(plan.priceCents)}/year
+                  </p>
+                ) : null}
                 <p className="mt-3 min-h-[48px] text-sm leading-6 text-muted-foreground">
                   {plan.tagline}
                 </p>
@@ -214,7 +236,7 @@ export default function PricingPlans({ compact = false }) {
               <div className="mt-auto pt-6">
                 {!isFree && !isCurrent && !hasActiveSubscription ? (
                   <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-                    You&apos;ll be charged <span className="font-semibold text-foreground">{priceAmount}</span> today. Your subscription renews automatically every {interval === "annual" ? "year" : "month"} until you cancel. Cancel anytime from Billing &amp; Credits.
+                    You&apos;ll be charged <span className="font-semibold text-foreground">{formatUsd(plan.priceCents)}</span> today. Your subscription renews automatically every {interval === "annual" ? "year" : "month"} until you cancel. Cancel anytime from Billing &amp; Credits.
                   </p>
                 ) : null}
                 {accountStateUnresolved ? (

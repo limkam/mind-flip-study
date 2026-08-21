@@ -62,7 +62,7 @@ export function HelpCenter() {
       <section className="noise relative overflow-hidden bg-[#11142c] py-24 text-white sm:py-32">
         <div className="absolute left-1/2 top-0 h-80 w-[50rem] -translate-x-1/2 rounded-full bg-indigo-600/40 blur-[100px]" />
         <div className="section-shell relative text-center">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-300">Mindflip User Guide</p>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-300">Bilkeys User Guide</p>
           <h1 className="mt-5 text-5xl font-black tracking-[-0.05em] sm:text-7xl">How can we help?</h1>
           <p className="mx-auto mt-5 max-w-xl text-lg text-slate-300">
             Official platform documentation for studying, spaced repetition, XP rules, leaderboards, and accounts.
@@ -200,9 +200,9 @@ export function HelpCenter() {
         <div className="mt-20 rounded-[2rem] bg-indigo-50 p-8 text-center sm:p-12">
           <h2 className="text-3xl font-black">Still need help?</h2>
           <p className="mx-auto mt-3 max-w-xl text-gray-600">
-            Contact our team with questions about your Mindflip account, study progress, or subscriptions.
+            Contact our team with questions about your Bilkeys account, study progress, or subscriptions.
           </p>
-          <a href="mailto:hello@mindflip.io" className="button-primary mt-7">
+          <a href="mailto:hello@bilkeys.io" className="button-primary mt-7">
             Contact support
           </a>
           <Link href="/privacy" className="ml-3 mt-7 inline-flex text-sm font-bold text-gray-600 hover:text-indigo-600">

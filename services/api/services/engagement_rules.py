@@ -177,7 +177,7 @@ async def build_candidates(
                 placement,
                 "learning",
                 100,
-                "Finish setting up MindFlip",
+                "Finish setting up Bilkeys",
                 "Complete your learning profile so recommendations match your goals.",
                 "Continue setup",
                 "/onboarding",

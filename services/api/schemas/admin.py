@@ -121,7 +121,7 @@ class AdminMetricsOut(BaseModel):
     onboarding_started_30d: int
     onboarding_completed_30d: int
     onboarding_rate_pct: float
-    churned_users_30d: int
+    churned_users_mtd: int
     churn_rate_pct: float
     usage_by_feature: list[FeatureUsagePoint]
     ai_cost_daily: list[MetricsDailyPoint]

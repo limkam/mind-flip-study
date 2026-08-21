@@ -1,9 +1,9 @@
-# MindFlip Mobile UX Redesign Roadmap (MFUX)
+# Bilkeys Mobile UX Redesign Roadmap (MFUX)
 
 | Package | Title | Status |
 | :--- | :--- | :---: |
-| **MFUX-001** | Complete MindFlip Mobile UX/UI Audit & Design-System Baseline | **Complete** |
-| **MFUX-002** | MindFlip Mobile Design Foundation & Shared Native UI Primitives | **Complete** |
+| **MFUX-001** | Complete Bilkeys Mobile UX/UI Audit & Design-System Baseline | **Complete** |
+| **MFUX-002** | Bilkeys Mobile Design Foundation & Shared Native UI Primitives | **Complete** |
 | **MFUX-003** | First-launch, Authentication & Onboarding Experience | **Complete** |
 | **MFUX-004** | Navigation Shell & Bottom Tab Redesign | **Complete** |
 | **MFUX-005** | Core Learning Loop & FlashCard Redesign | **Complete** |

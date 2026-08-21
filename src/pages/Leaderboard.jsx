@@ -121,7 +121,7 @@ export default function Leaderboard() {
         <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-yellow-400/10 text-yellow-500 mb-1">
           <Trophy className="w-8 h-8" />
         </div>
-        <h1 className="font-heading text-3xl font-bold tracking-tight">MindFlip Leaderboard</h1>
+        <h1 className="font-heading text-3xl font-bold tracking-tight">Bilkeys Leaderboard</h1>
         <p className="text-muted-foreground text-sm max-w-md mx-auto">
           Earn XP by completing quizzes, mastering flashcards, finishing daily review, and maintaining streaks.
         </p>

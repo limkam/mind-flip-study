@@ -62,7 +62,7 @@ RULES:
 - Return strict JSON only, with no markdown or commentary."""
 
 _NOISE_LINE = re.compile(
-    r"^(page \d|copyright|©|all rights|www\.|http|isbn|table of contents|\d+$|mindflip)",
+    r"^(page \d|copyright|©|all rights|www\.|http|isbn|table of contents|\d+$|bilkeys)",
     re.I,
 )
 

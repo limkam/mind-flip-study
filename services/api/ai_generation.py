@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -592,6 +593,7 @@ def mark_book_ai_finished(
     extras["ai_job"] = payload
     book.extras = extras
     book.status = BookStatus.ready if success else BookStatus.error
+    book.processing_completed_at = datetime.now(UTC)
     log.info(
         "book_ai_job_finished",
         extra={

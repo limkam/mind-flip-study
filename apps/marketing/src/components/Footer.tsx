@@ -1,21 +1,17 @@
 import Link from 'next/link';
-import { DownloadBadges } from '@/components/DownloadBadges';
-import { subjects } from '@/lib/subjects';
 
-const footerStudySlugs = ['biology', 'mathematics', 'history', 'chemistry', 'psychology'];
+const productHighlights = ['Study groups', 'Flashcards', 'Games', 'Daily review'];
 
 export function Footer() {
-  const studyLinks = subjects.filter((s) => footerStudySlugs.includes(s.slug));
-
   return (
     <footer className="border-t border-gray-200 bg-[#0e1024] px-6 py-16 text-white">
       <div className="mx-auto grid max-w-7xl gap-12 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <div className="flex items-center gap-2.5 text-xl font-black tracking-[-0.04em]">
             <span className="grid h-8 w-8 place-items-center rounded-xl bg-indigo-600 text-xs font-black text-white shadow-md shadow-indigo-500/20 rotate-[30deg] my-1 ml-1">
-              <span className="-rotate-[30deg]">M</span>
+              <span className="-rotate-[30deg]">B</span>
             </span>
-            <span>Mind<span className="text-indigo-400">flip</span></span>
+            <span>Bil<span className="text-indigo-400">keys</span></span>
           </div>
           <p className="mt-3 max-w-xs text-sm leading-6 text-slate-400">
             Turn your course material into a study system that helps knowledge stick.
@@ -38,21 +34,14 @@ export function Footer() {
                 Pricing
               </Link>
             </li>
-            <li className="pt-2">
-              <DownloadBadges size="small" />
-            </li>
           </ul>
         </div>
 
         <div>
-          <h3 className="font-semibold text-white">Study</h3>
+          <h3 className="font-semibold text-white">What you get</h3>
           <ul className="mt-4 space-y-3 text-sm text-slate-400">
-            {studyLinks.map((s) => (
-              <li key={s.slug}>
-                <Link href={`/study/${s.slug}`} className="hover:text-white">
-                  {s.name}
-                </Link>
-              </li>
+            {productHighlights.map((item) => (
+              <li key={item}>{item}</li>
             ))}
           </ul>
         </div>
@@ -67,18 +56,18 @@ export function Footer() {
               </Link>
             </li>
             <li>
-              <a href="mailto:hello@mindflip.io" className="hover:text-white">
+              <a href="mailto:hello@bilkeys.io" className="hover:text-white">
                 Contact
               </a>
             </li>
             <li>
               <a
-                href="https://twitter.com/mindflipapp"
+                href="https://twitter.com/bilkeysapp"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-white"
               >
-                @mindflipapp
+                @bilkeysapp
               </a>
             </li>
           </ul>
@@ -86,7 +75,7 @@ export function Footer() {
       </div>
 
       <p className="mx-auto mt-12 max-w-7xl border-t border-white/10 pt-8 text-center text-sm text-slate-500">
-        © {new Date().getFullYear()} Mindflip. Learn with momentum.
+        © {new Date().getFullYear()} Bilkeys. Learn with momentum.
       </p>
     </footer>
   );

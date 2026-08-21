@@ -19,14 +19,14 @@ from models.enums import UserRole
 from models.user import User
 from passwords import hash_password
 
-DEFAULT_EMAIL = "admin@mindflip.local"
+DEFAULT_EMAIL = "admin@bilkeys.local"
 DEFAULT_PASSWORD = "Admin123!"
 
 
 async def main() -> None:
     email = os.environ.get("ADMIN_EMAIL", DEFAULT_EMAIL).strip().lower()
     password = os.environ.get("ADMIN_PASSWORD", DEFAULT_PASSWORD)
-    full_name = os.environ.get("ADMIN_FULL_NAME", "MindFlip Admin")
+    full_name = os.environ.get("ADMIN_FULL_NAME", "Bilkeys Admin")
 
     init_engine(settings.DATABASE_URL)
     from database import AsyncSessionLocal

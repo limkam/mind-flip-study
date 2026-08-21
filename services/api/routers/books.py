@@ -157,6 +157,9 @@ async def create_upload_url(
     body: BookUploadUrlRequest,
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> BookUploadUrlResponse:
+    # Not logged as a guardrail event here — this is just a pre-check ahead of requesting a
+    # presigned URL, the client may never actually attempt the upload. The authoritative
+    # rejection (and where it's logged) is POST /books, once the file actually lands in S3.
     safe_name = _sanitize_filename(body.filename)
     if not safe_name.lower().endswith(ALLOWED_EXTENSIONS):
         raise HTTPException(
@@ -347,6 +350,16 @@ async def create_book(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book to replace not found")
 
     if body.file_size_bytes > MAX_UPLOAD_SIZE_BYTES:
+        from models.security_events import SystemSecurityEvent
+
+        db.add(
+            SystemSecurityEvent(
+                event_type="book_size_exceeded",
+                user_id=current_user.id,
+                detail=f"{body.file_size_bytes} bytes (limit {MAX_UPLOAD_SIZE_BYTES})",
+            )
+        )
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="The selected file exceeds the 20 MB upload limit. Please upload a smaller document.",

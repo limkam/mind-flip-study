@@ -109,7 +109,7 @@ export default function AccountMenu({ onSignOut }) {
           <UserAvatar user={user} className="h-11 w-11" />
           <span className="min-w-0">
             <span className="block truncate text-sm font-semibold text-foreground">
-              {user?.full_name || "MindFlip user"}
+              {user?.full_name || "Bilkeys user"}
             </span>
             <span className="block truncate text-xs text-muted-foreground">{user?.email}</span>
           </span>
@@ -144,10 +144,10 @@ export default function AccountMenu({ onSignOut }) {
           <DropdownMenuItem onSelect={() => navigate("/feedback")} className="py-2">
             <CircleHelp /> Help &amp; Support
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => window.open("https://mindflip.io/privacy", "_blank", "noopener,noreferrer")} className="py-2">
+          <DropdownMenuItem onSelect={() => window.open("https://bilkeys.io/privacy", "_blank", "noopener,noreferrer")} className="py-2">
             <ShieldCheck /> Privacy Policy
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => window.open("https://mindflip.io/terms", "_blank", "noopener,noreferrer")} className="py-2">
+          <DropdownMenuItem onSelect={() => window.open("https://bilkeys.io/terms", "_blank", "noopener,noreferrer")} className="py-2">
             <FileText /> Terms of Service
           </DropdownMenuItem>
         </DropdownMenuGroup>

@@ -19,6 +19,7 @@ from models.flashcard import Flashcard, FlashcardSet
 from models.quiz import CardProgress, StudyEvent
 from models.user import User
 from schemas.quiz_api import DueFlashcardOut, StudyProgressIn, StudyProgressOut
+from services.entitlements import _plan_features, _user_plan_slug
 from services.learning_pace import adjusted_due_limit, adjust_next_review_date
 from services.spaced_rep import compute_sm2
 from services.engagement import EventInput, emit_trusted_event
@@ -203,6 +204,35 @@ async def post_study_progress(
     return StudyProgressOut.model_validate(row).model_copy(update={"celebration_events": celebration_events})
 
 
+async def _reviewed_today_count(db: AsyncSession, user_id: UUID) -> int:
+    today_date = datetime.now(timezone.utc).date()
+    return int(
+        await db.scalar(
+            select(func.count(func.distinct(CardProgress.card_id))).where(
+                CardProgress.user_id == user_id,
+                func.date(CardProgress.last_reviewed_at) == today_date,
+            )
+        )
+        or 0
+    )
+
+
+async def _apply_daily_review_cap(db: AsyncSession, user: User, requested_limit: int) -> int:
+    """Cap how many new due cards are served today under the plan's daily review limit.
+
+    Returns 0 (an already-exhausted queue) once the user has reviewed >= the plan's
+    daily cap; paid tiers (limit None) pass the requested limit through unchanged.
+    """
+    plan_slug = await _user_plan_slug(db, user)
+    features = await _plan_features(db, plan_slug)
+    limit = features.get("daily_review_limit")
+    if limit is None:
+        return requested_limit
+    reviewed_today = await _reviewed_today_count(db, user.id)
+    remaining = max(0, int(limit) - reviewed_today)
+    return min(requested_limit, remaining)
+
+
 @router.get("/due-cards", response_model=list[DueFlashcardOut])
 async def get_due_cards(
     set_id: Annotated[UUID, Query(..., description="Flashcard set UUID")],
@@ -220,6 +250,10 @@ async def get_due_cards(
     )
     if own.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Set not found")
+
+    limit = await _apply_daily_review_cap(db, current_user, limit)
+    if limit <= 0:
+        return []
 
     # Match ``compute_sm2`` / ``next_review_date`` using UTC calendar day (not session TZ).
     today_utc = datetime.now(timezone.utc).date()
@@ -298,6 +332,9 @@ async def get_daily_review_queue(
 ) -> list[DueFlashcardOut]:
     """Cross-set due cards with optional scope filters."""
     limit = adjusted_due_limit(limit, current_user.preferences)
+    limit = await _apply_daily_review_cap(db, current_user, limit)
+    if limit <= 0:
+        return []
     today_utc = datetime.now(timezone.utc).date()
     today_lit = literal(today_utc, type_=Date())
 

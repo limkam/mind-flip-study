@@ -1,7 +1,7 @@
 import { queryClientInstance } from "@/lib/query-client";
 
 const CACHE_VERSION = 1;
-const CACHE_PREFIX = "mindflip_core_data";
+const CACHE_PREFIX = "bilkeys_core_data";
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000;
 const CORE_QUERY_KEYS = new Set([
   JSON.stringify(["books"]),

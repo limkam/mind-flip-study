@@ -48,3 +48,13 @@ class UserSubscription(Base):
     pending_price_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     pending_change_effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     stripe_schedule_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    cancellation_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Dunning: incremented on each invoice.payment_failed webhook for this subscription,
+    # reset to 0 on the next invoice.payment_succeeded. dunning_stage is the retry attempt
+    # count Stripe has told us about — no separate structured "stage" ladder exists, so this
+    # field also serves as the stage number for display purposes.
+    dunning_stage: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    dunning_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    dunning_last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

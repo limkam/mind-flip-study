@@ -22,6 +22,7 @@ __all__ = [
     "get_redis",
     "oauth2_scheme",
     "require_role",
+    "require_admin_role",
     "enforce_tier_limit",
     "enforce_auth_rate_limit",
     "enforce_scorecard_share_rate_limit",
@@ -159,6 +160,24 @@ def require_role(*roles: str):
         return current_user
 
     return _require_role
+
+
+def require_admin_role(*admin_roles: str):
+    """Return a FastAPI dependency that requires `role == admin` AND `admin_role` in
+    `admin_roles`. Layered on top of `require_role("admin")` — the Owner Console sub-role
+    tiers (owner/finance/support/marketer) only ever narrow admin access, never widen it."""
+
+    async def _require_admin_role(
+        current_user: Annotated[User, Depends(require_role("admin"))],
+    ) -> User:
+        if current_user.admin_role not in admin_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+        return current_user
+
+    return _require_admin_role
 
 
 FREE_TIER_LIMITS = {"books": 1, "flashcard_sets": 1, "cards": 5}

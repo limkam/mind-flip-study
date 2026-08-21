@@ -40,13 +40,10 @@ export default function SharedStudySession() {
     onError: (err) => {
       const code = err?.response?.data?.detail?.code;
       if (code === "UPGRADE_REQUIRED") {
-        const detail = err.response.data.detail;
         window.dispatchEvent(
           new CustomEvent(PLAN_LIMIT_EVENT, {
             detail: {
-              reason: detail.reason === "set_limit"
-                ? "You're out of flashcard set slots to add this shared material to your library."
-                : "You're out of book slots to add this shared material to your library.",
+              reason: "You don't have enough content credits to add this shared material to your library.",
             },
           }),
         );
@@ -89,10 +86,10 @@ export default function SharedStudySession() {
     return <p className="text-center text-muted-foreground py-16">Opening your study set…</p>;
   }
 
-  const bookSlots = preview?.book_slots_remaining;
-  const setSlots = preview?.set_slots_remaining;
+  const creditsRemaining = preview?.content_credits_remaining;
+  const activationsRemaining = preview?.activations_remaining;
   const previouslyCharged = preview?.previously_charged;
-  const outOfSlots = !previouslyCharged && (bookSlots === 0 || setSlots === 0);
+  const outOfSlots = !previouslyCharged && activationsRemaining === 0;
 
   return (
     <div className="max-w-md mx-auto space-y-6 py-10">
@@ -113,10 +110,9 @@ export default function SharedStudySession() {
             "You already paid for this material before — reactivating it is free and restores your prior study progress. It won't use another book or set slot."
           ) : (
             <>
-              Add this to your library? This will permanently use 1 of your{" "}
-              {bookSlots ?? "unlimited"} book slots and 1 of your{" "}
-              {setSlots ?? "unlimited"} flashcard set slots for this billing period —
-              removing it later won't refund the slot, same as deleting content you
+              Add this to your library? This will permanently use 2 content credits
+              ({creditsRemaining ?? "unlimited"} remaining) for this billing period —
+              removing it later won't refund the credits, same as deleting content you
               uploaded yourself. Once added, you'll get full study access — spaced
               repetition and progress tracking, same as content you upload yourself.
             </>
@@ -126,8 +122,8 @@ export default function SharedStudySession() {
 
       {outOfSlots ? (
         <p className="text-center text-sm text-amber-600">
-          You're out of {bookSlots === 0 ? "book" : "flashcard set"} slots on your current plan.
-          Upgrade to add this to your library.
+          You don't have enough content credits on your current plan. Buy extra credits or
+          upgrade to add this to your library.
         </p>
       ) : null}
 

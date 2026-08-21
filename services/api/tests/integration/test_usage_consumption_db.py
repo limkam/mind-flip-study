@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from models.book import Book
+from models.credit_ledger import CreditLedger
 from models.enums import BookStatus, UserRole
 from models.flashcard import FlashcardSet
 from models.usage_event import UsageEvent
@@ -73,15 +74,28 @@ def _event(user_id, resource_id, event_type, key) -> UsageEvent:
     )
 
 
+def _grant(user_id, amount, *, pool="content", reason="monthly_allowance") -> CreditLedger:
+    return CreditLedger(user_id=user_id, amount=amount, pool=pool, reason=reason)
+
+
+def _spend(user_id, amount, *, pool="content", reason="create_book") -> CreditLedger:
+    return CreditLedger(user_id=user_id, amount=-amount, pool=pool, reason=reason)
+
+
 @pytest.mark.asyncio
-async def test_book_delete_keeps_usage_and_limit_consumed(db):
+async def test_book_delete_keeps_usage_and_credits_spent(db):
+    """CREATE_BOOK is gated by content credit balance, not usage_events — deleting the book
+    must not refund the credit that was spent creating it (permanent charge, same policy as
+    the usage_events ledger it replaced for gating)."""
     user = _user()
     db.add(user)
     await db.flush()
+    db.add(_grant(user.id, 1))
     book = _book(user.id)
     db.add(book)
     await db.flush()
     db.add(_event(user.id, book.id, "book_uploaded", f"book:{book.id}"))
+    db.add(_spend(user.id, 1, reason="create_book"))
     await db.commit()
 
     await db.delete(book)
@@ -96,14 +110,16 @@ async def test_book_delete_keeps_usage_and_limit_consumed(db):
 
 
 @pytest.mark.asyncio
-async def test_flashcard_delete_keeps_generation_usage(db):
+async def test_flashcard_delete_keeps_generation_usage_and_credits_spent(db):
     user = _user()
     db.add(user)
     await db.flush()
+    db.add(_grant(user.id, 1))
     card_set = FlashcardSet(user_id=user.id, title="Generated", tags=[])
     db.add(card_set)
     await db.flush()
     db.add(_event(user.id, card_set.id, "flashcards_generated", f"set:{card_set.id}"))
+    db.add(_spend(user.id, 1, reason="create_set"))
     await db.commit()
 
     await db.delete(card_set)
@@ -113,6 +129,23 @@ async def test_flashcard_delete_keeps_generation_usage(db):
         select(UsageEvent).where(UsageEvent.resource_id == card_set.id)
     ) is not None
     assert (await can_user_do(db, user, Action.CREATE_SET))["allowed"] is False
+
+
+@pytest.mark.asyncio
+async def test_create_book_falls_back_to_purchased_credits_once_monthly_allowance_exhausted(db):
+    """usage_events must never be what blocks a user who still holds purchased credits — once
+    the monthly plan allowance is spent, purchased credits (pool='purchased') keep CREATE_BOOK
+    allowed, and the entitlement decision says to consume from the shared purchased pool."""
+    user = _user()
+    db.add(user)
+    await db.flush()
+    db.add(_grant(user.id, 2))  # monthly content allowance, already fully spent below
+    db.add(_spend(user.id, 2, reason="create_book"))
+    db.add(_grant(user.id, 3, pool="purchased", reason="purchased_credits"))
+    await db.commit()
+
+    decision = await can_user_do(db, user, Action.CREATE_BOOK)
+    assert decision == {"allowed": True, "consume": {"pool": "content", "amount": 1}}
 
 
 @pytest.mark.asyncio
@@ -135,14 +168,16 @@ async def test_failed_creation_rolls_back_resource_and_usage(db):
 
 @pytest.mark.asyncio
 async def test_two_consumptions_stay_at_limit_after_content_delete(db):
-    user = _user(tier="quick_72")
+    user = _user()
     db.add(user)
     await db.flush()
+    db.add(_grant(user.id, 2))
     books = [_book(user.id), _book(user.id)]
     db.add_all(books)
     await db.flush()
     for book in books:
         db.add(_event(user.id, book.id, "book_uploaded", f"book:{book.id}"))
+        db.add(_spend(user.id, 1, reason="create_book"))
     await db.commit()
 
     await db.delete(books[0])

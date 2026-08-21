@@ -7,18 +7,18 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: mindflip
-      POSTGRES_PASSWORD: mindflip
-      POSTGRES_DB: mindflip
+      POSTGRES_USER: bilkeys
+      POSTGRES_PASSWORD: bilkeys
+      POSTGRES_DB: bilkeys
     volumes:
-      - mindflip_pgdata:/var/lib/postgresql/data
+      - bilkeys_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mindflip -d mindflip"]
+      test: ["CMD-SHELL", "pg_isready -U bilkeys -d bilkeys"]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - mindflip
+      - bilkeys
     profiles:
       - local-db
 
@@ -30,7 +30,7 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - mindflip
+      - bilkeys
 
   api:
     build:
@@ -46,7 +46,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - mindflip
+      - bilkeys
     restart: unless-stopped
 
   worker:
@@ -62,7 +62,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - mindflip
+      - bilkeys
     restart: unless-stopped
 
   beat:
@@ -78,12 +78,12 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - mindflip
+      - bilkeys
     restart: unless-stopped
 
 networks:
-  mindflip:
+  bilkeys:
     driver: bridge
 
 volumes:
-  mindflip_pgdata:
+  bilkeys_pgdata:

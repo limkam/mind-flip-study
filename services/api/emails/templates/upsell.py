@@ -13,10 +13,10 @@ def second_purchase_upsell_email(full_name: str) -> str:
     upgrade_url = f"{settings.FRONTEND_URL.rstrip('/')}/billing"
     
     body = f"""
-      <h1 style="{s['h1']}">You're a MindFlip power user, {name}! 🌟</h1>
+      <h1 style="{s['h1']}">You're a Bilkeys power user, {name}! 🌟</h1>
       <p style="{s['p']}">
         We noticed you just purchased your second credit package. 
-        That's awesome—you clearly love studying with MindFlip!
+        That's awesome—you clearly love studying with Bilkeys!
       </p>
       <p style="{s['p']}">
         Here's a thought: for the price of just 3-4 credit packages, 

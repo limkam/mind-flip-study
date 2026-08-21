@@ -49,7 +49,7 @@ export const TAB_NAV_ITEMS: TabNavItem[] = [
   {
     name: "more",
     label: "More",
-    accessibilityLabel: "More MindFlip destinations",
+    accessibilityLabel: "More Bilkeys destinations",
     icon: "menu-outline",
     activeIcon: "menu",
   },

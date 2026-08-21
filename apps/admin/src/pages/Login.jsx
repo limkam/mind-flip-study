@@ -36,7 +36,7 @@ export default function Login() {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1>MindFlip Admin</h1>
+        <h1>Bilkeys Admin</h1>
         <p className="login-sub">Sign in with an admin account</p>
         {(message || error) && <p className="login-error">{error || message}</p>}
         <label>

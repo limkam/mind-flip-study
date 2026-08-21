@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import PricingPlans from "@/components/billing/PricingPlans";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
@@ -9,13 +10,18 @@ import {
   fetchEntitlementsSnapshot,
 } from "@/lib/billing";
 import { getApiErrorMessage } from "@/lib/apiError";
-import { planLabelFromSlug } from "@/lib/plans";
+import { PLAN_ORDER, planLabelFromSlug } from "@/lib/plans";
 import { useAuth } from "@/lib/AuthContext";
 
 export default function Pricing() {
   const { toast } = useToast();
   const [loadingCancel, setLoadingCancel] = useState(false);
   const { isAuthenticated } = useAuth();
+  const [searchParams] = useSearchParams();
+  const requestedPlan = searchParams.get("plan");
+  const requestedInterval = searchParams.get("interval");
+  const initialPlan = PLAN_ORDER.includes(requestedPlan) ? requestedPlan : null;
+  const initialInterval = requestedInterval === "monthly" || requestedInterval === "annual" ? requestedInterval : null;
 
   const { data: entitlements, refetch: refetchEntitlements } = useQuery({
     queryKey: ["billing-entitlements"],
@@ -62,7 +68,7 @@ export default function Pricing() {
         </div>
       </div>
 
-      <PricingPlans />
+      <PricingPlans initialPlan={initialPlan} initialInterval={initialInterval} />
 
       {entitlements?.subscription_status &&
       entitlements.subscription_status !== "free" ? (

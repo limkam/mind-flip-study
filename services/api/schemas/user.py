@@ -21,6 +21,7 @@ class UserPublic(BaseModel):
     id: UUID
     email: AppEmail
     role: UserRole
+    admin_role: str | None = None
     full_name: str
     avatar_url: str | None = None
     auth_provider: str = "email"

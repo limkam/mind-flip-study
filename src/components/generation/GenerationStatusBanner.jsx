@@ -32,7 +32,7 @@ export default function GenerationStatusBanner() {
             {active.bookTitle || 'Your study set'}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            This may take a few moments. You may continue using MindFlip while generation completes.
+            This may take a few moments. You may continue using Bilkeys while generation completes.
           </p>
         </div>
         <Button

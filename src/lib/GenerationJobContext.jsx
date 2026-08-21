@@ -14,7 +14,7 @@ import { useJobPoll } from '@/hooks/useJobPoll';
 import { useToast } from '@/components/ui/use-toast';
 import { extractJobError, extractSetIdFromJob } from '@/lib/generationPhases';
 
-const STORAGE_KEY = 'mindflip_generation_jobs';
+const STORAGE_KEY = 'bilkeys_generation_jobs';
 
 const GenerationJobContext = createContext(null);
 

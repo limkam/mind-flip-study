@@ -11,7 +11,7 @@ from config import settings
 
 log = logging.getLogger(__name__)
 
-REDIS_JOB_PREFIX = "mindflip:job:"
+REDIS_JOB_PREFIX = "bilkeys:job:"
 JOB_CACHE_TTL_SECONDS = 7200
 
 

@@ -20,11 +20,11 @@ from models.flashcard import Flashcard, FlashcardSet, Workbook
 from models.plan import Plan
 from models.quiz import QuizResult, StudyEvent
 from models.token_usage import TokenUsage
-from models.billing_analytics import BillingEvent, BillingInvoice
+from models.billing_analytics import BillingInvoice
 from models.user_subscription import UserSubscription
 from models.user import User
 from services.plan_catalog import normalize_plan_label
-from services.financial_metrics_service import FinancialMetricsService
+from services.financial_metrics_service import FinancialMetricsService, calculate_monthly_churn
 from schemas.admin_analytics import (
     ActiveUserRow,
     AiUsageAnalyticsOut,
@@ -627,17 +627,8 @@ async def financial_analytics(
         )
         or 0
     )
-    churned = int(
-        await db.scalar(
-            select(func.count(BillingEvent.id)).where(
-                BillingEvent.event_type == "customer.subscription.deleted",
-                BillingEvent.status == "succeeded",
-                BillingEvent.received_at >= month_start,
-            )
-        )
-        or 0
-    )
-    churn_rate = round(churned / max(paying_users + churned, 1) * 100, 1)
+    churn = await calculate_monthly_churn(db, period_start=month_start, now=now)
+    churn_rate = churn.churn_rate_pct
 
     plan_rev_rows = await db.execute(
         select(

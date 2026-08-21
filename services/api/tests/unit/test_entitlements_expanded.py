@@ -14,7 +14,7 @@ def test_default_plan_features_match_published_matrix():
     assert DEFAULT_PLAN_FEATURES["quick_72"]["games_limit"] == 3
     assert DEFAULT_PLAN_FEATURES["standard_15"]["games_limit"] == 5
     assert DEFAULT_PLAN_FEATURES["premium_30"]["games_limit"] == 8
-    assert DEFAULT_PLAN_FEATURES["quick_72"]["can_send_challenges"] is True
+    assert DEFAULT_PLAN_FEATURES["quick_72"]["can_send_challenges"] is False
     assert DEFAULT_PLAN_FEATURES["quick_72"]["can_create_study_group"] is False
 
 
@@ -28,13 +28,7 @@ class _User:
 async def test_free_book_limit(monkeypatch):
     user = _User("u_free", "free")
     fake_db = AsyncMock()
-
-    # return no plan row; default features apply
-    async def fake_scalar(q):
-        # simulate 3 existing books
-        return 3
-
-    fake_db.scalar.side_effect = fake_scalar
+    monkeypatch.setattr("services.entitlements.credits.get_user_balance", AsyncMock(return_value=0))
 
     ent = await can_user_do(fake_db, user, Action.CREATE_BOOK)
     assert ent["allowed"] is False
@@ -62,21 +56,24 @@ async def test_premium_priority_allowed(monkeypatch):
 async def test_free_daily_review_limit(monkeypatch):
     user = _User("u_free2", "free")
     fake_db = AsyncMock()
-    ent = await can_user_do(fake_db, user, Action.DAILY_REVIEW, count=21)
+    ent = await can_user_do(fake_db, user, Action.DAILY_REVIEW, count=6)
     assert ent["allowed"] is False
-    assert ent["limit"] == 20
+    assert ent["limit"] == 5
+
+    at_limit = await can_user_do(fake_db, user, Action.DAILY_REVIEW, count=5)
+    assert at_limit["allowed"] is True
 
 
 @pytest.mark.parametrize(
-    ("plan", "books", "sets", "cards", "games", "challenges", "groups"),
+    ("plan", "books", "sets", "cards", "games", "challenges", "groups", "max_joined_groups"),
     [
-        ("free", 1, 1, 5, 2, False, False),
-        ("quick_72", 2, 5, 20, 3, True, False),
-        ("standard_15", 5, 10, 30, 5, True, True),
-        ("premium_30", 10, 20, 50, 8, True, True),
+        ("free", 1, 1, 5, 2, False, False, 1),
+        ("quick_72", 2, 5, 20, 3, False, False, None),
+        ("standard_15", 5, 10, 30, 5, True, True, None),
+        ("premium_30", 10, 20, 50, 8, True, True, None),
     ],
 )
-def test_published_plan_matrix(plan, books, sets, cards, games, challenges, groups):
+def test_published_plan_matrix(plan, books, sets, cards, games, challenges, groups, max_joined_groups):
     features = DEFAULT_PLAN_FEATURES[plan]
     assert features["max_books"] == books
     assert features["max_sets"] == sets
@@ -84,43 +81,41 @@ def test_published_plan_matrix(plan, books, sets, cards, games, challenges, grou
     assert features["games_limit"] == games
     assert features["can_send_challenges"] is challenges
     assert features["can_create_study_group"] is groups
-    assert features["can_join_study_group"] is True
-    assert features["daily_review_limit"] == (20 if plan == "free" else None)
+    assert features["max_joined_study_groups"] == max_joined_groups
+    assert features["daily_review_limit"] == (5 if plan == "free" else None)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("plan", "action", "limit"),
+    ("plan", "action"),
     [
-        ("free", Action.CREATE_BOOK, 1),
-        ("free", Action.CREATE_SET, 1),
-        ("quick_72", Action.CREATE_BOOK, 2),
-        ("quick_72", Action.CREATE_SET, 5),
-        ("standard_15", Action.CREATE_BOOK, 5),
-        ("standard_15", Action.CREATE_SET, 10),
-        ("premium_30", Action.CREATE_BOOK, 10),
-        ("premium_30", Action.CREATE_SET, 20),
+        ("free", Action.CREATE_BOOK),
+        ("free", Action.CREATE_SET),
+        ("quick_72", Action.CREATE_BOOK),
+        ("quick_72", Action.CREATE_SET),
+        ("standard_15", Action.CREATE_BOOK),
+        ("standard_15", Action.CREATE_SET),
+        ("premium_30", Action.CREATE_BOOK),
+        ("premium_30", Action.CREATE_SET),
     ],
 )
-async def test_resource_allowances_are_per_user(plan, action, limit, monkeypatch):
+async def test_book_and_set_creation_gated_by_content_credit_balance(plan, action, monkeypatch):
+    """CREATE_BOOK/CREATE_SET are gated by the user's content credit balance (monthly plan
+    credits, then shared purchased credits) — not by a per-user usage_events count against
+    max_books/max_sets. usage_events remains an audit/idempotency ledger only."""
     user = _User(f"user-{plan}", plan)
     monkeypatch.setattr("services.entitlements._user_plan_slug", AsyncMock(return_value=plan))
-    consumed = AsyncMock(return_value=limit - 1)
-    monkeypatch.setattr("services.entitlements.consumed_quantity", consumed)
+    balance = AsyncMock(return_value=1)
+    monkeypatch.setattr("services.entitlements.credits.get_user_balance", balance)
 
     below_db = AsyncMock()
     allowed = await can_user_do(below_db, user, action)
-    assert allowed == {"allowed": True}
+    assert allowed == {"allowed": True, "consume": {"pool": "content", "amount": 1}}
+    assert balance.await_args.args[1] == user.id
+    assert balance.await_args.kwargs["pool"] == "content"
 
-    assert consumed.await_args.args[1] == user.id
-    period_start = consumed.await_args.kwargs["period_start"]
-    if plan == "free":
-        assert period_start is None
-    else:
-        assert period_start is not None
-
-    consumed.reset_mock()
-    consumed.return_value = limit
+    balance.reset_mock()
+    balance.return_value = 0
     at_limit_db = AsyncMock()
     denied = await can_user_do(at_limit_db, user, action)
     assert denied["allowed"] is False
@@ -129,15 +124,17 @@ async def test_resource_allowances_are_per_user(plan, action, limit, monkeypatch
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("plan", "games", "challenges", "groups", "daily_21"),
+    ("plan", "games", "challenges", "groups", "daily_21", "can_join_second_group"),
     [
-        ("free", True, False, False, False),
-        ("quick_72", True, True, False, True),
-        ("standard_15", True, True, True, True),
-        ("premium_30", True, True, True, True),
+        ("free", True, False, False, False, False),
+        ("quick_72", True, False, False, True, True),
+        ("standard_15", True, True, True, True, True),
+        ("premium_30", True, True, True, True, True),
     ],
 )
-async def test_feature_actions_match_each_account_plan(monkeypatch, plan, games, challenges, groups, daily_21):
+async def test_feature_actions_match_each_account_plan(
+    monkeypatch, plan, games, challenges, groups, daily_21, can_join_second_group
+):
     user = _User(f"feature-user-{plan}", plan)
     features = DEFAULT_PLAN_FEATURES[plan]
     monkeypatch.setattr("services.entitlements._user_plan_slug", AsyncMock(return_value=plan))
@@ -148,6 +145,7 @@ async def test_feature_actions_match_each_account_plan(monkeypatch, plan, games,
     assert (await can_user_do(db, user, Action.SEND_CHALLENGE))["allowed"] is challenges
     assert (await can_user_do(db, user, Action.CREATE_STUDY_GROUP))["allowed"] is groups
     assert (await can_user_do(db, user, Action.DAILY_REVIEW, count=21))["allowed"] is daily_21
+    assert (await can_user_do(db, user, Action.JOIN_STUDY_GROUP, count=1))["allowed"] is can_join_second_group
 
 
 @pytest.mark.asyncio

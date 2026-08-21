@@ -85,11 +85,11 @@ export default function Metrics() {
           value={d.onboarding_completed_30d}
         />
         <MetricCard
-          label="Churned Users (30d)"
-          value={d.churned_users_30d}
+          label="Churned Users (MTD)"
+          value={d.churned_users_mtd}
         />
         <MetricCard
-          label="Churn Rate (30d)"
+          label="Churn Rate (MTD)"
           value={`${d.churn_rate_pct}%`}
         />
       </div>

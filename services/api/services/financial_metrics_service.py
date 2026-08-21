@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.user_subscription import UserSubscription
@@ -109,3 +109,57 @@ class FinancialMetricsService:
             arppu=calculate_arppu(mrr, users),
             conflict_users=conflicts,
         )
+
+
+@dataclass(frozen=True)
+class ChurnSnapshot:
+    churned_users: int
+    starting_customers: int
+    churn_rate_pct: float
+
+
+async def calculate_monthly_churn(
+    db: AsyncSession, *, period_start: datetime, now: datetime
+) -> ChurnSnapshot:
+    """The one canonical churn calculation — every dashboard must call this.
+
+    Standard SaaS definition: (customers lost during the period) / (customers already
+    subscribed as of the start of the period). Both counts come straight off
+    ``UserSubscription.subscription_started_at``/``canceled_at``, which are mirrored
+    verbatim from Stripe on every webhook sync (see ``_sync_subscription_from_stripe_object``
+    in routers/billing.py), so no separate transition-history table is needed to answer
+    this specific question. Voluntary and involuntary cancellations are combined — Stripe
+    sets ``canceled_at`` identically for both once a subscription reaches its terminal
+    ``canceled`` status.
+    """
+    starting_customers = int(
+        await db.scalar(
+            select(func.count(func.distinct(UserSubscription.user_id))).where(
+                UserSubscription.subscription_started_at.is_not(None),
+                UserSubscription.subscription_started_at <= period_start,
+                or_(
+                    UserSubscription.canceled_at.is_(None),
+                    UserSubscription.canceled_at >= period_start,
+                ),
+            )
+        )
+        or 0
+    )
+    churned_users = int(
+        await db.scalar(
+            select(func.count(func.distinct(UserSubscription.user_id))).where(
+                UserSubscription.canceled_at.is_not(None),
+                UserSubscription.canceled_at >= period_start,
+                UserSubscription.canceled_at <= now,
+            )
+        )
+        or 0
+    )
+    churn_rate_pct = (
+        round(churned_users / starting_customers * 100, 1) if starting_customers else 0.0
+    )
+    return ChurnSnapshot(
+        churned_users=churned_users,
+        starting_customers=starting_customers,
+        churn_rate_pct=churn_rate_pct,
+    )

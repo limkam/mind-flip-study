@@ -37,7 +37,7 @@ import { useAuthBootstrap } from "../hooks/useAuthBootstrap";
 import { ensureStorageReady } from "../store/storage";
 import { useAuthStore } from "../store/authStore";
 
-import { MindFlipLogoMark } from "../components/brand/MindFlipBrand";
+import { BilkeysLogoMark } from "../components/brand/BilkeysBrand";
 import { AppScreen, ErrorState } from "../components/ui";
 import { TOKENS } from "../theme/tokens";
 
@@ -293,10 +293,10 @@ function BootstrapGate({ onReady, nativeSplashHidden }: BootstrapGateProps) {
             <Animated.View style={{ opacity: markOpacity, transform: [{ scale: markScale }] }}>
               {/* Matches `expo-splash-screen`'s imageWidth in app.json so the mark does not
                   jump size when the native splash hands over to this gate. */}
-              <MindFlipLogoMark size={144} />
+              <BilkeysLogoMark size={144} />
             </Animated.View>
             <Animated.View style={[styles.splashCopy, { opacity: copyOpacity }]}>
-              <Text style={[styles.splashTitle, { color: colors.textPrimary }]}>MINDFLIP</Text>
+              <Text style={[styles.splashTitle, { color: colors.textPrimary }]}>BILKEYS</Text>
               <Text style={[styles.splashSubtitle, { color: colors.textMuted }]}>
                 Study smarter, remember more.
               </Text>
@@ -315,7 +315,7 @@ function BootstrapGate({ onReady, nativeSplashHidden }: BootstrapGateProps) {
     return (
       <AppScreen style={styles.splashContainer}>
         <ErrorState
-          title="Can't connect to MindFlip"
+          title="Can't connect to Bilkeys"
           message={error || "Check your connection and try again."}
           onRetry={handleRetry}
           retryLabel="Try again"

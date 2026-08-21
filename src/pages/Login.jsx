@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { GoogleLogin } from "@react-oauth/google";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, BookOpen, Check, Loader2, Mail, Sparkles } from "lucide-react";
 
 import client from "@/api/client";
-import { MindFlipBrand } from "@/components/brand/MindFlipLogo";
+import { BilkeysBrand } from "@/components/brand/BilkeysLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/lib/AuthContext";
 import { getApiErrorMessage } from "@/lib/apiError";
+import { PLAN_ORDER } from "@/lib/plans";
 
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const googleOAuthEnabled = Boolean(
@@ -21,15 +22,30 @@ import { getApiErrorMessage } from "@/lib/apiError";
 export default function Login() {
   const { loginWithGoogle, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const [authMode, setAuthMode] = useState("signin");
   const [email, setEmail] = useState("");
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const resolveDestination = () => {
+    const from = location.state?.from;
+    if (from?.pathname) {
+      return { pathname: from.pathname, search: from.search || "" };
+    }
+    const plan = searchParams.get("plan");
+    const interval = searchParams.get("interval");
+    if (plan && PLAN_ORDER.includes(plan) && (interval === "monthly" || interval === "annual")) {
+      return { pathname: "/pricing", search: `?plan=${plan}&interval=${interval}` };
+    }
+    return { pathname: "/", search: "" };
+  };
+
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      navigate("/", { replace: true });
+      navigate(resolveDestination(), { replace: true });
     }
   }, [isLoading, isAuthenticated, navigate]);
 
@@ -47,6 +63,7 @@ export default function Login() {
           email: normalizedEmail,
           challengeId: data.challenge_id,
           resendAfter: data.resend_after,
+          destination: resolveDestination(),
         },
       });
     } catch (error) {
@@ -68,7 +85,7 @@ export default function Login() {
     setBusy(true);
     try {
       await loginWithGoogle(credentialResponse.credential, true);
-      navigate("/", { replace: true });
+      navigate(resolveDestination(), { replace: true });
     } catch (error) {
       toast({
         title: "Google sign-in failed",
@@ -126,12 +143,12 @@ export default function Login() {
 
         <div className="relative w-full max-w-md">
           <div className="mb-9">
-            <MindFlipBrand className="mb-10" surface="on-light" />
+            <BilkeysBrand className="mb-10" surface="on-light" />
             <p className="mb-2 text-sm font-semibold text-primary">
               {authMode === "signup" ? "Start your journey" : "Welcome back"}
             </p>
             <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-              {authMode === "signup" ? "Create your account" : "Sign in to MindFlip"}
+              {authMode === "signup" ? "Create your account" : "Sign in to Bilkeys"}
             </h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               {authMode === "signup" ? "Create an account and make every study session count." : "Pick up where you left off and keep your momentum going."}
@@ -208,7 +225,7 @@ export default function Login() {
           </div>
 
           <p className="mt-6 text-center text-xs leading-5 text-muted-foreground">
-            By continuing, you agree to MindFlip&apos;s Terms of Service and Privacy Policy.
+            By continuing, you agree to Bilkeys&apos;s Terms of Service and Privacy Policy.
           </p>
         </div>
       </section>

@@ -12,7 +12,7 @@ from emails.templates.sign_in_code import sign_in_code_email
 def test_sign_in_template_has_security_and_expiration_copy() -> None:
     html = sign_in_code_email("123456")
 
-    assert "MindFlip" in html
+    assert "Bilkeys" in html
     assert "123456" in html
     assert "10 minutes" in html
     assert "Never share this code" in html
@@ -26,7 +26,7 @@ def test_resend_delivery_uses_configured_sender(monkeypatch: pytest.MonkeyPatch)
     )
     monkeypatch.setitem(__import__("sys").modules, "resend", fake_resend)
     monkeypatch.setattr(settings, "RESEND_API_KEY", "test-key")
-    monkeypatch.setattr(settings, "FROM_EMAIL", "MindFlip <noreply@i-educate.com>")
+    monkeypatch.setattr(settings, "FROM_EMAIL", "Bilkeys <noreply@i-educate.com>")
     monkeypatch.setattr(settings, "EMAIL_DELIVERY_MODE", "test")
     monkeypatch.setattr(settings, "EMAIL_TEST_RECIPIENTS", "learner@example.com")
 
@@ -34,7 +34,7 @@ def test_resend_delivery_uses_configured_sender(monkeypatch: pytest.MonkeyPatch)
 
     assert fake_resend.api_key == "test-key"
     assert sent == [{
-        "from": "MindFlip <noreply@i-educate.com>",
+        "from": "Bilkeys <noreply@i-educate.com>",
         "to": ["learner@example.com"],
         "subject": "Verification",
         "html": "<p>code</p>",
@@ -114,14 +114,14 @@ def test_delivery_gate_allows_send_in_production_mode(monkeypatch: pytest.Monkey
     )
     monkeypatch.setitem(__import__("sys").modules, "resend", fake_resend)
     monkeypatch.setattr(settings, "RESEND_API_KEY", "test-key")
-    monkeypatch.setattr(settings, "FROM_EMAIL", "MindFlip <noreply@i-educate.com>")
+    monkeypatch.setattr(settings, "FROM_EMAIL", "Bilkeys <noreply@i-educate.com>")
     monkeypatch.setattr(settings, "EMAIL_DELIVERY_MODE", "production")
     monkeypatch.setattr(settings, "EMAIL_PRODUCTION_ENABLED", True)
     monkeypatch.setattr(settings, "EMAIL_SENDING_DOMAIN_VERIFIED", True)
 
     assert send_email("learner@example.com", "Verification", "<p>code</p>") is True
     assert sent == [{
-        "from": "MindFlip <noreply@i-educate.com>",
+        "from": "Bilkeys <noreply@i-educate.com>",
         "to": ["learner@example.com"],
         "subject": "Verification",
         "html": "<p>code</p>",

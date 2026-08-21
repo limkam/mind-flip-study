@@ -21,7 +21,7 @@ type Props = {
   children: ReactNode;
 };
 
-/** MindFlip's card-stack signature: two tonal layers peeking above the foreground card. */
+/** Bilkeys's card-stack signature: two tonal layers peeking above the foreground card. */
 export function StackCard({
   width,
   height,

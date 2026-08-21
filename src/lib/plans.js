@@ -10,7 +10,7 @@ export const PLAN_LABELS = {
 };
 
 export const PLAN_TAGLINES = {
-  free: "Best for trying MindFlip once and exploring the study flow.",
+  free: "Best for trying Bilkeys once and exploring the study flow.",
   quick_72: "For light weekly study and faster AI-powered review.",
   standard_15: "For consistent coursework, exam prep, and active group study.",
   premium_30:
@@ -29,14 +29,14 @@ export const PLAN_HIGHLIGHTS = {
     "1 book import",
     "1 flashcard set",
     "Up to 5 cards per set",
-    "20 daily review cards",
+    "5 daily review cards",
+    "Join 1 study group",
   ],
   quick_72: [
     "2 books / month",
     "5 flashcard sets / month",
     "Up to 20 cards per set",
     "Unlimited daily review",
-    "Challenges included",
   ],
   standard_15: [
     "5 books / month",
@@ -48,7 +48,7 @@ export const PLAN_HIGHLIGHTS = {
     "10 books / month",
     "20 flashcard sets / month",
     "Priority processing",
-    "Regeneration included",
+    "Challenges included",
   ],
 };
 
@@ -109,7 +109,7 @@ export const PLAN_COMPARISON_ROWS = [
     label: "Challenges",
     values: {
       free: "—",
-      quick_72: "✓",
+      quick_72: "—",
       standard_15: "✓",
       premium_30: "✓",
     },
@@ -117,7 +117,7 @@ export const PLAN_COMPARISON_ROWS = [
   {
     label: "Study groups",
     values: {
-      free: "Join only",
+      free: "Join 1",
       quick_72: "Join only",
       standard_15: "Create + run",
       premium_30: "Create + run",
@@ -129,13 +129,13 @@ export const PLAN_COMPARISON_ROWS = [
       free: "—",
       quick_72: "—",
       standard_15: "Extra credit",
-      premium_30: "Included",
+      premium_30: "Extra credit",
     },
   },
   {
     label: "Daily Review",
     values: {
-      free: "20 cards/day",
+      free: "5 cards/day",
       quick_72: "Unlimited",
       standard_15: "Unlimited",
       premium_30: "Unlimited",

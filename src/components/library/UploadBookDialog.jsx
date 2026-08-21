@@ -268,7 +268,7 @@ export default function UploadBookDialog({ open, onOpenChange, onBookCreated }) 
               Not now
             </Button>
             <p className="mt-3 text-center text-xs text-muted-foreground">
-              Paid plans start at $3.99/month. Cancel anytime.
+              Paid plans start at $4.99/month. Cancel anytime.
             </p>
           </div>
         ) : (

@@ -17,7 +17,7 @@ class ThumbnailGenerationError(RuntimeError):
 
 
 def _office_to_pdf(document: bytes, extension: str) -> bytes:
-    with tempfile.TemporaryDirectory(prefix="mindflip-thumbnail-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="bilkeys-thumbnail-") as temp_dir:
         workdir = Path(temp_dir)
         source = workdir / f"source{extension}"
         source.write_bytes(document)

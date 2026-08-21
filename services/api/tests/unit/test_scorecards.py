@@ -58,7 +58,7 @@ def test_share_token_hash_and_shape() -> None:
 def test_public_rendering_has_metadata_headers_and_no_private_sentinels() -> None:
     view = PublicScorecardView("Weekly", 82, "v1", "2026-07-01", "2026-07-07", "partial", 2, 75.0, 20, 3, 45, 2, (("Accuracy", 75),), False, "up", None, "Keep going <script>", None)
     page = render_html(view, "https://app.example/share/scorecard/opaque", "https://app.example/share/scorecard/opaque/image", "https://app.example")
-    for marker in ('property="og:title"', 'property="og:description"', 'property="og:image"', 'property="og:url"', 'name="twitter:card"', 'rel="canonical"', "Think you can beat my streak? Join me on MindFlip"):
+    for marker in ('property="og:title"', 'property="og:description"', 'property="og:image"', 'property="og:url"', 'name="twitter:card"', 'rel="canonical"', "Think you can beat my streak? Join me on Bilkeys"):
         assert marker in page
     assert "Formula version" not in page
     assert "Keep going &lt;script&gt;" in page and "<script>" not in page
@@ -74,7 +74,7 @@ def test_public_display_name_rendering_and_privacy() -> None:
     view_with_name = PublicScorecardView("Weekly", 85, "v2", "2026-08-01", "2026-08-07", "complete", 5, 88.0, 50, 5, 120, 4, (("Accuracy", 88),), True, "up", "Alim Kamara", "Study hard!", None)
     page_with_name = render_html(view_with_name, "https://app.example/share/scorecard/opaque", "https://app.example/share/scorecard/opaque/image", "https://app.example")
     assert '<h2 class="name">Alim Kamara</h2>' in page_with_name
-    assert "<title>Weekly Learning Scorecard | MindFlip</title>" in page_with_name
+    assert "<title>Weekly Learning Scorecard | Bilkeys</title>" in page_with_name
     svg_with_name = render_svg(view_with_name)
     assert "Alim Kamara" in svg_with_name
 
@@ -97,9 +97,9 @@ def test_format_period_human_date_ranges() -> None:
 
 def test_public_cta_is_account_neutral() -> None:
     view = PublicScorecardView("Weekly", 80, "v2", "2026-08-01", "2026-08-07", "complete", 0, 80.0, 25, 3, 0, 0, (("Accuracy", 80),), False, None, None, None, None)
-    app_url = "https://app.mindflip.io"
-    page = render_html(view, "https://app.mindflip.io/share/scorecard/opaque", "https://app.mindflip.io/share/scorecard/opaque/image", app_url)
-    assert f'<a href="{app_url}">Think you can beat my streak? Join me on MindFlip <span aria-hidden="true">🚀</span></a>' in page
+    app_url = "https://app.bilkeys.io"
+    page = render_html(view, "https://app.bilkeys.io/share/scorecard/opaque", "https://app.bilkeys.io/share/scorecard/opaque/image", app_url)
+    assert f'<a href="{app_url}">Think you can beat my streak? Join me on Bilkeys <span aria-hidden="true">🚀</span></a>' in page
     # Ensure no owner ID or returnTo token is appended
     assert "user_id" not in app_url
     assert "token" not in app_url
@@ -126,13 +126,13 @@ def test_public_scorecard_visual_parity_and_content_exclusions() -> None:
         public_message=None,
         course_title=None,
     )
-    app_url = "https://app.mindflip.io"
-    page = render_html(view, "https://app.mindflip.io/share/scorecard/opaque", "https://app.mindflip.io/share/scorecard/opaque/image", app_url)
+    app_url = "https://app.bilkeys.io"
+    page = render_html(view, "https://app.bilkeys.io/share/scorecard/opaque", "https://app.bilkeys.io/share/scorecard/opaque/image", app_url)
     svg = render_svg(view)
 
     # Required positive assertions
     for required in [
-        "MINDFLIP",
+        "BILKEYS",
         "My Scorecard",
         "Alim Kamara",
         "0 assessments · 25 cards reviewed",
@@ -142,7 +142,7 @@ def test_public_scorecard_visual_parity_and_content_exclusions() -> None:
         "0.0h",
         "12%",
         "Mastery",
-        "Think you can beat my streak? Join me on MindFlip",
+        "Think you can beat my streak? Join me on Bilkeys",
     ]:
         assert required in page, f"Missing required text '{required}' in HTML rendering"
         assert required in svg, f"Missing required text '{required}' in SVG rendering"
@@ -313,7 +313,7 @@ async def test_public_share_url_reachability_and_lifecycle(monkeypatch) -> None:
             assert resp.status_code == 200
             html_text = resp.text
             assert "Alim Kamara" in html_text
-            assert "Think you can beat my streak? Join me on MindFlip" in html_text
+            assert "Think you can beat my streak? Join me on Bilkeys" in html_text
             assert "Formula version" not in html_text
             assert "Partial score" not in html_text
 

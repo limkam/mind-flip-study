@@ -35,7 +35,7 @@ export function CelebrationProvider({ children }) {
   useEffect(() => manager.setPreferences({ globalMuted: !audioEnabled || settings.global_sound_muted === true, achievement: settings.achievement_sounds === true, streak: settings.streak_sounds === true }), [manager, settings.global_sound_muted, settings.achievement_sounds, settings.streak_sounds]);
   useEffect(() => {
     const update = (event) => manager.setPreferences(event.detail || {});
-    window.addEventListener("mindflip:audio-preferences", update); return () => window.removeEventListener("mindflip:audio-preferences", update);
+    window.addEventListener("bilkeys:audio-preferences", update); return () => window.removeEventListener("bilkeys:audio-preferences", update);
   }, [manager]);
   useEffect(() => {
     const unlock = () => { void manager.unlock().then((ok) => { if (ok) { setUnlocked(true); ["pointerdown", "keydown", "touchstart"].forEach((name) => window.removeEventListener(name, unlock)); } }); };

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Reveal } from '@/components/MarketingUI';
 
 const features = [
-  { icon: '✦', className: 'md:col-span-2 bg-indigo-600 text-white', title: 'AI that studies your material, not the internet', body: 'Mindflip identifies the concepts, relationships, and exam-worthy details inside your own files, then turns them into a complete active-recall system.', tag: 'AI study engine' },
+  { icon: '✦', className: 'md:col-span-2 bg-indigo-600 text-white', title: 'AI that studies your material, not the internet', body: 'Bilkeys identifies the concepts, relationships, and exam-worthy details inside your own files, then turns them into a complete active-recall system.', tag: 'AI study engine' },
   { icon: '◷', className: 'bg-[#eafaf6]', title: 'Review at the right moment', body: 'A spaced-repetition queue adapts to every answer, so your time goes where it makes the biggest difference.', tag: 'Adaptive review' },
   { icon: '◎', className: 'bg-[#fff6e8]', title: 'Practice before it counts', body: 'Build confidence with quizzes and scenarios generated directly from the content you need to know.', tag: 'Exam practice' },
   { icon: '↗', className: 'md:col-span-2 bg-[#11142c] text-white', title: 'Momentum you can actually feel', body: 'Goals, streaks, groups, and progress signals make consistent study easier without turning learning into noise.', tag: 'Motivation, thoughtfully applied' },

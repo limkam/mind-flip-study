@@ -9,7 +9,7 @@ import { useApplyColorScheme } from "@/lib/colorScheme";
 export default function MobileBillingCancel() {
   const { user } = useAuth();
   useApplyColorScheme(user);
-  const deepLink = "mindflip://billing/cancel";
+  const deepLink = "bilkeys://billing/cancel";
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -29,14 +29,14 @@ export default function MobileBillingCancel() {
       </div>
       <h1 className="font-heading text-2xl font-bold">Checkout Canceled</h1>
       <p className="mt-3 text-muted-foreground">
-        You left the checkout process. No charges were made. Return to MindFlip to continue.
+        You left the checkout process. No charges were made. Return to Bilkeys to continue.
       </p>
 
       <div className="mt-8 flex w-full flex-col gap-3">
         <Button asChild size="lg" className="w-full gap-2">
           <a href={deepLink}>
             <Smartphone className="h-4 w-4" />
-            Open MindFlip App
+            Open Bilkeys App
           </a>
         </Button>
 

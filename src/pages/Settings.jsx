@@ -97,7 +97,7 @@ export default function Settings() {
   const set = (key, value) => {
     setPrefs(p => ({ ...p, [key]: value }));
     if (["global_sound_muted", "achievement_sounds", "streak_sounds"].includes(key)) {
-      window.dispatchEvent(new CustomEvent("mindflip:audio-preferences", { detail: {
+      window.dispatchEvent(new CustomEvent("bilkeys:audio-preferences", { detail: {
         globalMuted: key === "global_sound_muted" ? value : prefs.global_sound_muted,
         achievement: key === "achievement_sounds" ? value : prefs.achievement_sounds,
         streak: key === "streak_sounds" ? value : prefs.streak_sounds,
@@ -135,7 +135,7 @@ export default function Settings() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="font-heading text-3xl font-bold">Settings</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Customize your MindFlip experience</p>
+          <p className="text-muted-foreground mt-1 text-sm">Customize your Bilkeys experience</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={reset} className="gap-1.5">
@@ -289,7 +289,7 @@ export default function Settings() {
           </div>
           <ToggleRow
             label="Performance Analytics"
-            description="Allow MindFlip to track your study patterns for personalized tips"
+            description="Allow Bilkeys to track your study patterns for personalized tips"
             checked={true}
             onChange={() => {}}
           />
@@ -306,10 +306,10 @@ export default function Settings() {
               variant="outline"
               className="w-full sm:w-auto"
               onClick={() => {
-                Sentry.captureException(new Error("MindFlip Sentry connectivity verify (web)"));
+                Sentry.captureException(new Error("Bilkeys Sentry connectivity verify (web)"));
                 toast({
                   title: "Test event sent",
-                  description: 'Check Sentry (Issues) for "MindFlip Sentry connectivity verify (web)".',
+                  description: 'Check Sentry (Issues) for "Bilkeys Sentry connectivity verify (web)".',
                 });
               }}
             >

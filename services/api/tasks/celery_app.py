@@ -7,7 +7,7 @@
 # from config import settings
 
 # celery = Celery(
-#     "mindflip",
+#     "bilkeys",
 #     broker=settings.REDIS_URL,
 #     backend=settings.REDIS_URL,
 # )
@@ -45,7 +45,7 @@ import ssl  # ✅ ADDED for Upstash / rediss:// support
 from config import settings
 
 celery = Celery(
-    "mindflip",
+    "bilkeys",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
 )
@@ -92,6 +92,10 @@ PHASE3_BEAT_SCHEDULE = {
         "task": "tasks.automation_tasks.cleanup_engagement_automation",
         "schedule": float(settings.ENGAGEMENT_CLEANUP_INTERVAL_HOURS * 3600),
     },
+    "owner-console-evaluate-alerts": {
+        "task": "tasks.alert_tasks.evaluate_owner_console_alerts",
+        "schedule": 1800.0,
+    },
 }
 celery.conf.beat_schedule = PHASE3_BEAT_SCHEDULE
 
@@ -104,3 +108,4 @@ import tasks.notification_tasks  # noqa: E402, F401
 import tasks.refill_tasks  # noqa: E402, F401
 import tasks.automation_tasks  # noqa: E402, F401
 import tasks.billing_tasks  # noqa: E402, F401
+import tasks.alert_tasks  # noqa: E402, F401

@@ -120,8 +120,8 @@ export default function CreditSuccessScreen() {
           if (res.credit_quantity !== null) {
             setPurchasedQuantity(res.credit_quantity);
           }
-          if (res.credit_quantity !== null && res.unit_price_cents !== null) {
-            setAmountCents(res.credit_quantity * res.unit_price_cents);
+          if (res.amount_paid_cents !== null) {
+            setAmountCents(res.amount_paid_cents);
           }
 
           if (res.purchase_state === "credited") {

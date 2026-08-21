@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 # Pydantic Settings reads these at import time.
 os.environ.setdefault(
     "DATABASE_URL",
-    "postgresql+asyncpg://test:test@127.0.0.1:5432/mindflip_test",
+    "postgresql+asyncpg://test:test@127.0.0.1:5432/bilkeys_test",
 )
 os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:6379/15")
 os.environ.setdefault("JWT_SECRET", "pytest-jwt-secret-must-be-long-enough-32")

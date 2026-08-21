@@ -1,4 +1,4 @@
-# MindFlip Mobile — Premium Visual Redesign Audit
+# Bilkeys Mobile — Premium Visual Redesign Audit
 
 **Status:** Proposal. No code changed. Awaiting approval of visual direction.
 **Scope:** `mobile/` only. UI/product design pass — no business logic touched.
@@ -11,7 +11,7 @@
 Verified by reading the actual implementation, not assumed.
 
 ### Startup — `app/_layout.tsx`
-- Brand gate renders `MindFlipLogoMark` = **a rotated indigo rounded square containing the letter "M"** ([MindFlipBrand.tsx:35-64](mobile/components/brand/MindFlipBrand.tsx#L35-L64)). It is a placeholder, not a logo. The real assets (`mindflip-logo.png`, `mindflip-logo-wordmark.png`) exist and are unused on the splash.
+- Brand gate renders `BilkeysLogoMark` = **a rotated indigo rounded square containing the letter "M"** ([BilkeysBrand.tsx:35-64](mobile/components/brand/BilkeysBrand.tsx#L35-L64)). It is a placeholder, not a logo. The real assets (`bilkeys-logo.png`, `bilkeys-logo-wordmark.png`) exist and are unused on the splash.
 - Splash subtitle is **"Learn. Remember. Grow."** ([_layout.tsx:223](mobile/app/_layout.tsx#L223)) — the wrong slogan.
 - A bare `ActivityIndicator` is pinned to the bottom of the branded screen ([_layout.tsx:229](mobile/app/_layout.tsx#L229)) — exactly the "generic spinner" the brief rejects.
 - `RootLayout` returns `null` while storage hydrates ([_layout.tsx:274-276](mobile/app/_layout.tsx#L274-L276)). Nothing is painted; the app depends entirely on the native splash still being up.
@@ -20,7 +20,7 @@ Verified by reading the actual implementation, not assumed.
 ### Login — `app/(auth)/login.tsx`
 - Reads as a SaaS admin form: mark, wordmark text, then a bordered `AppCard` containing Google button / "or" divider / email field / submit / checkbox.
 - Tagline is **"Learn smarter. Remember longer."** ([login.tsx:174](mobile/app/(auth)/login.tsx#L174)) — a third, different slogan. Three slogans ship today.
-- No benefit copy, no illustration, no visual composition. Nothing communicates what MindFlip does.
+- No benefit copy, no illustration, no visual composition. Nothing communicates what Bilkeys does.
 
 ### Home — `app/(tabs)/index.tsx`
 This is the weakest screen relative to its importance.
@@ -59,7 +59,7 @@ This is the weakest screen relative to its importance.
 - The one genuinely designed element in the app: the upgrade card with glow orb, shadow, and gradient-ish `primaryPressed` fill.
 - But it is **hardcoded `#fff`, `#ffffffbf`, `#ec489944`, `#6437d7`, `#5b21b6`** ([more.tsx:118-122](mobile/app/(tabs)/more.tsx#L118-L122)) — outside the token system.
 - Everything below it collapses into unstyled `NavMenuRow` lists.
-- Footer literally reads **"MindFlip mobile"** — the parity/platform language the brief bans.
+- Footer literally reads **"Bilkeys mobile"** — the parity/platform language the brief bans.
 
 ### Profile / Settings / Billing / Scorecards
 - **Profile** (505 lines): `PageHeader` + flat sections. No identity block, no avatar, no plan badge, everything equally weighted.
@@ -82,7 +82,7 @@ This is the weakest screen relative to its importance.
 | Lost element | What it was | Verdict |
 |---|---|---|
 | **Hero surface** | 224dp tall, `borderRadius: 28`, deep violet `#6437d7`, shadow `y:14 r:22 opacity .25` | **Recover.** This was the app's only real hero. Rebuild tokenized + gradient. |
-| **Orb depth layer** | Two blurred circles — pink `#ec489944` top-right, blue `#2563eb44` bottom-left, `overflow: hidden` | **Recover.** Cheap, distinctive, no dependency. Becomes a MindFlip signature motif. |
+| **Orb depth layer** | Two blurred circles — pink `#ec489944` top-right, blue `#2563eb44` bottom-left, `overflow: hidden` | **Recover.** Cheap, distinctive, no dependency. Becomes a Bilkeys signature motif. |
 | **Streak pill in hero** | `#ffffff20` translucent pill on the hero itself | **Recover** as a glass chip on the gradient. |
 | **White-on-brand CTA** | White button, `#5b21b6` label, `fontWeight: 900` | **Recover.** Far stronger than today's flat `primary` button. |
 | **Stats grid** | Multi-metric grid (streak / accuracy / cards) | **Recover** as "Learning Journey", authoritative fields only. |
@@ -112,7 +112,7 @@ Theme is stored in AsyncStorage per user and applied only in JS. `useColorScheme
 Every primary button in dark mode renders dark-navy text on a `#818cf8` lavender fill. It reads washed-out, not premium.
 
 **F5 — Hardcoded colours that ignore theme entirely.**
-`scorecards.tsx` (20), `more.tsx` upgrade card (6, incl. `#fff` on a fixed violet), `settings.tsx` selected chips (`#fff`), `guide.tsx` (11), `ScenarioView` (12), `book/[id]` (8), Hangman/Bricks (6 each), `MindFlipLogoMark` (`#4f46e5` / `#ffffff`).
+`scorecards.tsx` (20), `more.tsx` upgrade card (6, incl. `#fff` on a fixed violet), `settings.tsx` selected chips (`#fff`), `guide.tsx` (11), `ScenarioView` (12), `book/[id]` (8), Hangman/Bricks (6 each), `BilkeysLogoMark` (`#4f46e5` / `#ffffff`).
 
 **F6 — `cardBack: #312e81` (indigo-900) in dark mode.**
 The revealed flashcard becomes a saturated indigo block; body text contrast drops noticeably versus the question state.
@@ -129,7 +129,7 @@ The revealed flashcard becomes a saturated indigo block; body text contrast drop
 1. **Native splash background is system-driven only.** `values/colors.xml → splashscreen_background #ffffff`, `values-night → #0f172a`. A user whose system is Light but who chose Dark in-app gets **white native splash → dark app**. Guaranteed white flash.
 2. **`AppTheme` hardcodes `android:statusBarColor #ffffff`** ([styles.xml](mobile/android/app/src/main/res/values/styles.xml)) and sets no `windowBackground` — the post-splash window can paint white before React mounts.
 3. **`RootLayout` renders `null`** during storage hydration — no branded frame of our own.
-4. **The splash mark is a letter "M" in a box**, not the MindFlip logo.
+4. **The splash mark is a letter "M" in a box**, not the Bilkeys logo.
 5. **Wrong slogan** ("Learn. Remember. Grow.").
 6. **Generic `ActivityIndicator`** on the branded screen.
 7. `splash-icon.png` is a byte-identical copy of `icon.png` (21,024 B) — the app icon reused as a splash mark at 144dp.
@@ -151,15 +151,15 @@ The revealed flashcard becomes a saturated indigo block; body text contrast drop
 
 ---
 
-## 6. New MindFlip Visual Direction
+## 6. New Bilkeys Visual Direction
 
 **Concept: "Focused Depth."**
 
 Three ideas carry the identity, used consistently and sparingly:
 
 1. **The Violet Field** — the brand gradient (indigo → violet) appears on exactly four things: the Home hero, the primary CTA, the active learning surface, and celebration moments. Everywhere else is calm neutral. Scarcity is what makes it read as premium rather than as a purple app.
-2. **Orbital depth** — soft off-canvas colour orbs behind brand surfaces (recovered from pre-MFUX Home, now tokenized). This is MindFlip's signature texture, and it works in both themes because the orbs are theme-aware translucent brand colours, not fixed hex.
-3. **The Card as hero object** — MindFlip is a flashcard product. The card gets real presence: layered stack edges behind it, generous padding, a distinct answer state, and it is the largest object on its screen.
+2. **Orbital depth** — soft off-canvas colour orbs behind brand surfaces (recovered from pre-MFUX Home, now tokenized). This is Bilkeys's signature texture, and it works in both themes because the orbs are theme-aware translucent brand colours, not fixed hex.
+3. **The Card as hero object** — Bilkeys is a flashcard product. The card gets real presence: layered stack edges behind it, generous padding, a distinct answer state, and it is the largest object on its screen.
 
 Tone: **calm canvas, confident accents.** Duolingo's tactility without its cartoon; Linear's restraint without its coldness.
 
@@ -229,7 +229,7 @@ Keep the platform stack (SF Pro / Roboto) — native feel, zero asset weight —
 | `eyebrow` | (caption + tracking) | 11 / 14 / 800 / **+1.4 tracking, uppercase** (formalized) |
 | `cardBody` | 22/32/600 ad-hoc | **21 / 30 / 500** — study card reading weight, calmer |
 
-Optional, needs your call: one display face (e.g. Sora or Bricolage) via `expo-font` for `heroDisplay` + `MINDFLIP` only. Adds ~2 font files. **Default recommendation: system stack**, revisit after the pass.
+Optional, needs your call: one display face (e.g. Sora or Bricolage) via `expo-font` for `heroDisplay` + `BILKEYS` only. Adds ~2 font files. **Default recommendation: system stack**, revisit after the pass.
 
 ### Surface System
 
@@ -272,7 +272,7 @@ Rules: opacity + translateY(≤8) + scale (0.96–1.0) only. No rotation, no bou
 
 Executed as 13 vertical slices; each ends with `npx tsc --noEmit`, an Android launch, and light+dark screenshots before the next begins.
 
-**V1 · Startup.** Native splash background made theme-safe (add `windowBackground`, remove hardcoded white `statusBarColor`, brand-tint both `values` and `values-night`). Real MindFlip mark replaces the "M" box. React gate: mark scales 0.92→1 + fades over 320ms, then `MINDFLIP` / **Study smarter, remember more.** Spinner removed — if auth is still resolving, a subtle three-dot brand pulse holds. Total ~700ms when auth is warm.
+**V1 · Startup.** Native splash background made theme-safe (add `windowBackground`, remove hardcoded white `statusBarColor`, brand-tint both `values` and `values-night`). Real Bilkeys mark replaces the "M" box. React gate: mark scales 0.92→1 + fades over 320ms, then `BILKEYS` / **Study smarter, remember more.** Spinner removed — if auth is still resolving, a subtle three-dot brand pulse holds. Total ~700ms when auth is warm.
 
 **V2 · Login.** Orbital brand composition top third (SVG card-stack motif), headline "Study smarter, remember more.", one line of benefit copy, then Google → divider → email → keep-signed-in. Card border dropped in favour of a tonal panel. OTP screen: 6 large individual code cells, countdown as a thin brand progress line, restrained success check.
 
@@ -291,7 +291,7 @@ Executed as 13 vertical slices; each ends with `npx tsc --noEmit`, an Android la
 
 **V7 · Games.** New **Game Hub** (`/games` — a real route, reachable from More → Learning and from Home), 2-up grid, each game with its own accent + SVG motif + difficulty + availability. Per-set selector reuses the same cards. Correct/incorrect feedback standardized; Memory Match gets the most polish.
 
-**V8 · More.** Upgrade card retokenized (gradient + orb, no hardcoded hex). Sections become tonal grouped lists, not per-row cards. "MindFlip mobile" footer removed. **Billing & Credits and Pricing added to Account.**
+**V8 · More.** Upgrade card retokenized (gradient + orb, no hardcoded hex). Sections become tonal grouped lists, not per-row cards. "Bilkeys mobile" footer removed. **Billing & Credits and Pricing added to Account.**
 
 **V9 · Profile.** Identity block (avatar/initial, name, email, plan badge) on a brand-tinted panel; then Learning snapshot → Preferences → Billing → Account actions, weighted differently.
 
@@ -358,7 +358,7 @@ components/celebrations/CelebrationBurst.tsx · components/CelebrationOverlay.ts
 components/{NavMenuRow,PageHeader,UpgradeSection,UpgradeLimitModal,WeakTopicsChips}.tsx
 components/billing/BuyCreditsModal.tsx · components/scorecards/ShareScorecardModal.tsx
 components/library/{TagEditModal,TocEditor}.tsx · components/studyGroups/*.tsx
-components/brand/{MindFlipBrand,MindFlipLogo}.tsx   real mark, no letter-box placeholder
+components/brand/{BilkeysBrand,BilkeysLogo}.tsx   real mark, no letter-box placeholder
 components/guide/*.tsx                          hardcoded colours → tokens
 ```
 **Native / config**

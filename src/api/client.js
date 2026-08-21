@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-const STORAGE_KEY = 'mindflip_access_token';
-const REMEMBER_KEY = 'mindflip_remember_me';
+const STORAGE_KEY = 'bilkeys_access_token';
+const REMEMBER_KEY = 'bilkeys_remember_me';
 
 function readRememberMe() {
   try {
@@ -130,7 +130,7 @@ client.interceptors.response.use(null, async (error) => {
       ? detail.message
       : 'You reached a limit on your current plan.';
     error.isPlanLimitError = true;
-    window.dispatchEvent(new CustomEvent('mindflip:plan-limit', { detail: { reason } }));
+    window.dispatchEvent(new CustomEvent('bilkeys:plan-limit', { detail: { reason } }));
     return Promise.reject(error);
   }
 
@@ -160,7 +160,7 @@ client.interceptors.response.use(null, async (error) => {
       queue = [];
       clearAccessToken();
       const path = window.location.pathname;
-      const onPublicAuth = path === '/login' || path === '/register';
+      const onPublicAuth = path === '/login';
       if (!onPublicAuth) {
         window.location.assign('/login');
       }

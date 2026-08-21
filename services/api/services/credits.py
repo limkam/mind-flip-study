@@ -156,7 +156,7 @@ async def _split_pool_balances(db: AsyncSession, user_id: UUID, pool: str = "con
     return max(0, monthly), max(0, purchased)
 
 
-# Refunds/chargebacks are not currently created by MindFlip. Reserving explicit
+# Refunds/chargebacks are not currently created by Bilkeys. Reserving explicit
 # reasons here prevents a future financial reversal from being mislabeled as
 # product usage when that workflow is introduced.
 PURCHASED_BALANCE_ADJUSTMENT_REASONS = {
@@ -329,11 +329,89 @@ async def consume_extra_credits(
     return new_balance
 
 
+async def refund_credits(
+    db: AsyncSession,
+    user_id: UUID,
+    amount: int,
+    *,
+    pool: str,
+    reason: str,
+    metadata: Optional[dict] | None = None,
+) -> None:
+    """Reverse a previous consume_credits()/consume_extra_credits() call for an operation
+    that was charged but never actually happened (e.g. background job enqueue failed after
+    the charge already committed) — an append-only, signed positive entry, never an edit of
+    the original consumption row. Refunded credits are granted non-expiring regardless of the
+    original grant's expiry, since the specific expiring lot that was spent is not tracked
+    per-consumption; this is deliberately user-favorable.
+    """
+    if amount <= 0:
+        return
+    db.add(CreditLedger(
+        user_id=user_id,
+        amount=int(amount),
+        pool=pool,
+        reason=reason,
+        meta=metadata or {},
+        expires_at=None,
+    ))
+    await db.flush()
+
+
 def _period_end_for_next_cycle(dt: datetime) -> datetime:
     # Return start of next month as expires_at for monthly allowances
     year = dt.year + (dt.month // 12)
     month = (dt.month % 12) + 1
     return datetime(year, month, 1, tzinfo=dt.tzinfo)
+
+
+async def _grant_or_top_up_monthly(
+    db: AsyncSession,
+    user_id: UUID,
+    *,
+    pool: str,
+    reason: str,
+    target_amount: int,
+    period_key: str,
+    plan_slug: str,
+    eligible_actions: list[str],
+    expires_at: datetime,
+) -> None:
+    """Ensure the total awarded for (user, pool, period) reaches `target_amount`.
+
+    A mid-cycle plan upgrade calls this again for the same period with a higher
+    `target_amount`. Rather than gate on a single flat idempotency key (which would match
+    the smaller amount already granted at the start of the period and silently skip the
+    top-up), sum what's already been granted this period and add only the shortfall — so
+    upgrading mid-cycle correctly raises the balance immediately instead of leaving it
+    stuck at the old plan's amount until the next renewal.
+    """
+    already_granted = int(
+        await db.scalar(
+            select(func.coalesce(func.sum(CreditLedger.amount), 0)).where(
+                CreditLedger.user_id == user_id,
+                CreditLedger.pool == pool,
+                CreditLedger.reason == reason,
+                CreditLedger.meta["reset_period"].astext == period_key,
+            )
+        )
+        or 0
+    )
+    shortfall = int(target_amount) - already_granted
+    if shortfall <= 0:
+        return
+    grant_key = f"monthly:{user_id}:{pool}:{period_key}:{target_amount}"
+    if await db.scalar(select(CreditLedger.id).where(CreditLedger.idempotency_key == grant_key)):
+        return
+    db.add(CreditLedger(
+        user_id=user_id,
+        amount=shortfall,
+        pool=pool,
+        reason=reason,
+        idempotency_key=grant_key,
+        meta={"plan": plan_slug, "reset_period": period_key, "eligible_actions": eligible_actions},
+        expires_at=expires_at,
+    ))
 
 
 async def award_monthly_allowance_for_user(db: AsyncSession, user_id: UUID, plan_id: UUID, *, period_end: datetime | None = None) -> None:
@@ -359,30 +437,18 @@ async def award_monthly_allowance_for_user(db: AsyncSession, user_id: UUID, plan
     await db.execute(select(User.id).where(User.id == user_id).with_for_update())
 
     if plan.monthly_content_allowance and plan.monthly_content_allowance > 0:
-        grant_key = f"monthly:{user_id}:content:{period_key}"
-        if not await db.scalar(select(CreditLedger.id).where(CreditLedger.idempotency_key == grant_key)):
-            db.add(CreditLedger(
-                user_id=user_id,
-                amount=int(plan.monthly_content_allowance),
-                pool="content",
-                reason="monthly_allowance",
-                idempotency_key=grant_key,
-                meta={"plan": plan.slug, "reset_period": period_key, "eligible_actions": ["create_book", "create_set"]},
-                expires_at=expires_at,
-            ))
+        await _grant_or_top_up_monthly(
+            db, user_id, pool="content", reason="monthly_allowance",
+            target_amount=int(plan.monthly_content_allowance), period_key=period_key,
+            plan_slug=plan.slug, eligible_actions=["create_book", "create_set"], expires_at=expires_at,
+        )
 
     if plan.monthly_regen_allowance and plan.monthly_regen_allowance > 0:
-        grant_key = f"monthly:{user_id}:regen:{period_key}"
-        if not await db.scalar(select(CreditLedger.id).where(CreditLedger.idempotency_key == grant_key)):
-            db.add(CreditLedger(
-                user_id=user_id,
-                amount=int(plan.monthly_regen_allowance),
-                pool="regen",
-                reason="monthly_regen_allowance",
-                idempotency_key=grant_key,
-                meta={"plan": plan.slug, "reset_period": period_key, "eligible_actions": ["regeneration"]},
-                expires_at=expires_at,
-            ))
+        await _grant_or_top_up_monthly(
+            db, user_id, pool="regen", reason="monthly_regen_allowance",
+            target_amount=int(plan.monthly_regen_allowance), period_key=period_key,
+            plan_slug=plan.slug, eligible_actions=["regeneration"], expires_at=expires_at,
+        )
 
     await db.flush()
 

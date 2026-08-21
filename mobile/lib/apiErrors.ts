@@ -12,8 +12,13 @@ function formatDetail(detail: unknown): string | null {
     });
     return parts.filter(Boolean).join("; ");
   }
-  if (typeof detail === "object" && detail !== null && "msg" in detail) {
-    return String((detail as { msg: string }).msg);
+  if (typeof detail === "object" && detail !== null) {
+    if ("message" in detail) {
+      return String((detail as { message: string }).message);
+    }
+    if ("msg" in detail) {
+      return String((detail as { msg: string }).msg);
+    }
   }
   return JSON.stringify(detail);
 }
@@ -40,14 +45,14 @@ export function getApiErrorMessage(error: unknown, fallback = "Request failed"):
   if (status === 401) return "Your sign-in has expired. Please sign in again.";
   if (status === 403) return "This action isn't available for your account.";
   if (status === 404) return "This item is no longer available.";
-  if (status && status >= 500) return "MindFlip is having trouble right now. Please try again.";
+  if (status && status >= 500) return "Bilkeys is having trouble right now. Please try again.";
 
   if (
     ax.code === "ERR_NETWORK" ||
     ax.message === "Network Error" ||
     (!ax.response && ax.request)
   ) {
-    return "MindFlip couldn't connect. Check your connection and try again.";
+    return "Bilkeys couldn't connect. Check your connection and try again.";
   }
 
   return fallback;

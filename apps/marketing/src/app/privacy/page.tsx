@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
-  description: 'How Mindflip collects, uses, and protects your data.',
-  alternates: { canonical: 'https://mindflip.io/privacy' },
+  description: 'How Bilkeys collects, uses, and protects your data.',
+  alternates: { canonical: 'https://bilkeys.io/privacy' },
 };
 
 export default function PrivacyPage() {
@@ -15,7 +15,7 @@ export default function PrivacyPage() {
       <section className="mt-10 space-y-4 text-gray-700">
         <h2 className="text-2xl font-semibold text-gray-900">Overview</h2>
         <p>
-          Mindflip (&quot;we&quot;, &quot;us&quot;) operates mindflip.io and app.mindflip.io. This policy
+          Bilkeys (&quot;we&quot;, &quot;us&quot;) operates bilkeys.io and app.bilkeys.io. This policy
           explains what information we collect when you use our study app and marketing site, and how we
           use it.
         </p>
@@ -44,8 +44,8 @@ export default function PrivacyPage() {
         <h2 className="text-2xl font-semibold text-gray-900 pt-6">Your rights</h2>
         <p>
           You may export or delete your account from the app settings, or contact us at{' '}
-          <a href="mailto:hello@mindflip.io" className="text-indigo-600 hover:underline">
-            hello@mindflip.io
+          <a href="mailto:hello@bilkeys.io" className="text-indigo-600 hover:underline">
+            hello@bilkeys.io
           </a>
           .
         </p>
@@ -53,8 +53,8 @@ export default function PrivacyPage() {
         <h2 className="text-2xl font-semibold text-gray-900 pt-6">Contact</h2>
         <p>
           Questions about this policy:{' '}
-          <a href="mailto:hello@mindflip.io" className="text-indigo-600 hover:underline">
-            hello@mindflip.io
+          <a href="mailto:hello@bilkeys.io" className="text-indigo-600 hover:underline">
+            hello@bilkeys.io
           </a>
         </p>
       </section>

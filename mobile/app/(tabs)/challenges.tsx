@@ -193,7 +193,7 @@ function ChallengesContent({ onBack }: { onBack: () => void }) {
       await queryClient.invalidateQueries({ queryKey: ["quiz-challenges"] });
       if (isFreeSamplePlan) {
         emitUpgradeLimit({
-          reason: `Loved "${challenge.set_title ?? "that deck"}"? Create your own deck and send challenges — upgrade to Quick 7 or higher.`,
+          reason: `Loved "${challenge.set_title ?? "that deck"}"? Create your own deck and send challenges — upgrade to Standard 15 or higher.`,
         });
       }
     },

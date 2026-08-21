@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { api } from "../api/client";
-import { MindFlipLogoMark } from "../components/brand/MindFlipBrand";
+import { BilkeysLogoMark } from "../components/brand/BilkeysBrand";
 import { DateOfBirthField } from "../components/DateOfBirthField";
 import { SelectField } from "../components/SelectField";
 import {
@@ -60,7 +60,7 @@ export default function OnboardingScreen() {
 
     const age = calculateAge(dateOfBirth);
     if (age == null || age < 13) {
-      setErrorMsg("MindFlip is only available to users aged 13 and above.");
+      setErrorMsg("Bilkeys is only available to users aged 13 and above.");
       submitLockRef.current = false;
       setBusy(false);
       return;
@@ -115,7 +115,7 @@ export default function OnboardingScreen() {
     <AppScreen keyboard scrollable style={styles.root} contentContainerStyle={styles.contentContainer}>
       <View style={styles.headerStack}>
         <AppBadge label="Profile Setup" variant="primary" style={styles.badge} />
-        <MindFlipLogoMark size={64} style={styles.logoMark} />
+        <BilkeysLogoMark size={64} style={styles.logoMark} />
         <Text style={[styles.title, { color: colors.textPrimary }]}>
           What should we call you?
         </Text>
@@ -167,7 +167,7 @@ export default function OnboardingScreen() {
         <AppTextInput label="Job title (optional)" placeholder="e.g. Senior Backend Engineer" value={jobTitle} onChangeText={setJobTitle} />
 
         <AppButton
-          label="Continue to MindFlip"
+          label="Continue to Bilkeys"
           variant="primary"
           size="lg"
           fullWidth

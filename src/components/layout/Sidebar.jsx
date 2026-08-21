@@ -22,7 +22,7 @@ import {
   BookOpenCheck,
   HelpCircle,
 } from "lucide-react";
-import { MindFlipBrand } from "@/components/brand/MindFlipLogo";
+import { BilkeysBrand } from "@/components/brand/BilkeysLogo";
 import { fetchEntitlementsSnapshot } from "@/lib/billing";
 import { routePreloads } from "@/lib/routeModules";
 
@@ -139,7 +139,7 @@ export function DesktopSidebar({ user }) {
       className={`fixed left-0 top-0 h-screen bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-300 z-50 ${collapsed ? "w-[72px]" : "w-64"}`}
     >
       <div className="p-4 border-b border-sidebar-border">
-        <MindFlipBrand collapsed={collapsed} />
+        <BilkeysBrand collapsed={collapsed} />
       </div>
 
       <NavLinks user={user} collapsed={collapsed} onLinkClick={() => {}} />
@@ -176,17 +176,17 @@ export function MobileNav({ user, headerActions }) {
     .filter((item) => item.path !== "/")
     .sort((a, b) => b.path.length - a.path.length)
     .find((item) => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`));
-  const pageTitle = location.pathname === "/" ? "Home" : (activeItem?.label || "MindFlip");
+  const pageTitle = location.pathname === "/" ? "Home" : (activeItem?.label || "Bilkeys");
   const moreActive = !primaryItems.some(isActive) && location.pathname !== "/";
 
   return (
     <>
       <header className="mobile-topbar fixed left-0 right-0 top-0 z-50 flex h-[4.25rem] items-center gap-3 border-b border-border/60 bg-background/90 px-4 backdrop-blur-xl">
-        <Link to="/" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 shadow-lg shadow-indigo-500/30 transition-transform active:scale-95 rotate-[30deg] my-1 ml-1" aria-label="MindFlip home">
-          <span className="-rotate-[30deg] font-heading text-base font-black text-white">M</span>
+        <Link to="/" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 shadow-lg shadow-indigo-500/30 transition-transform active:scale-95 rotate-[30deg] my-1 ml-1" aria-label="Bilkeys home">
+          <span className="-rotate-[30deg] font-heading text-base font-black text-white">B</span>
         </Link>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">MindFlip</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">Bilkeys</p>
           <p className="truncate font-heading text-base font-semibold leading-tight text-foreground">{pageTitle}</p>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -231,7 +231,7 @@ export function MobileNav({ user, headerActions }) {
             <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-muted" />
             <div className="flex items-center justify-between border-b border-border/60 px-5 pb-4 pt-3">
               <div>
-                <p className="font-heading text-lg font-bold">Explore MindFlip</p>
+                <p className="font-heading text-lg font-bold">Explore Bilkeys</p>
                 <p className="text-xs text-muted-foreground">Everything you need to keep learning</p>
               </div>
               <button

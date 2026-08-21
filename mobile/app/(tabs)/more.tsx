@@ -58,7 +58,7 @@ export default function MoreTab() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.upgradeTitle}>
-              {!isSubscriptionsEnabled ? "Billing & Credits" : isFree ? "Upgrade MindFlip" : "Manage your plan"}
+              {!isSubscriptionsEnabled ? "Billing & Credits" : isFree ? "Upgrade Bilkeys" : "Manage your plan"}
             </Text>
             <Text style={styles.upgradeText}>
               {!isSubscriptionsEnabled
@@ -95,7 +95,7 @@ export default function MoreTab() {
 
         <View style={[styles.footer, { borderTopColor: colors.border }]}>
           <Text style={[styles.footerText, { color: colors.muted }]}>
-            MindFlip mobile
+            Bilkeys mobile
           </Text>
         </View>
       </ScrollView>

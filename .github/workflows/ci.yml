@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: https://api.mindflip.io
+      url: https://api.bilkeys.io
     steps:
       - uses: actions/checkout@v4
       - name: Deploy to Railway production

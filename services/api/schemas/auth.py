@@ -8,7 +8,19 @@ from schemas.user import UserPublic
 from age_utils import validate_registration_date_of_birth
 
 
-class RegisterRequest(BaseModel):
+class AcquisitionSourceFields(BaseModel):
+    """Optional UTM/referral capture, mixed into every account-creation request schema.
+    Only applied when a *new* User row is created — ignored on login of an existing user."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    utm_source: str | None = Field(None, max_length=128)
+    utm_medium: str | None = Field(None, max_length=128)
+    utm_campaign: str | None = Field(None, max_length=128)
+    referral_code: str | None = Field(None, max_length=64)
+
+
+class RegisterRequest(AcquisitionSourceFields):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     email: AppEmail
@@ -83,7 +95,7 @@ class EmailAuthStartResponse(BaseModel):
     resend_after: int
 
 
-class EmailAuthVerifyRequest(BaseModel):
+class EmailAuthVerifyRequest(AcquisitionSourceFields):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     challenge_id: str = Field(..., min_length=20, max_length=200)
@@ -111,7 +123,7 @@ class ResetPasswordBody(BaseModel):
     password: str = Field(..., min_length=8)
 
 
-class GoogleLoginRequest(BaseModel):
+class GoogleLoginRequest(AcquisitionSourceFields):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     id_token: str = Field(..., min_length=10, max_length=12000)
@@ -145,7 +157,7 @@ class OnboardingRequest(BaseModel):
         return self
 
 
-class AppleLoginRequest(BaseModel):
+class AppleLoginRequest(AcquisitionSourceFields):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     identity_token: str = Field(..., min_length=10, max_length=12000)

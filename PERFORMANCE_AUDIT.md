@@ -1,4 +1,4 @@
-# MindFlip performance audit
+# Bilkeys performance audit
 
 ## Baseline (2026-08-11)
 
@@ -131,7 +131,7 @@ An ephemeral Vite/Rollup `generateBundle` analysis inspected the modules actuall
 the 438,223-byte chunk; no analyzer dependency was installed. Approximate pre-minification
 rendered module contributions were Recharts 593 kB, Lodash 194 kB, decimal.js-light 50 kB,
 react-smooth 39 kB, D3 scale/shape/time/format/color/array modules over 100 kB combined, and
-MindFlip application code 27 kB. These figures are useful composition weights and do not sum
+Bilkeys application code 27 kB. These figures are useful composition weights and do not sum
 to the final minified chunk size. Recharts' ES modules are used, but its internal chart factory
 still brings chart types/utilities not directly referenced, so tree-shaking is only partial.
 No PDF, image export, spreadsheet, date/time, Three.js, or mapping dependency is imported by

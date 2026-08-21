@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { APP_REGISTER_URL } from '@/lib/constants';
+import { APP_LOGIN_URL } from '@/lib/constants';
 import {
   comparisonRows,
+  planAnnualMonthlyPrices,
   planAnnualPrices,
   planLabels,
   planOrder,
@@ -15,7 +16,7 @@ import {
 type BillingInterval = 'monthly' | 'annual';
 
 export function PricingSection({ showIntro = true }: { showIntro?: boolean }) {
-  const [billingInterval, setBillingInterval] = useState<BillingInterval>('monthly');
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>('annual');
 
   return (
     <section id="pricing" className="scroll-mt-24 bg-[#f8f8fc] px-6 py-24 sm:py-32">
@@ -44,7 +45,6 @@ export function PricingSection({ showIntro = true }: { showIntro?: boolean }) {
               Annual
             </button>
           </div>
-          <p className="text-sm font-semibold text-emerald-700">Choose annual billing and save about 50%</p>
         </div>
         <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {planOrder.map((slug) => {
@@ -56,8 +56,8 @@ export function PricingSection({ showIntro = true }: { showIntro?: boolean }) {
                 <p className="mt-4 text-4xl font-bold text-gray-950">{planPrices[slug]}<span className="ml-1 text-base font-medium text-gray-500">/month</span></p>
               ) : (
                 <div className="mt-4">
-                  <p className="text-4xl font-bold text-gray-950">{planAnnualPrices[slug]}<span className="ml-1 text-base font-medium text-gray-500">/year</span></p>
-                  <p className="mt-1 text-sm font-semibold text-emerald-700">One payment for 12 months</p>
+                  <p className="text-4xl font-bold text-gray-950">{planAnnualMonthlyPrices[slug]}<span className="ml-1 text-base font-medium text-gray-500">/ month</span></p>
+                  <p className="mt-1 text-sm font-semibold text-gray-600">Billed at {planAnnualPrices[slug]}/year</p>
                 </div>
               )}
               <p className="mt-4 min-h-[64px] text-sm leading-6 text-gray-600">{planTaglines[slug]}</p>
@@ -71,7 +71,7 @@ export function PricingSection({ showIntro = true }: { showIntro?: boolean }) {
                   </div>
                 ))}
               </dl>
-              <a href={`${APP_REGISTER_URL}?plan=${slug}&interval=${billingInterval}`} className={`mt-auto block rounded-full px-4 py-3 text-center font-semibold transition ${recommended ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 hover:bg-indigo-700' : 'border border-indigo-200 text-indigo-700 hover:bg-indigo-50'}`}>{slug === 'free' ? 'Start free' : `Choose ${planLabels[slug]}`}</a>
+              <a href={`${APP_LOGIN_URL}?plan=${slug}&interval=${billingInterval}`} className={`mt-auto block rounded-full px-4 py-3 text-center font-semibold transition ${recommended ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 hover:bg-indigo-700' : 'border border-indigo-200 text-indigo-700 hover:bg-indigo-50'}`}>{slug === 'free' ? 'Start free' : `Choose ${planLabels[slug]}`}</a>
               <p className="mt-3 text-center text-xs text-gray-500">{slug === 'free' ? 'No card required' : billingInterval === 'annual' ? 'One payment for 12 months' : 'Cancel anytime'}</p>
             </article>;
           })}

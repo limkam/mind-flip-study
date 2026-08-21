@@ -21,7 +21,7 @@ function isUserResponse(value: unknown): value is User {
 
 function retryableMessage(status?: number) {
   if (status && status >= 500) {
-    return "MindFlip is temporarily unavailable. You're still signed in; please try again.";
+    return "Bilkeys is temporarily unavailable. You're still signed in; please try again.";
   }
   return "We couldn't restore your sign-in. Check your connection and try again.";
 }

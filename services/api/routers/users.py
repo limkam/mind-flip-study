@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_credits import ai_credits_snapshot
-from age_utils import validate_date_of_birth
+from age_utils import validate_registration_date_of_birth
 from database import get_db
 from dependencies import get_current_user, require_role
 from models.user import User
@@ -77,7 +77,7 @@ async def patch_current_user(
         current_user.avatar_url = avatar_url or None
     if body.date_of_birth is not None:
         try:
-            current_user.date_of_birth = validate_date_of_birth(body.date_of_birth)
+            current_user.date_of_birth = validate_registration_date_of_birth(body.date_of_birth)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     if body.gender is not None:

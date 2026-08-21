@@ -74,6 +74,18 @@ export default function QuizChallenges() {
   });
   const isFreeSamplePlan = entitlements?.features?.challenges !== true;
 
+  const openSendChallenge = () => {
+    if (isFreeSamplePlan) {
+      window.dispatchEvent(
+        new CustomEvent(PLAN_LIMIT_EVENT, {
+          detail: { reason: "Sending challenges requires Standard 15 or higher. You can still view and play challenges friends send you." },
+        }),
+      );
+      return;
+    }
+    setSendOpen(true);
+  };
+
   const myChallenges = challenges.filter(
     (c) =>
       c.challenger_email === user?.email || c.opponent_email === user?.email,
@@ -219,7 +231,7 @@ export default function QuizChallenges() {
       window.dispatchEvent(
         new CustomEvent(PLAN_LIMIT_EVENT, {
           detail: {
-            reason: `Loved "${completedSetTitle}"? Create your own deck and send challenges — upgrade to Quick 7 or higher.`,
+            reason: `Loved "${completedSetTitle}"? Create your own deck and send challenges — upgrade to Standard 15 or higher.`,
           },
         }),
       );
@@ -305,7 +317,7 @@ export default function QuizChallenges() {
             Challenge other users to quiz battles on your flashcard sets
           </p>
         </div>
-        <Button onClick={() => setSendOpen(true)} className="gap-2">
+        <Button onClick={openSendChallenge} className="gap-2">
           <Plus className="w-4 h-4" /> Send Challenge
         </Button>
       </div>
@@ -479,7 +491,7 @@ export default function QuizChallenges() {
           <p className="text-muted-foreground mb-6">
             Challenge a friend to a quiz battle on your flashcard sets!
           </p>
-          <Button onClick={() => setSendOpen(true)} className="gap-2">
+          <Button onClick={openSendChallenge} className="gap-2">
             <Plus className="w-4 h-4" /> Send First Challenge
           </Button>
         </div>

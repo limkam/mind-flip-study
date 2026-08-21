@@ -3,7 +3,7 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, Loader2, MailCheck } from "lucide-react";
 
 import client from "@/api/client";
-import { MindFlipBrand } from "@/components/brand/MindFlipLogo";
+import { BilkeysBrand } from "@/components/brand/BilkeysLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +18,7 @@ export default function EmailVerification() {
   const { loginWithEmailCode } = useAuth();
   const email = location.state?.email;
   const dateOfBirth = location.state?.dateOfBirth || null;
+  const destination = location.state?.destination || { pathname: "/", search: "" };
   const [challengeId, setChallengeId] = useState(location.state?.challengeId || "");
   const [code, setCode] = useState("");
   const [cooldown, setCooldown] = useState(location.state?.resendAfter || 60);
@@ -37,7 +38,7 @@ export default function EmailVerification() {
     setBusy(true);
     try {
       await loginWithEmailCode(challengeId, code, true, dateOfBirth);
-      navigate("/", { replace: true });
+      navigate(destination, { replace: true });
     } catch (error) {
       toast({
         title: "Code not accepted",
@@ -75,7 +76,7 @@ export default function EmailVerification() {
           <ArrowLeft className="h-4 w-4" /> Back
         </button>
         <div className="flex flex-col items-center text-center">
-          <MindFlipBrand centered className="mb-6" surface="on-light" />
+          <BilkeysBrand centered className="mb-6" surface="on-light" />
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <MailCheck className="h-6 w-6" />
           </div>

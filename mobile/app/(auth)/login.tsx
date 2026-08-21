@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { api } from "../../api/client";
-import { MindFlipLogoMark } from "../../components/brand/MindFlipBrand";
+import { BilkeysLogoMark } from "../../components/brand/BilkeysBrand";
 import { AppButton, AppScreen, AppTextInput, BrandSurface } from "../../components/ui";
 import { useTheme } from "../../hooks/useTheme";
 import { getApiErrorMessage } from "../../lib/apiErrors";
@@ -156,7 +156,7 @@ export default function LoginScreen() {
         params: { email: normalizedEmail, challengeId: data.challenge_id, resendAfter: String(data.resend_after) },
       });
     } catch (e: unknown) {
-      setFormError(getApiErrorMessage(e, "MindFlip is having trouble sending your verification code. Please try again."));
+      setFormError(getApiErrorMessage(e, "Bilkeys is having trouble sending your verification code. Please try again."));
     } finally {
       emailSubmitLockRef.current = false;
       setBusy(false);
@@ -170,9 +170,9 @@ export default function LoginScreen() {
       <BrandSurface style={styles.brandSurface}>
         <View style={styles.brandContent}>
           <View style={[styles.markChip, { backgroundColor: `${colors.onBrand}26` }]}>
-            <MindFlipLogoMark size={44} />
+            <BilkeysLogoMark size={44} />
           </View>
-          <Text style={[styles.brandWordmark, { color: colors.onBrand }]}>MindFlip</Text>
+          <Text style={[styles.brandWordmark, { color: colors.onBrand }]}>Bilkeys</Text>
         </View>
       </BrandSurface>
 

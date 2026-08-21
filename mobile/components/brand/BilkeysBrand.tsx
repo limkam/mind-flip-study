@@ -10,14 +10,14 @@ type MarkProps = {
 
 const MARK_ROTATION = "20deg";
 
-/** The MindFlip mark: a tilted rounded-square brand tile with an upright "M". */
-export function MindFlipLogoMark({ size = 44, style }: MarkProps) {
+/** The Bilkeys mark: a tilted rounded-square brand tile with an upright "B". */
+export function BilkeysLogoMark({ size = 44, style }: MarkProps) {
   const { gradients, colors } = useTheme();
   const radius = size * 0.28;
 
   return (
     <View
-      accessibilityLabel="MindFlip"
+      accessibilityLabel="Bilkeys"
       style={[{ width: size, height: size, transform: [{ rotate: MARK_ROTATION }] }, style]}
     >
       <LinearGradient
@@ -36,7 +36,7 @@ export function MindFlipLogoMark({ size = 44, style }: MarkProps) {
             },
           ]}
         >
-          M
+          B
         </Text>
       </LinearGradient>
     </View>

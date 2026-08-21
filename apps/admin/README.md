@@ -1,4 +1,4 @@
-# MindFlip admin dashboard
+# Bilkeys admin dashboard
 
 This is a separate Vite application from the student app at the repository root.
 
@@ -10,11 +10,11 @@ Create a separate Vercel project for the admin dashboard and configure:
 - Framework Preset: Vite
 - Build Command: `npm run build`
 - Output Directory: `dist`
-- Environment variable: `VITE_API_URL=https://api.mindflip.io`
+- Environment variable: `VITE_API_URL=https://api.bilkeys.io`
 
 The local `vercel.json` rewrites browser routes such as `/users`, `/login`, and
 `/admin/owner-dashboard` to `index.html`, allowing React Router to handle them.
-Attach `admin.mindflip.io` to this admin project, and include that origin in the
+Attach `admin.bilkeys.io` to this admin project, and include that origin in the
 API's `CORS_ORIGINS` setting.
 
 ## Local development

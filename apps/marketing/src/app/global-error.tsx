@@ -6,7 +6,7 @@ export default function GlobalError({ reset }: { reset: () => void }) {
       <body className="grid min-h-screen place-items-center bg-white px-6 text-center text-gray-950">
         <main className="max-w-xl">
           <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-600">
-            Mindflip
+            Bilkeys
           </p>
           <h1 className="mt-5 text-4xl font-black tracking-tight">
             We couldn&apos;t load this page.

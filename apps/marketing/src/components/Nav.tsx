@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { APP_REGISTER_URL } from '@/lib/constants';
+import { APP_LOGIN_URL } from '@/lib/constants';
 
 const navLinks = [
   { href: '/how-it-works', label: 'How it works' },
@@ -19,9 +19,9 @@ export function Nav() {
       <nav className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-3.5 sm:px-8">
         <Link href="/" className="group flex items-center gap-2.5 text-xl font-black tracking-[-0.04em] text-gray-950">
           <span className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-600 text-sm font-black text-white shadow-md shadow-indigo-200 transition duration-300 group-hover:scale-110 rotate-[30deg] my-1 ml-1">
-            <span className="-rotate-[30deg]">M</span>
+            <span className="-rotate-[30deg]">B</span>
           </span>
-          <span>Mind<span className="text-indigo-600">flip</span></span>
+          <span>Bil<span className="text-indigo-600">keys</span></span>
         </Link>
 
         <div className="hidden items-center gap-8 lg:flex">
@@ -34,9 +34,9 @@ export function Nav() {
               {link.label}
             </Link>
           ))}
-          <a href={APP_REGISTER_URL.replace('/register', '/login')} className="text-sm font-semibold text-gray-600 transition hover:text-gray-950">Sign in</a>
+          <a href={APP_LOGIN_URL} className="text-sm font-semibold text-gray-600 transition hover:text-gray-950">Sign in</a>
           <a
-            href={APP_REGISTER_URL}
+            href={APP_LOGIN_URL}
             className="rounded-full bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-indigo-200 transition hover:-translate-y-0.5 hover:bg-indigo-700"
           >
             Get Started Free
@@ -74,9 +74,9 @@ export function Nav() {
             <div className="flex items-center justify-between">
               <Link href="/" className="group flex items-center gap-2.5 text-lg font-black tracking-[-0.04em] text-gray-950" onClick={() => setOpen(false)}>
                 <span className="grid h-8 w-8 place-items-center rounded-xl bg-indigo-600 text-xs font-black text-white shadow-md shadow-indigo-200 rotate-[30deg] my-1 ml-1">
-                  <span className="-rotate-[30deg]">M</span>
+                  <span className="-rotate-[30deg]">B</span>
                 </span>
-                <span>Mind<span className="text-indigo-600">flip</span></span>
+                <span>Bil<span className="text-indigo-600">keys</span></span>
               </Link>
               <button
                 type="button"
@@ -99,9 +99,9 @@ export function Nav() {
                 {link.label}
               </Link>
             ))}
-            <a href={APP_REGISTER_URL.replace('/register', '/login')} className="text-base font-medium text-gray-700">Sign in</a>
+            <a href={APP_LOGIN_URL} className="text-base font-medium text-gray-700">Sign in</a>
             <a
-              href={APP_REGISTER_URL}
+              href={APP_LOGIN_URL}
               className="mt-auto rounded-xl bg-indigo-600 px-4 py-3 text-center font-semibold text-white"
               onClick={() => setOpen(false)}
             >

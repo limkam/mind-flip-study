@@ -20,8 +20,9 @@ from models.quiz import StudyEvent
 from models.study_group import StudyGroup, StudyGroupContentActivation, StudyGroupMaterial, StudyGroupMember
 from models.user import User
 from user_identity import resolve_display_name
-from services.entitlements import Action, can_user_do, _plan_features, _user_plan_slug
-from services.usage_events import BOOK_UPLOADED, FLASHCARDS_GENERATED, consumed_quantity, current_period_start, record_usage
+from services.entitlements import Action, can_user_do, _user_plan_slug
+from services.usage_events import BOOK_UPLOADED, FLASHCARDS_GENERATED, current_period_start, record_usage
+from services.credits import get_user_balance, consume_credits
 
 router = APIRouter(tags=["study-groups"])
 
@@ -386,6 +387,22 @@ async def join_group(
     if existing.scalar_one_or_none() is not None:
         return await _serialize_group(db, group, is_member=True)
 
+    joined_count = int(
+        await db.scalar(
+            select(func.count(StudyGroupMember.id)).where(StudyGroupMember.user_id == current_user.id),
+        )
+        or 0
+    )
+    decision = await can_user_do(db, current_user, Action.JOIN_STUDY_GROUP, count=joined_count)
+    if not decision.get("allowed"):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "code": "UPGRADE_REQUIRED",
+                "message": "Free plan allows joining 1 study group. Upgrade to join more.",
+            },
+        )
+
     db.add(StudyGroupMember(group_id=group.id, user_id=current_user.id, role="member"))
     await db.commit()
     return await _serialize_group(db, group, is_member=True)
@@ -432,23 +449,12 @@ async def _resolve_material_set(db: AsyncSession, mat: StudyGroupMaterial) -> Fl
 
 
 async def _remaining_slots(db: AsyncSession, user: User) -> dict[str, int | None]:
-    """Slots left against the permanent ledger charge — matches Action.ACTIVATE_SHARED_CONTENT
-    exactly. A prior activation, active or deactivated, already spent its slot permanently, so
-    it must not be subtracted again here."""
-    plan_slug = await _user_plan_slug(db, user)
-    features = await _plan_features(db, plan_slug)
-    period_start = current_period_start(lifetime=plan_slug == "free")
-    max_books = features.get("max_books")
-    max_sets = features.get("max_sets")
-    books_remaining = None
-    sets_remaining = None
-    if max_books is not None:
-        owned_books = await consumed_quantity(db, user.id, BOOK_UPLOADED, period_start=period_start)
-        books_remaining = max(0, int(max_books) - int(owned_books or 0))
-    if max_sets is not None:
-        owned_sets = await consumed_quantity(db, user.id, FLASHCARDS_GENERATED, period_start=period_start)
-        sets_remaining = max(0, int(max_sets) - int(owned_sets or 0))
-    return {"book_slots_remaining": books_remaining, "set_slots_remaining": sets_remaining}
+    """Content credits left against Action.ACTIVATE_SHARED_CONTENT's real gate (monthly plan
+    credits, then shared purchased credits). Activation costs 2 credits — 1 book-equivalent
+    + 1 set-equivalent — so `activation_credits_remaining // 2` is how many more materials
+    this user can still activate."""
+    balance = await get_user_balance(db, user.id, pool="content")
+    return {"content_credits_remaining": balance, "activations_remaining": balance // 2}
 
 
 @router.get("/{group_id}/materials/{material_id}/activation", response_model=dict[str, Any])
@@ -545,6 +551,7 @@ async def activate_shared_material(
     # Reactivating it is a visibility toggle, not a new purchase — skip the quota gate and the
     # ledger charge entirely so it can never be blocked or billed twice for the same material.
     already_charged = existing is not None
+    decision: dict[str, Any] | None = None
     if not already_charged:
         decision = await can_user_do(db, current_user, Action.ACTIVATE_SHARED_CONTENT)
         if not decision.get("allowed"):
@@ -554,7 +561,7 @@ async def activate_shared_material(
                 detail={
                     "code": "UPGRADE_REQUIRED",
                     "reason": decision.get("reason"),
-                    "message": "You're out of book/set slots on your current plan. Upgrade to add this to your library.",
+                    "message": "You don't have enough content credits on your current plan to add this to your library.",
                     **slots,
                 },
             )
@@ -572,6 +579,16 @@ async def activate_shared_material(
         )
 
     if not already_charged:
+        consume = (decision or {}).get("consume")
+        if consume:
+            await consume_credits(
+                db,
+                current_user.id,
+                int(consume.get("amount", 2)),
+                pool=str(consume.get("pool", "content")),
+                reason="activate_shared_content",
+                metadata={"material_id": str(material_id), "group_id": str(group_id)},
+            )
         lifetime = (await _user_plan_slug(db, current_user)) == "free"
         await record_usage(
             db,

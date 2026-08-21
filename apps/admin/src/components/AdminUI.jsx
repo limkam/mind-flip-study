@@ -24,6 +24,6 @@ export function QueryState({ query, label = 'operational data' }) {
   if (query.isLoading) return <div className="loading-skeleton" aria-label={`Loading ${label}`}><span /><span /><span /></div>;
   if (!query.isError) return null;
   const status = query.error?.response?.status;
-  const message = status === 401 ? 'Your admin session has expired.' : status === 403 ? 'You do not have permission to view this section.' : status === 404 ? 'This service is unavailable in the current API version.' : status >= 500 ? `The server could not load ${label}.` : !query.error?.response ? 'The MindFlip API could not be reached.' : `We could not load ${label}.`;
+  const message = status === 401 ? 'Your admin session has expired.' : status === 403 ? 'You do not have permission to view this section.' : status === 404 ? 'This service is unavailable in the current API version.' : status >= 500 ? `The server could not load ${label}.` : !query.error?.response ? 'The Bilkeys API could not be reached.' : `We could not load ${label}.`;
   return <div className="fetch-error-banner" role="alert"><div><strong>{message}</strong>{query.error?.response?.headers?.['x-request-id'] && <small>Request ID: {query.error.response.headers['x-request-id']}</small>}</div><button type="button" onClick={() => query.refetch()}>Retry</button></div>;
 }

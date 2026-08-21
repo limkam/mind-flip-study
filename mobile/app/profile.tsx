@@ -157,7 +157,7 @@ export default function ProfileScreen() {
       }
 
       if (!parseResult.valid) {
-        Alert.alert("Profile not saved", "MindFlip couldn't confirm your updated profile. Please try again.");
+        Alert.alert("Profile not saved", "Bilkeys couldn't confirm your updated profile. Please try again.");
         return;
       }
 
@@ -250,7 +250,7 @@ export default function ProfileScreen() {
 
         <View style={[styles.identity, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={[styles.avatar, { backgroundColor: colors.primarySoft }]}><Text style={[styles.avatarText, { color: colors.primary }]}>{(profile?.full_name || profile?.email || "M").trim().charAt(0).toUpperCase()}</Text></View>
-          <View style={{ flex: 1 }}><Text accessibilityRole="header" style={[styles.identityName, { color: colors.text }]}>{profile?.full_name || "MindFlip learner"}</Text><Text style={[styles.identityEmail, { color: colors.textSecondary }]} numberOfLines={2}>{profile?.email}</Text></View>
+          <View style={{ flex: 1 }}><Text accessibilityRole="header" style={[styles.identityName, { color: colors.text }]}>{profile?.full_name || "Bilkeys learner"}</Text><Text style={[styles.identityEmail, { color: colors.textSecondary }]} numberOfLines={2}>{profile?.email}</Text></View>
         </View>
 
         {/* Account Summary & Editable Fields */}

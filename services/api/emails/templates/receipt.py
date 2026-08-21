@@ -168,7 +168,7 @@ def payment_failed_email(
     body = f"""
       <h1 style="{s['h1']}">A payment didn't go through, {name}.</h1>
       <p style="{s['p']}">
-        We tried to charge <strong>{amount}</strong> for your MindFlip subscription and it didn't go through.
+        We tried to charge <strong>{amount}</strong> for your Bilkeys subscription and it didn't go through.
         Stripe will retry automatically — no action is needed right now.
       </p>
       <p style="{s['p']}">{retry_line}</p>

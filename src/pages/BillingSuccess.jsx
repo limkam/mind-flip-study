@@ -127,7 +127,7 @@ export default function BillingSuccess() {
         {success
           ? details?.planLabel
             ? `You're on the ${details.planLabel} plan now.`
-            : "Stripe and your MindFlip account both confirm that your subscription is active."
+            : "Stripe and your Bilkeys account both confirm that your subscription is active."
           : processing
             ? "Stripe checkout is complete, but your account is still being synchronized. This page will check again briefly."
             : "The link may be missing, invalid, expired, or belong to a different account. No access was granted from this page."}

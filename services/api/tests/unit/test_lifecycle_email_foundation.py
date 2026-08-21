@@ -29,13 +29,13 @@ from types import SimpleNamespace
 def test_lifecycle_templates_have_html_text_and_safe_links(key, payload):
     values = {
         "first_name": "Ada <script>",
-        "cta_url": "https://mindflip.example/app",
-        "preferences_url": "https://mindflip.example/settings",
-        "unsubscribe_url": "https://mindflip.example/unsubscribe",
+        "cta_url": "https://bilkeys.example/app",
+        "preferences_url": "https://bilkeys.example/settings",
+        "unsubscribe_url": "https://bilkeys.example/unsubscribe",
         **payload,
     }
     subject, html, text = render_lifecycle(key, values)
-    assert subject and "<main>" in html and "Continue in MindFlip" in text
+    assert subject and "<main>" in html and "Continue in Bilkeys" in text
     assert "<script>" not in html
     assert "Manage preferences" in text and "Unsubscribe" in text
 

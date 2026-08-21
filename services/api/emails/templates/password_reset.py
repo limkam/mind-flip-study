@@ -12,7 +12,7 @@ def password_reset_email(full_name: str, reset_token: str) -> str:
     body = f"""
       <h1 style="{s['h1']}">Reset your password</h1>
       <p style="{s['p']}">
-        We received a request to reset the password for your MindFlip account.
+        We received a request to reset the password for your Bilkeys account.
         Click the button below — this link expires in 1 hour.
       </p>
       <p style="margin:24px 0;">

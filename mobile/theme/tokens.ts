@@ -1,6 +1,6 @@
 /**
- * MindFlip Mobile Design Tokens
- * Centralized semantic design tokens for the MindFlip mobile application.
+ * Bilkeys Mobile Design Tokens
+ * Centralized semantic design tokens for the Bilkeys mobile application.
  *
  * Visual identity: "Focused Depth" — a calm neutral canvas with a scarce,
  * confident brand gradient reserved for hero surfaces, primary CTAs, the

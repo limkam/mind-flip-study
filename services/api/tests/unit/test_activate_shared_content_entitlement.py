@@ -32,48 +32,26 @@ def _db_with_plan(plan_slug: str) -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_activate_shared_content_allowed_when_under_limit(monkeypatch):
-    # standard_15: max_books=5, max_sets=10. owned=1 (already includes any prior
-    # activations, since activation is charged into the same permanent ledger as
-    # own uploads) -> well under both limits.
-    monkeypatch.setattr("services.entitlements.consumed_quantity", AsyncMock(return_value=1))
+async def test_activate_shared_content_allowed_with_enough_content_credits(monkeypatch):
+    # Activation costs 2 content credits (1 book-equivalent + 1 set-equivalent).
+    monkeypatch.setattr("services.entitlements.credits.get_user_balance", AsyncMock(return_value=3))
     db = _db_with_plan("standard_15")
 
     decision = await can_user_do(db, _User(uuid4()), Action.ACTIVATE_SHARED_CONTENT)
 
     assert decision["allowed"] is True
+    assert decision["consume"] == {"pool": "content", "amount": 2}
 
 
 @pytest.mark.asyncio
-async def test_activate_shared_content_blocked_at_book_limit(monkeypatch):
-    # standard_15: max_books=5. owned=5 (own uploads + prior activations, all permanent
-    # ledger charges) >= 5 -> blocked on books.
-    monkeypatch.setattr("services.entitlements.consumed_quantity", AsyncMock(return_value=5))
+async def test_activate_shared_content_blocked_when_credits_exhausted(monkeypatch):
+    monkeypatch.setattr("services.entitlements.credits.get_user_balance", AsyncMock(return_value=1))
     db = _db_with_plan("standard_15")
 
     decision = await can_user_do(db, _User(uuid4()), Action.ACTIVATE_SHARED_CONTENT)
 
     assert decision["allowed"] is False
-    assert decision["reason"] == "book_limit"
-
-
-@pytest.mark.asyncio
-async def test_activate_shared_content_checks_ledger_only_no_live_activation_count(monkeypatch):
-    """Regression test: the quota check must match CREATE_BOOK/CREATE_SET exactly — a single
-    consumed_quantity() read against the permanent ledger. It must NOT also add a live count of
-    currently-active StudyGroupContentActivation rows on top, which previously double-counted
-    every active activation (once in the ledger, once live) and made deactivation look like it
-    freed a slot it never actually freed."""
-    consumed = AsyncMock(return_value=0)
-    monkeypatch.setattr("services.entitlements.consumed_quantity", consumed)
-    db = _db_with_plan("free")
-
-    decision = await can_user_do(db, _User(uuid4()), Action.ACTIVATE_SHARED_CONTENT)
-
-    assert decision["allowed"] is True
-    # Exactly one consumed_quantity call per limited dimension (books, sets) — no separate
-    # live-count source is consulted at all.
-    assert consumed.await_count == 2
+    assert decision["reason"] == "content_credits_exhausted"
 
 
 @pytest.mark.asyncio
@@ -81,7 +59,7 @@ async def test_activate_shared_content_does_not_write_usage_events(monkeypatch):
     """The entitlement check itself must never call record_usage / touch the ledger —
     only the caller does that on success."""
     record_usage = AsyncMock()
-    monkeypatch.setattr("services.entitlements.consumed_quantity", AsyncMock(return_value=0))
+    monkeypatch.setattr("services.entitlements.credits.get_user_balance", AsyncMock(return_value=5))
     monkeypatch.setattr("services.usage_events.record_usage", record_usage)
     db = _db_with_plan("free")
 

@@ -12,7 +12,7 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
-logger = logging.getLogger("mindflip.performance")
+logger = logging.getLogger("bilkeys.performance")
 
 
 @dataclass

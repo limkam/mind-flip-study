@@ -23,6 +23,7 @@ class CheckoutVerificationResponse(BaseModel):
     interval: str | None = None
     credit_quantity: int | None = None
     unit_price_cents: int | None = None
+    amount_paid_cents: int | None = None
     currency: str | None = None
 
 
@@ -73,11 +74,16 @@ class BillingPlanPrice(BaseModel):
     annual_savings_cents: int | None = None
     stripe_price_id_monthly: str | None = None
     stripe_price_id_annual: str | None = None
+    most_popular: bool = False
 
 
 class BillingPricingResponse(BaseModel):
     default_interval: str = "annual"
     plans: dict[str, BillingPlanPrice]
+
+
+class SubscriptionCancelRequest(BaseModel):
+    reason: str | None = Field(None, max_length=255)
 
 
 class SubscriptionCancelResponse(BaseModel):
@@ -94,6 +100,22 @@ class SubscriptionChangePreviewResponse(BaseModel):
     currency: str = "usd"
     effective: str = Field(..., description="'immediately' or 'next_period'")
     next_billing_date: datetime | None = None
+    proration_credit_cents: int = Field(
+        0,
+        description=(
+            "Upgrades only: credit for unused time on the current plan, as a positive "
+            "magnitude (already netted into amount_due_today_cents, shown separately for "
+            "breakdown display). 0 for downgrades."
+        ),
+    )
+    proration_charge_cents: int = Field(
+        0,
+        description=(
+            "Upgrades only: charge for the remaining time on the new plan this period "
+            "(already netted into amount_due_today_cents, shown separately for breakdown "
+            "display). 0 for downgrades."
+        ),
+    )
     downgrade_notice: str | None = Field(
         None,
         description=(

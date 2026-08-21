@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { PageHero, Reveal } from '@/components/MarketingUI';
 import { CTABanner } from '@/components/CTABanner';
 
-export const metadata: Metadata = { title: 'Features', description: 'Explore Mindflip AI study tools, active recall, spaced repetition, games, groups, and learning analytics.', alternates: { canonical: 'https://mindflip.io/features' } };
+export const metadata: Metadata = { title: 'Features', description: 'Explore Bilkeys AI study tools, active recall, spaced repetition, games, groups, and learning analytics.', alternates: { canonical: 'https://bilkeys.io/features' } };
 
 const groups = [
   { label: 'Create', title: 'From content to curriculum in moments', description: 'Spend your energy learning instead of formatting cards.', color: 'bg-indigo-50', items: [['AI flashcard generation','Extract the concepts that matter from your own source material.'],['Smart summaries','Get a structured overview before you dive into details.'],['Applied scenarios','Move beyond definitions and practice using what you know.'],['Content organization','Keep books, chapters, sets, and folders connected.']] },

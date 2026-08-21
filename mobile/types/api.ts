@@ -407,6 +407,7 @@ export type BillingPlanPrice = {
   annual_savings_cents: number | null;
   stripe_price_id_monthly: string | null;
   stripe_price_id_annual: string | null;
+  most_popular: boolean;
 };
 
 export type BillingPricingResponse = {
@@ -424,6 +425,7 @@ export type SubscriptionCheckoutVerificationResponse = {
   interval: BillingInterval | null;
   credit_quantity: null;
   unit_price_cents: null;
+  amount_paid_cents: null;
   currency: null;
 };
 
@@ -437,6 +439,7 @@ export type CreditCheckoutVerificationResponse = {
   interval: null;
   credit_quantity: number | null;
   unit_price_cents: number | null;
+  amount_paid_cents: number | null;
   currency: string | null;
 };
 
@@ -469,11 +472,15 @@ export type SubscriptionChangeResponse = {
   pending_change_effective_at: string | null;
 };
 
+export type CreditPackTier = {
+  credits: number;
+  price_cents: number;
+  price_usd: number;
+};
+
 export type CreditPricing = {
-  unit_price_cents: number;
+  tiers: CreditPackTier[];
   currency: string;
-  unit_price_usd: number;
-  minimum_quantity: number;
 };
 
 export type CreditPricingResponse = {

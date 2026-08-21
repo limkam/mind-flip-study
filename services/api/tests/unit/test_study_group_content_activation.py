@@ -75,7 +75,7 @@ async def test_activation_preview_flags_previously_charged_when_deactivated(monk
     existing = SimpleNamespace(id=uuid4(), set_id=uuid4(), deactivated_at=datetime.now(timezone.utc))
 
     monkeypatch.setattr(study_groups, "_require_member", AsyncMock(return_value=SimpleNamespace(id=group_id)))
-    monkeypatch.setattr(study_groups, "_remaining_slots", AsyncMock(return_value={"book_slots_remaining": 0, "set_slots_remaining": 0}))
+    monkeypatch.setattr(study_groups, "_remaining_slots", AsyncMock(return_value={"content_credits_remaining": 0, "activations_remaining": 0}))
     db = AsyncMock()
     db.get = AsyncMock(side_effect=[mat, SimpleNamespace(id=mat.book_id, title="Organic Chemistry")])
     db.scalar = AsyncMock(return_value=existing)
@@ -97,10 +97,15 @@ async def test_activate_shared_material_success_consumes_book_and_set_quota(monk
 
     monkeypatch.setattr(study_groups, "_require_member", AsyncMock(return_value=SimpleNamespace(id=group_id)))
     monkeypatch.setattr(study_groups, "_resolve_material_set", AsyncMock(return_value=fset))
-    monkeypatch.setattr(study_groups, "can_user_do", AsyncMock(return_value={"allowed": True}))
+    monkeypatch.setattr(
+        study_groups, "can_user_do",
+        AsyncMock(return_value={"allowed": True, "consume": {"pool": "content", "amount": 2}}),
+    )
     monkeypatch.setattr(study_groups, "_user_plan_slug", AsyncMock(return_value="standard_15"))
     record_usage = AsyncMock()
     monkeypatch.setattr(study_groups, "record_usage", record_usage)
+    consume_credits = AsyncMock()
+    monkeypatch.setattr(study_groups, "consume_credits", consume_credits)
 
     db = AsyncMock()
     db.scalar = AsyncMock(return_value=None)  # no existing activation row
@@ -119,6 +124,9 @@ async def test_activate_shared_material_success_consumes_book_and_set_quota(monk
     assert isinstance(added_row, study_groups.StudyGroupContentActivation)
     assert added_row.set_id == fset.id
     assert added_row.book_id == mat.book_id
+    consume_credits.assert_awaited_once()
+    assert consume_credits.await_args.args[1:] == (user.id, 2)
+    assert consume_credits.await_args.kwargs["pool"] == "content"
     assert record_usage.await_count == 2
     event_types = {call.kwargs["event_type"] for call in record_usage.await_args_list}
     assert event_types == {study_groups.BOOK_UPLOADED, study_groups.FLASHCARDS_GENERATED}
@@ -133,22 +141,26 @@ async def test_activate_shared_material_blocked_returns_402_with_slots(monkeypat
 
     monkeypatch.setattr(study_groups, "_require_member", AsyncMock(return_value=SimpleNamespace(id=group_id)))
     monkeypatch.setattr(study_groups, "_resolve_material_set", AsyncMock(return_value=fset))
-    monkeypatch.setattr(study_groups, "can_user_do", AsyncMock(return_value={"allowed": False, "reason": "book_limit"}))
-    monkeypatch.setattr(study_groups, "_remaining_slots", AsyncMock(return_value={"book_slots_remaining": 0, "set_slots_remaining": 3}))
+    monkeypatch.setattr(study_groups, "can_user_do", AsyncMock(return_value={"allowed": False, "reason": "content_credits_exhausted"}))
+    monkeypatch.setattr(study_groups, "_remaining_slots", AsyncMock(return_value={"content_credits_remaining": 1, "activations_remaining": 0}))
 
     db = AsyncMock()
     db.scalar = AsyncMock(return_value=None)
     db.get = AsyncMock(side_effect=[mat, SimpleNamespace(id=mat.book_id)])
     record_usage = AsyncMock()
     monkeypatch.setattr(study_groups, "record_usage", record_usage)
+    consume_credits = AsyncMock()
+    monkeypatch.setattr(study_groups, "consume_credits", consume_credits)
 
     with pytest.raises(HTTPException) as exc:
         await study_groups.activate_shared_material(group_id=group_id, material_id=mat.id, current_user=user, db=db)
 
     assert exc.value.status_code == 402
     assert exc.value.detail["code"] == "UPGRADE_REQUIRED"
-    assert exc.value.detail["book_slots_remaining"] == 0
+    assert exc.value.detail["content_credits_remaining"] == 1
+    assert exc.value.detail["activations_remaining"] == 0
     record_usage.assert_not_awaited()
+    consume_credits.assert_not_awaited()
 
 
 @pytest.mark.asyncio

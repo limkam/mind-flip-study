@@ -40,7 +40,7 @@ export function GenerationStatusBanner() {
             {active.bookTitle}
           </Text>
           <Text style={[styles.hint, { color: colors.muted }]}>
-            This may take a few moments. You may continue using MindFlip while generation completes.
+            This may take a few moments. You may continue using Bilkeys while generation completes.
           </Text>
         </View>
         <Pressable onPress={() => removeJob(active.jobId)} hitSlop={8}>

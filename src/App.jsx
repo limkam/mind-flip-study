@@ -74,7 +74,7 @@ function RequireFeature({ feature, children }) {
   useEffect(() => {
     if (!isLoading && !isAllowed && !prompted.current) {
       prompted.current = true;
-      window.dispatchEvent(new CustomEvent("mindflip:plan-limit", {
+      window.dispatchEvent(new CustomEvent("bilkeys:plan-limit", {
         detail: { reason: "This feature is not included in your current plan." },
       }));
     }
@@ -104,7 +104,6 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/auth/email/verify" element={<EmailVerification />} />
       {import.meta.env.DEV && <Route path="/__phase4-test" element={<CelebrationTestHarness />} />}
-      <Route path="/register" element={<Navigate to="/login" replace />} />
       <Route path="/forgot-password" element={<Navigate to="/login" replace />} />
       <Route path="/auth/reset-password" element={<Navigate to="/login" replace />} />
       <Route path="/billing/success" element={<BillingSuccess />} />

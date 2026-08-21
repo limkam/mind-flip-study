@@ -21,11 +21,11 @@ export async function generateMetadata({
     title: `${subject.name} Flashcard Generator: AI Study Cards`,
     description: subject.description,
     keywords: subject.keywords,
-    alternates: { canonical: `https://mindflip.io/study/${subject.slug}` },
+    alternates: { canonical: `https://bilkeys.io/study/${subject.slug}` },
     openGraph: {
       title: `${subject.name} Flashcard Generator`,
       description: subject.description,
-      url: `https://mindflip.io/study/${subject.slug}`,
+      url: `https://bilkeys.io/study/${subject.slug}`,
     },
   };
 }
@@ -34,15 +34,15 @@ function subjectFaq(subjectName: string): FAQItem[] {
   return [
     {
       q: `How does the ${subjectName} flashcard generator work?`,
-      a: `Upload your ${subjectName} PDF, including textbook chapters, lecture slides, or notes. Mindflip's AI reads the content and generates targeted question-and-answer flashcards in under 30 seconds.`,
+      a: `Upload your ${subjectName} PDF, including textbook chapters, lecture slides, or notes. Bilkeys's AI reads the content and generates targeted question-and-answer flashcards in under 30 seconds.`,
     },
     {
       q: `Is it better than Anki for ${subjectName}?`,
-      a: "Mindflip uses the same SM-2 spaced repetition algorithm as Anki, but adds 8 game modes to make studying less passive. No manual card creation required.",
+      a: "Bilkeys uses the same SM-2 spaced repetition algorithm as Anki, but adds 8 game modes to make studying less passive. No manual card creation required.",
     },
     {
       q: `How many ${subjectName} flashcards can I generate?`,
-      a: "Plans start at $3.99/month, with higher tiers for more books, flashcard sets, collaboration tools, and premium processing.",
+      a: "Plans start at $4.99/month, with higher tiers for more books, flashcard sets, collaboration tools, and premium processing.",
     },
   ];
 }
@@ -72,7 +72,7 @@ export default function SubjectPage({
         </p>
         <div className="mt-10 flex justify-center gap-4">
           <a
-            href="https://app.mindflip.io/register"
+            href="https://app.bilkeys.io/register"
             className="rounded-xl bg-indigo-600 px-8 py-4 font-semibold text-white transition hover:bg-indigo-700"
           >
             Generate {subject.name} Flashcards Free

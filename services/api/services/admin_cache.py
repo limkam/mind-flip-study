@@ -7,8 +7,8 @@ import time
 from typing import Any, Callable
 from fastapi.encoders import jsonable_encoder
 
-logger = logging.getLogger("mindflip.admin_cache")
-KEY_PREFIX = "mindflip:admin:v1:"
+logger = logging.getLogger("bilkeys.admin_cache")
+KEY_PREFIX = "bilkeys:admin:v1:"
 
 async def get_json(redis: Any, key: str) -> Any | None:
     started = time.perf_counter()

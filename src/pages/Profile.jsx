@@ -125,7 +125,7 @@ export default function Profile() {
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
           <UserAvatar user={{ ...user, avatar_url: avatarUrl || user?.avatar_url }} className="h-20 w-20" fallbackClassName="text-xl" />
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-xl font-semibold">{user?.full_name || "MindFlip user"}</h2>
+            <h2 className="truncate text-xl font-semibold">{user?.full_name || "Bilkeys user"}</h2>
             <p className="truncate text-sm text-muted-foreground">{user?.email}</p>
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
               <span className="rounded-full bg-primary/10 px-2 py-1 font-medium text-primary">{provider}</span>
@@ -183,7 +183,7 @@ export default function Profile() {
           </div>
           <div>
             <h2 id="app-theme-heading" className="font-heading text-lg font-semibold">App theme</h2>
-            <p className="text-sm text-muted-foreground">Choose the accent colors used across MindFlip and your study cards.</p>
+            <p className="text-sm text-muted-foreground">Choose the accent colors used across Bilkeys and your study cards.</p>
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy={savingTheme}>

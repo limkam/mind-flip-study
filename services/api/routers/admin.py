@@ -25,6 +25,7 @@ from models.plan import Plan
 from models.xp import XPTransaction
 from models.user import User
 from services import entitlements as entitlements_service
+from services.financial_metrics_service import calculate_monthly_churn
 from services.plan_catalog import PLAN_LABELS, plan_label_from_slug
 from services.book_deletion import cascade_delete_book
 from age_utils import AGE_GROUP_LABELS, dob_range_for_age_group
@@ -496,19 +497,13 @@ async def get_platform_metrics(
         1,
     )
 
-    # Churn: subscriptions canceled within the window, as a share of the paying base
-    # (current payers + those who churned out of it this window) — mirrors the same
-    # denominator shape used by Financial Analytics' churn_rate_pct.
-    churned_users_30d = int(
-        await db.scalar(
-            select(func.count(func.distinct(UserSubscription.user_id))).where(
-                UserSubscription.canceled_at.isnot(None),
-                UserSubscription.canceled_at >= thirty_days_ago_dt,
-            ),
-        )
-        or 0,
-    )
-    churn_rate_pct = round(churned_users_30d / max(paying_users + churned_users_30d, 1) * 100, 1)
+    # Canonical churn (see services.financial_metrics_service.calculate_monthly_churn) —
+    # calendar month-to-date, matching Financial Analytics and the Owner Console.
+    now = datetime.now(UTC)
+    month_start = datetime.combine(today.replace(day=1), time.min, tzinfo=UTC)
+    churn = await calculate_monthly_churn(db, period_start=month_start, now=now)
+    churned_users_mtd = churn.churned_users
+    churn_rate_pct = churn.churn_rate_pct
 
     quizzes_30d = int(
         await db.scalar(
@@ -585,7 +580,7 @@ async def get_platform_metrics(
         onboarding_started_30d=onboarding_started_30d,
         onboarding_completed_30d=onboarding_completed_30d,
         onboarding_rate_pct=onboarding_rate_pct,
-        churned_users_30d=churned_users_30d,
+        churned_users_mtd=churned_users_mtd,
         churn_rate_pct=churn_rate_pct,
         usage_by_feature=usage_by_feature,
         ai_cost_daily=ai_cost_daily,

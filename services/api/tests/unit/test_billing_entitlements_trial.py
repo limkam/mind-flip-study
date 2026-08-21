@@ -128,8 +128,8 @@ async def test_checkout_mobile_client_uses_configured_mobile_urls(monkeypatch):
 
     monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
     monkeypatch.setattr(billing.settings, 'STRIPE_PRICE_ID_STANDARD_MONTHLY', 'price_std_m')
-    monkeypatch.setattr(billing.settings, 'MOBILE_CHECKOUT_SUCCESS_URL', 'https://app.mindflip.io/mobile/billing/success')
-    monkeypatch.setattr(billing.settings, 'MOBILE_CHECKOUT_CANCEL_URL', 'https://app.mindflip.io/mobile/billing/cancel')
+    monkeypatch.setattr(billing.settings, 'MOBILE_CHECKOUT_SUCCESS_URL', 'https://app.bilkeys.io/mobile/billing/success')
+    monkeypatch.setattr(billing.settings, 'MOBILE_CHECKOUT_CANCEL_URL', 'https://app.bilkeys.io/mobile/billing/cancel')
 
     monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
         'state': 'none', 'subscription': None, 'count': 0,
@@ -147,9 +147,9 @@ async def test_checkout_mobile_client_uses_configured_mobile_urls(monkeypatch):
         client=billing.CheckoutClient.mobile,
     )
     assert result.checkout_url == 'https://checkout.stripe.com/test'
-    assert 'app.mindflip.io/mobile/billing/success' in captured['success_url']
+    assert 'app.bilkeys.io/mobile/billing/success' in captured['success_url']
     assert '{CHECKOUT_SESSION_ID}' in captured['success_url']
-    assert captured['cancel_url'] == 'https://app.mindflip.io/mobile/billing/cancel'
+    assert captured['cancel_url'] == 'https://app.bilkeys.io/mobile/billing/cancel'
 
 
 @pytest.mark.asyncio
@@ -165,7 +165,7 @@ async def test_checkout_web_client_uses_frontend_urls(monkeypatch):
 
     monkeypatch.setattr(billing.settings, 'STRIPE_SECRET_KEY', 'sk_test')
     monkeypatch.setattr(billing.settings, 'STRIPE_PRICE_ID_STANDARD_MONTHLY', 'price_std_m')
-    monkeypatch.setattr(billing.settings, 'FRONTEND_URL', 'https://mindflip.io')
+    monkeypatch.setattr(billing.settings, 'FRONTEND_URL', 'https://bilkeys.io')
 
     monkeypatch.setattr(billing, '_resolve_stripe_subscription', AsyncMock(return_value={
         'state': 'none', 'subscription': None, 'count': 0,
@@ -182,8 +182,8 @@ async def test_checkout_web_client_uses_frontend_urls(monkeypatch):
         plan=billing.BillingPlan.standard, interval=billing.BillingInterval.monthly,
         client=billing.CheckoutClient.web,
     )
-    assert 'mindflip.io/billing/success' in captured['success_url']
-    assert captured['cancel_url'] == 'https://mindflip.io/billing/cancel'
+    assert 'bilkeys.io/billing/success' in captured['success_url']
+    assert captured['cancel_url'] == 'https://bilkeys.io/billing/cancel'
 
 
 @pytest.mark.asyncio

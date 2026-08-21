@@ -6,9 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/components/ui/use-toast";
 import {
   fetchEntitlementsSnapshot,
-  getUpgradeHook,
   getUpgradeRequiredMessage,
-  startCheckout,
 } from "@/lib/billing";
 import BuyCreditsModal from "@/components/billing/BuyCreditsModal";
 
@@ -17,7 +15,6 @@ export default function RegenerateScenarios({ setId, onScenariosChange }) {
   const [showDecisionModal, setShowDecisionModal] = useState(false);
   const [showBuyCredits, setShowBuyCredits] = useState(false);
   const [decisionMessage, setDecisionMessage] = useState("");
-  const [decisionHook, setDecisionHook] = useState(null);
   const { toast } = useToast();
 
   const { data: entitlements, refetch: refetchEntitlements } = useQuery({
@@ -28,13 +25,12 @@ export default function RegenerateScenarios({ setId, onScenariosChange }) {
   const handleRegenerate = async () => {
     if (!setId) return;
 
-    const plan = entitlements?.plan_slug;
     const regenDecision = entitlements?.actions?.regeneration;
 
-    // Standard 15: no monthly regen allowance — immediately show upgrade/purchase modal.
-    if (plan === "standard_15" && !regenDecision?.allowed) {
-      setDecisionHook({ free_on_premium_30: true });
-      setDecisionMessage("Regeneration requires credits or upgrade.");
+    // Regenerating always costs a purchased extra credit on every plan — if the
+    // snapshot already shows no credits available, skip straight to the buy-credits modal.
+    if (!regenDecision?.allowed) {
+      setDecisionMessage("Regeneration requires extra credits.");
       setShowDecisionModal(true);
       return;
     }
@@ -52,12 +48,9 @@ export default function RegenerateScenarios({ setId, onScenariosChange }) {
         description: `${next.length} scenarios updated.`,
       });
     } catch (err) {
-      if (err?.response?.status === 402) return;
-      const hook = getUpgradeHook(err);
-      if (hook) {
-        setDecisionHook(hook);
+      if (err?.response?.status === 402) {
         setDecisionMessage(
-          getUpgradeRequiredMessage(err, "Regeneration is blocked."),
+          getUpgradeRequiredMessage(err, "Regeneration requires extra credits."),
         );
         setShowDecisionModal(true);
         setLoading(false);
@@ -103,16 +96,11 @@ export default function RegenerateScenarios({ setId, onScenariosChange }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-md rounded-2xl border border-border bg-card p-5">
             <h3 className="font-heading text-lg font-semibold">
-              Regeneration options
+              Regeneration requires credits
             </h3>
             <p className="text-sm text-muted-foreground mt-1">
               {decisionMessage}
             </p>
-            {decisionHook?.free_on_premium_30 ? (
-              <p className="text-sm text-emerald-600 mt-2 font-medium">
-                Free on Premium 30
-              </p>
-            ) : null}
             <div className="mt-5 flex flex-col sm:flex-row gap-2 sm:justify-end">
               <Button
                 variant="ghost"
@@ -121,16 +109,12 @@ export default function RegenerateScenarios({ setId, onScenariosChange }) {
                 Close
               </Button>
               <Button
-                variant="outline"
                 onClick={() => {
                   setShowDecisionModal(false);
                   setShowBuyCredits(true);
                 }}
               >
                 Buy credits
-              </Button>
-              <Button onClick={() => startCheckout("premium", "monthly")}>
-                Upgrade to Premium 30
               </Button>
             </div>
           </div>

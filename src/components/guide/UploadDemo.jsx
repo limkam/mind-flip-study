@@ -13,7 +13,7 @@ export function UploadDemo() {
       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
         <div className="flex items-center gap-2 text-xs font-semibold text-indigo-400">
           <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-          MindFlip Document Parser
+          Bilkeys Document Parser
         </div>
         <button
           type="button"

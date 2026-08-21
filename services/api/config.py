@@ -21,7 +21,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    DATABASE_URL: str = "postgresql://mindflip:mindflip@localhost:5432/mindflip"
+    DATABASE_URL: str = "postgresql://bilkeys:bilkeys@localhost:5432/bilkeys"
 
     REDIS_URL: str = "redis://redis:6379/0"
     JWT_SECRET: str = "changeme-use-long-random-secret"
@@ -40,16 +40,16 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_COOKIE_SAMESITE: str = ""
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
-    S3_BUCKET_NAME: str = "mindflip-books"
+    S3_BUCKET_NAME: str = "bilkeys-books"
     S3_REGION: str = "us-east-1"
     ANTHROPIC_API_KEY: str = ""
     #: Secrets Manager secret id when ``ENVIRONMENT=production``.
-    ANTHROPIC_SECRET_ID: str = "mindflip/anthropic-api-key"
+    ANTHROPIC_SECRET_ID: str = "bilkeys/anthropic-api-key"
     AWS_SECRETS_REGION: str = "us-east-1"
 
     # Comma-separated list, e.g. web + admin dashboards
     CORS_ORIGINS: str = (
-        "http://localhost:5173,http://localhost:5174,https://admin.mindflip.io"
+        "http://localhost:5173,http://localhost:5174,https://admin.bilkeys.io"
     )
     #: Allow any ``https://<subdomain>.vercel.app`` origin (preview + production deploys).
     CORS_ALLOW_VERCEL_PREVIEWS: bool = False
@@ -93,9 +93,9 @@ class Settings(BaseSettings):
         '{"credits":33,"price_cents":4389}]'
     )
     #: Per-tier Stripe Price id (under the "BILKEYS CREDITS" product), one named var per
-    #: tier size to match the STRIPE_PRICE_ID_* naming convention used for subscriptions
-    #: above. Real values live in .env only — checkout falls back to an inline price for
-    #: any tier left blank here, so this is optional, not required to function.
+    #: tier size to match the STRIPE_PRICE_ID_* convention used for subscriptions above.
+    #: Real values live in .env only — checkout falls back to an inline price for any
+    #: tier left blank here, so this is optional, not required to function.
     STRIPE_PRICE_ID_CREDIT_3: str = ""
     STRIPE_PRICE_ID_CREDIT_6: str = ""
     STRIPE_PRICE_ID_CREDIT_9: str = ""
@@ -105,13 +105,13 @@ class Settings(BaseSettings):
     STRIPE_PRICE_ID_CREDIT_24: str = ""
     STRIPE_PRICE_ID_CREDIT_27: str = ""
     STRIPE_PRICE_ID_CREDIT_33: str = ""
-    BILLING_PRICE_CENTS_QUICK_MONTHLY: int = 399
-    BILLING_PRICE_CENTS_QUICK_ANNUAL: int = 2400
-    BILLING_PRICE_CENTS_STANDARD_MONTHLY: int = 699
-    BILLING_PRICE_CENTS_STANDARD_ANNUAL: int = 4200
-    BILLING_PRICE_CENTS_PREMIUM_MONTHLY: int = 899
-    BILLING_PRICE_CENTS_PREMIUM_ANNUAL: int = 5400
-    BILLING_DEFAULT_INTERVAL: str = "monthly"
+    BILLING_PRICE_CENTS_QUICK_MONTHLY: int = 499
+    BILLING_PRICE_CENTS_QUICK_ANNUAL: int = 3900
+    BILLING_PRICE_CENTS_STANDARD_MONTHLY: int = 799
+    BILLING_PRICE_CENTS_STANDARD_ANNUAL: int = 5800
+    BILLING_PRICE_CENTS_PREMIUM_MONTHLY: int = 999
+    BILLING_PRICE_CENTS_PREMIUM_ANNUAL: int = 6300
+    BILLING_DEFAULT_INTERVAL: str = "annual"
     STRIPE_WEBHOOK_SECRET: str = ""
     FRONTEND_URL: str = "http://localhost:5173"
     MOBILE_CHECKOUT_SUCCESS_URL: str = "http://localhost:5173/mobile/billing/success"
@@ -119,7 +119,7 @@ class Settings(BaseSettings):
 
     #: Transactional email (https://resend.com). Leave empty to skip sends in dev.
     RESEND_API_KEY: str = ""
-    FROM_EMAIL: str = "MindFlip <noreply@i-educate.com>"
+    FROM_EMAIL: str = "Bilkeys <noreply@i-educate.com>"
     EMAIL_DELIVERY_MODE: str = "disabled"
     EMAIL_TEST_RECIPIENTS: str = ""
     EMAIL_PRODUCTION_ENABLED: bool = False
@@ -161,6 +161,10 @@ class Settings(BaseSettings):
     PROVIDER_EVENT_RETENTION_DAYS: int = 30
     AUTOMATION_RUN_RETENTION_DAYS: int = 90
     ENGAGEMENT_CLEANUP_DRY_RUN: bool = True
+
+    #: Owner Console alerting (Module 8). Mirrors the EMAIL_DELIVERY_MODE gate pattern.
+    SLACK_WEBHOOK_URL: str = ""
+    SLACK_ALERT_DELIVERY_MODE: str = "disabled"
 
     @property
     def email_test_recipients(self) -> set[str]:
@@ -208,6 +212,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "EMAIL_UNSUBSCRIBE_SECRET is required for production delivery"
             )
+
+    def validate_slack_policy(self) -> None:
+        if self.SLACK_ALERT_DELIVERY_MODE not in {"disabled", "log_only", "production"}:
+            raise ValueError("SLACK_ALERT_DELIVERY_MODE must be disabled, log_only, or production")
+        if self.SLACK_ALERT_DELIVERY_MODE == "production" and not self.SLACK_WEBHOOK_URL:
+            raise ValueError("SLACK_WEBHOOK_URL is required when SLACK_ALERT_DELIVERY_MODE=production")
 
     def validate_automation_policy(self) -> None:
         bounded = {

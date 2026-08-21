@@ -50,9 +50,7 @@ export default function CreditBillingSuccess() {
             if (!cancelled) {
               setDetails({
                 quantity: result.credit_quantity ?? null,
-                amountCents: result.credit_quantity != null && result.unit_price_cents != null
-                  ? result.credit_quantity * result.unit_price_cents
-                  : null,
+                amountCents: result.amount_paid_cents ?? null,
                 purchasedBalance: entitlements?.balances?.purchased_credits ?? null,
               });
               setState("success");

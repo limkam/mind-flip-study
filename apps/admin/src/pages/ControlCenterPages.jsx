@@ -66,7 +66,7 @@ export function Overview() {
   const plans = useQuery({ queryKey:['control-plans'], queryFn:()=>get('/admin/control/plan-rankings') });
   if ([activity,onboarding,subs,plans].some(x=>x.isLoading)) return <p>Loading operational overview…</p>;
   const rank = x => x?.map(v=>v.plan).join(' + ') || 'Not available';
-  return <div><PageHeader title="Overview" description="What is happening across MindFlip right now." />
+  return <div><PageHeader title="Overview" description="What is happening across Bilkeys right now." />
     <div className="metrics-grid"><MetricCard label="Total users" value={subs.data?.summary?.total_users}/><MetricCard label="Active users (30d)" value={activity.data?.mau}/><MetricCard label="Paying users" value={subs.data?.summary?.paying_users}/><MetricCard label="New this week" value={onboarding.data?.last_7_days.registrations}/></div>
     <SectionCard title="Growth and activity" description="Meaningful authenticated activity in UTC rolling windows."><div className="metrics-grid"><MetricCard label="New today" value={onboarding.data?.today.registrations}/><MetricCard label="Onboarded today" value={onboarding.data?.today.completed}/><MetricCard label="DAU" value={activity.data?.dau}/><MetricCard label="WAU" value={activity.data?.wau}/></div></SectionCard>
     <SectionCard title="Subscriptions" description="Canonical synchronized billing state."><div className="metrics-grid">{['free_users','paying_users','trialing','canceling','past_due','conflicts'].map(k=><MetricCard key={k} label={k.replaceAll('_',' ')} value={subs.data?.summary?.[k] ?? 0}/>)}</div></SectionCard>

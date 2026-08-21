@@ -15,8 +15,8 @@ export default function MobileBillingSuccess() {
   const isValidFormat = sessionId.startsWith("cs_") && /^cs_[a-zA-Z0-9_]+$/.test(sessionId);
 
   const deepLink = isValidFormat
-    ? `mindflip://billing/success?session_id=${encodeURIComponent(sessionId)}`
-    : "mindflip://billing/success";
+    ? `bilkeys://billing/success?session_id=${encodeURIComponent(sessionId)}`
+    : "bilkeys://billing/success";
 
   useEffect(() => {
     if (isValidFormat) {
@@ -36,9 +36,9 @@ export default function MobileBillingSuccess() {
       <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
         <Smartphone className="h-8 w-8 text-primary" />
       </div>
-      <h1 className="font-heading text-2xl font-bold">Return to MindFlip</h1>
+      <h1 className="font-heading text-2xl font-bold">Return to Bilkeys</h1>
       <p className="mt-3 text-muted-foreground">
-        Return to the MindFlip mobile app to verify your subscription and update your account.
+        Return to the Bilkeys mobile app to verify your subscription and update your account.
       </p>
 
       <div className="mt-8 flex w-full flex-col gap-3">
@@ -46,7 +46,7 @@ export default function MobileBillingSuccess() {
           <Button asChild size="lg" className="w-full gap-2">
             <a href={deepLink}>
               <Smartphone className="h-4 w-4" />
-              Open MindFlip App
+              Open Bilkeys App
             </a>
           </Button>
         ) : (

@@ -23,16 +23,20 @@ from models.credit_ledger import CreditLedger
 from models.usage_event import UsageEvent, UsageReservation
 from models.credit_purchase import CreditPurchase
 from models.token_usage import TokenUsage
-from models.billing_analytics import BillingEvent, BillingInvoice
+from models.billing_analytics import BillingEvent, BillingInvoice, SubscriptionPlanChangeEvent
 from models.engagement import EngagementEvent, EngagementPreference, LearningStreak, Notification, NudgeState, Scorecard, ScorecardShare
 from models.email import EmailContact, EmailDeliveryLog, EmailJob, EmailProviderEvent, EmailSuppression
 from models.automation import EngagementAutomationRun, EngagementAutomationSchedule
 from models.native_session import NativeRefreshSession
 from models.xp import XPTransaction
 from models.admin_observability import AdminAuditLog, OnboardingEvent, UserActivityEvent
+from models.alerts import AlertEvent
+from models.security_events import SystemSecurityEvent
+from models.compliance import DmcaNotice, PrivacyRequest
 
 __all__ = [
     "Achievement",
+    "AlertEvent",
     "Assignment",
     "AssignmentStatus",
     "Base",
@@ -40,6 +44,7 @@ __all__ = [
     "BookStatus",
     "BillingEvent",
     "BillingInvoice",
+    "SubscriptionPlanChangeEvent",
     "CardProgress",
     "CreditLedger",
     "CreditPurchase",
@@ -85,4 +90,7 @@ __all__ = [
     "AdminAuditLog",
     "OnboardingEvent",
     "UserActivityEvent",
+    "SystemSecurityEvent",
+    "DmcaNotice",
+    "PrivacyRequest",
 ]

@@ -1,6 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 
-const NATIVE_REFRESH_TOKEN_KEY = "mindflip_native_refresh_token";
+const NATIVE_REFRESH_TOKEN_KEY = "bilkeys_native_refresh_token";
 
 let ephemeralNativeRefreshToken: string | null = null;
 

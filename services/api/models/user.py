@@ -86,6 +86,14 @@ class User(Base):
         nullable=False,
         server_default=text("'{}'::jsonb"),
     )
+    utm_source: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    utm_medium: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    utm_campaign: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    referral_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Sub-role for admin-panel access, meaningful only when role == UserRole.admin.
+    # One of "owner" | "finance" | "support" | "marketer"; plain string (not a native enum)
+    # so new tiers can be added without a migration. See dependencies.require_admin_role.
+    admin_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

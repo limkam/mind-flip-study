@@ -47,3 +47,21 @@ class BillingInvoice(Base):
     period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class SubscriptionPlanChangeEvent(Base):
+    """Logs every plan_id mutation on an existing UserSubscription (upgrade or downgrade
+    landing). Powers Revenue MRR-movement (expansion/contraction) decomposition, which can't
+    be derived from subscription_started_at/canceled_at alone. No backfill: history starts
+    from when this table began being written."""
+
+    __tablename__ = "subscription_plan_change_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    subscription_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("user_subscriptions.id", ondelete="CASCADE"), nullable=False, index=True)
+    old_plan_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("plans.id", ondelete="SET NULL"), nullable=True)
+    new_plan_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("plans.id", ondelete="CASCADE"), nullable=False)
+    old_mrr_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    new_mrr_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)

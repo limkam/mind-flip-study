@@ -181,7 +181,7 @@ export default function ScorecardsScreen() {
   const title =
     card?.period_type === "course"
       ? metrics.course_title || "Course"
-      : user?.full_name || "MindFlip Learner";
+      : user?.full_name || "Bilkeys Learner";
 
   useEffect(() => {
     if (!card?.id) return;
@@ -213,7 +213,7 @@ export default function ScorecardsScreen() {
       await Sharing.shareAsync(uri, {
         mimeType: "image/png",
         UTI: "public.png",
-        dialogTitle: "Share your MindFlip scorecard",
+        dialogTitle: "Share your Bilkeys scorecard",
       });
     } catch {
       Alert.alert("Could not share image", "Please try again.");
@@ -576,7 +576,7 @@ export default function ScorecardsScreen() {
                 <View style={styles.orbOne} />
                 <View style={styles.orbTwo} />
                 <View style={styles.brandRow}>
-                  <Text style={styles.brand}>🎓 MINDFLIP</Text>
+                  <Text style={styles.brand}>🎓 BILKEYS</Text>
                   <Text style={styles.pill}>
                     {PERIODS.find((item) => item.key === period)?.label}
                   </Text>
@@ -646,7 +646,7 @@ export default function ScorecardsScreen() {
                   <Text style={styles.best}>Personal best</Text>
                 )}
 
-                <Text style={styles.footer}>Keep learning with MindFlip 🚀</Text>
+                <Text style={styles.footer}>Keep learning with Bilkeys 🚀</Text>
               </View>
             </Animated.View>
 

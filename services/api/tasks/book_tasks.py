@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
 from uuid import UUID
@@ -158,6 +159,7 @@ def extract_book_toc_task(self, book_id: str) -> dict[str, str]:
             book.extras = extras
             _set_toc_phase(book, "complete", toc_method=toc_method, chapters=len(chapters))
             book.status = BookStatus.ready
+            book.processing_completed_at = datetime.now(UTC)
 
         payload = {
             "status": "complete",

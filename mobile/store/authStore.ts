@@ -52,7 +52,7 @@ type AuthState = {
   logout: () => void;
 };
 
-const AUTH_PREFIX = "@mindflip-auth:";
+const AUTH_PREFIX = "@bilkeys-auth:";
 
 const authStorage = {
   getItem: async (name: string) => {
@@ -148,7 +148,7 @@ export const useAuthStore = create<AuthState>()(
         })),
     }),
     {
-      name: "mindflip-auth",
+      name: "bilkeys-auth",
       storage: createJSONStorage(() => authStorage),
       partialize: (s) =>
         s.keepSignedIn

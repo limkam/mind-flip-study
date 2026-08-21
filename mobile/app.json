@@ -1,24 +1,24 @@
 {
   "expo": {
-    "name": "MindFlip",
-    "slug": "mindflip",
+    "name": "Bilkeys",
+    "slug": "bilkeys",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "mindflip",
+    "scheme": "bilkeys",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "bundleIdentifier": "io.mindflip.app",
+      "bundleIdentifier": "io.bilkeys.app",
       "buildNumber": "1",
       "supportsTablet": false,
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "MindFlip needs photo library access to set your avatar.",
-        "NSCameraUsageDescription": "MindFlip needs camera access to scan documents."
+        "NSPhotoLibraryUsageDescription": "Bilkeys needs photo library access to set your avatar.",
+        "NSCameraUsageDescription": "Bilkeys needs camera access to scan documents."
       }
     },
     "android": {
-      "package": "io.mindflip.app",
+      "package": "io.bilkeys.app",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

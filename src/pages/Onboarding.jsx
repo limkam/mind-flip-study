@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowRight, Loader2 } from "lucide-react";
 
 import client from "@/api/client";
-import { MindFlipBrand } from "@/components/brand/MindFlipLogo";
+import { BilkeysBrand } from "@/components/brand/BilkeysLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,7 +38,7 @@ export default function Onboarding() {
     let age = today.getFullYear() - dob.getFullYear();
     if (today.getMonth() < dob.getMonth() || (today.getMonth() === dob.getMonth() && today.getDate() < dob.getDate())) age -= 1;
     if (!dateOfBirth || Number.isNaN(dob.getTime()) || age < 13) {
-      setFormError("MindFlip is only available to users aged 13 and above.");
+      setFormError("Bilkeys is only available to users aged 13 and above.");
       return;
     }
     setSubmitting(true);
@@ -53,7 +53,8 @@ export default function Onboarding() {
         job_title: jobTitle.trim() || null,
       });
       await refreshUser();
-      navigate(location.state?.from?.pathname || "/", { replace: true });
+      const from = location.state?.from;
+      navigate({ pathname: from?.pathname || "/", search: from?.search || "" }, { replace: true });
     } catch (error) {
       setFormError(getApiErrorMessage(error, "Could not finish setting up your account."));
     } finally {
@@ -65,9 +66,9 @@ export default function Onboarding() {
     <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
       <section className="w-full max-w-lg">
         <div className="flex flex-col items-center text-center">
-          <MindFlipBrand centered className="mb-8" surface="on-light" />
+          <BilkeysBrand centered className="mb-8" surface="on-light" />
           <h1 className="font-heading text-3xl font-bold">Tell us about yourself</h1>
-          <p className="mt-2 text-sm text-muted-foreground">This helps us personalize your MindFlip experience.</p>
+          <p className="mt-2 text-sm text-muted-foreground">This helps us personalize your Bilkeys experience.</p>
         </div>
 
         <form className="mt-8 space-y-4" onSubmit={finish}>

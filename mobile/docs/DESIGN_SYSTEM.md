@@ -1,12 +1,12 @@
-# MindFlip Mobile Design System (MFUX-002)
+# Bilkeys Mobile Design System (MFUX-002)
 
-This document specifies the design system foundation, token architecture, and UI primitives for the MindFlip mobile application.
+This document specifies the design system foundation, token architecture, and UI primitives for the Bilkeys mobile application.
 
 ---
 
 ## 1. Philosophy
 
-The MindFlip mobile design language is **Focused + Intelligent + Encouraging + Modern + Native + Rewarding**.
+The Bilkeys mobile design language is **Focused + Intelligent + Encouraging + Modern + Native + Rewarding**.
 
 Core design tenets:
 - **Learning First:** The primary screen always presents the immediate next learning action within one tap.
@@ -183,7 +183,7 @@ The foundation requires physical runtime/device QA verification during later MFU
 ## 12. Account and Administrative Surfaces
 
 - Profile prioritizes identity and editable account details; learning metrics remain a bounded snapshot rather than an administrative dashboard.
-- Settings groups appearance, learning, and MindFlip notification preferences. Device notification permission remains a separate operating-system concern.
+- Settings groups appearance, learning, and Bilkeys notification preferences. Device notification permission remains a separate operating-system concern.
 - Appearance uses the existing System, Light, and Dark theme authority. Switching appearance must not remount forms, queries, checkout, or sharing state.
 - Billing uses the canonical “Billing & Credits” name. Subscription conflicts outrank plan actions and suppress unsupported checkout and cancellation.
 - Credits remain independent of subscription rollout, and internal identifiers are never shown to users.

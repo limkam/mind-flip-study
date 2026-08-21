@@ -45,7 +45,7 @@ export function ChallengeEntitlementGuard({ children }: { children: ReactNode })
         <EmptyState
           icon="⚠️"
           title="Could not verify challenge access"
-          message="Check your connection and try again. Other parts of MindFlip are still available."
+          message="Check your connection and try again. Other parts of Bilkeys are still available."
           actionLabel="Try again"
           onAction={() => void entitlements.refetch()}
         />

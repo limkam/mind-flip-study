@@ -1,4 +1,4 @@
-# Deploy as a static site on Railway (admin.mindflip.io).
+# Deploy as a static site on Railway (admin.bilkeys.io).
 # Set root directory to apps/admin and VITE_API_URL to the FastAPI backend URL.
 
 [build]

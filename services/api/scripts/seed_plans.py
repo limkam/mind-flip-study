@@ -41,7 +41,13 @@ PLANS = [
         "slug": "premium_30",
         "name": "Premium 30",
         "monthly_content_allowance": 30,
-        "monthly_regen_allowance": 1,
+        # Regeneration always costs a purchased extra credit on every plan, including
+        # premium_30 -- see the entitlements.py Action.REGENERATE docstring. A nonzero
+        # value here silently reintroduces a free regenerate: consume_credits() spends
+        # the monthly pool before the purchased one, so a user who has ever bought a
+        # single regen credit would pass the purchased-balance gate check forever while
+        # every regenerate is actually paid for by this "free" monthly grant.
+        "monthly_regen_allowance": 0,
     },
 ]
 

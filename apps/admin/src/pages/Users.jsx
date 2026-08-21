@@ -220,7 +220,7 @@ export default function Users() {
 
   return (
     <div>
-      <PageHeader title="Users" description="Search and manage MindFlip accounts." />
+      <PageHeader title="Users" description="Search and manage Bilkeys accounts." />
       <div className="filters-row">
         <input
           className="search-input"

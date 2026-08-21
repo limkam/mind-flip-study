@@ -1,4 +1,4 @@
-# MindFlip — Production Deployment Guide
+# Bilkeys — Production Deployment Guide
 
 Deploy **only** the student web app (Vercel) and backend API (Railway). Marketing and admin stay in the repo but are **not** deployed yet.
 
@@ -6,10 +6,10 @@ Deploy **only** the student web app (Vercel) and backend API (Railway). Marketin
 
 | Surface | URL | Deploy now? |
 |---------|-----|-------------|
-| Student web app | `https://app.mindflip.io` | ✅ Yes → Vercel |
-| API | `https://api.mindflip.io` | ✅ Yes → Railway |
-| Admin dashboard | `https://admin.mindflip.io` | ❌ Later |
-| Marketing site | `https://mindflip.io` | ❌ Later |
+| Student web app | `https://app.bilkeys.io` | ✅ Yes → Vercel |
+| API | `https://api.bilkeys.io` | ✅ Yes → Railway |
+| Admin dashboard | `https://admin.bilkeys.io` | ❌ Later |
+| Marketing site | `https://bilkeys.io` | ❌ Later |
 | Mobile (Expo Go / stores) | — | Connect to Railway API now |
 
 ---
@@ -55,8 +55,8 @@ Keep these endpoints live in production. They cost nothing if nobody calls them.
 ### How does admin access data later?
 
 1. Deploy `apps/admin` to Vercel/Railway/static host (see `apps/admin/railway.toml` for a template).
-2. Set `VITE_API_URL=https://api.mindflip.io`.
-3. Add `https://admin.mindflip.io` to `CORS_ORIGINS` on the API (already in `.env.example`).
+2. Set `VITE_API_URL=https://api.bilkeys.io`.
+3. Add `https://admin.bilkeys.io` to `CORS_ORIGINS` on the API (already in `.env.example`).
 4. Run `npm run db:create-admin` against production DB (once) or promote a user to admin role.
 5. Admin login → same auth as users, but role = `admin` → access to `/admin/*`.
 
@@ -82,7 +82,7 @@ Before starting, create accounts and gather secrets:
 - [ ] [Neon](https://neon.tech) Postgres — **already set up for this project** (copy `DATABASE_URL` into Railway)
 - [ ] [Upstash Redis](https://upstash.com) — **already set up** (copy `REDIS_URL` into Railway; often `rediss://...`)
 - [ ] AWS S3 bucket + IAM keys (book uploads — **required** for production uploads)
-- [ ] Domain DNS access for `mindflip.io` (or your domain)
+- [ ] Domain DNS access for `bilkeys.io` (or your domain)
 - [ ] Optional: Anthropic API key, Stripe keys, Resend, Sentry, Google OAuth client IDs
 
 **Note:** The backend is **FastAPI (Python)**, not Node.js. It runs in Docker via `services/api/Dockerfile`.
@@ -126,7 +126,7 @@ cat .gitignore
 
 git add .
 git status   # confirm no .env files staged
-git commit -m "Initial commit — MindFlip monorepo"
+git commit -m "Initial commit — Bilkeys monorepo"
 git branch -M main
 git remote add origin git@github.com:YOUR_ORG/mind-flip-study.git
 git push -u origin main
@@ -207,8 +207,8 @@ Celery and auth rate-limiting require Redis. **Do not skip.**
    ```
 
 5. **Variables:** add `DATABASE_URL` (Neon) and `REDIS_URL` (Upstash) plus the rest from §2.6.
-6. **Settings → Networking → Generate Domain** → e.g. `mindflip-api-production.up.railway.app`
-7. Later: add custom domain `api.mindflip.io` (CNAME to Railway).
+6. **Settings → Networking → Generate Domain** → e.g. `bilkeys-api-production.up.railway.app`
+7. Later: add custom domain `api.bilkeys.io` (CNAME to Railway).
 
 ### 2.5 Deploy Celery worker (second service)
 
@@ -235,23 +235,23 @@ Set these in Railway for **both** API and Worker services:
 | `JWT_SECRET` | `openssl rand -hex 32` | ✅ |
 | `JWT_ALGORITHM` | `HS256` | ✅ |
 | `ENVIRONMENT` | `production` | ✅ |
-| `CORS_ORIGINS` | `https://app.mindflip.io` (add admin origin later) | ✅ |
-| `FRONTEND_URL` | `https://app.mindflip.io` | ✅ |
+| `CORS_ORIGINS` | `https://app.bilkeys.io` (add admin origin later) | ✅ |
+| `FRONTEND_URL` | `https://app.bilkeys.io` | ✅ |
 | `REFRESH_TOKEN_COOKIE_SECURE` | `true` | ✅ |
 | `REFRESH_TOKEN_COOKIE_PATH` | `/auth` | ✅ |
 | `AWS_ACCESS_KEY_ID` | IAM user with S3 access | ✅ for uploads |
 | `AWS_SECRET_ACCESS_KEY` | IAM secret | ✅ for uploads |
-| `S3_BUCKET_NAME` | e.g. `mindflip-books` | ✅ |
+| `S3_BUCKET_NAME` | e.g. `bilkeys-books` | ✅ |
 | `S3_REGION` | e.g. `us-east-1` | ✅ |
 | `ANTHROPIC_API_KEY` | Your key (or AWS Secrets Manager in prod) | ✅ for AI |
 | `GOOGLE_CLIENT_ID` | Web OAuth client ID | If using Google login |
-| `APPLE_BUNDLE_ID` | `io.mindflip.app` | If using Apple login |
+| `APPLE_BUNDLE_ID` | `io.bilkeys.app` | If using Apple login |
 | `STRIPE_SECRET_KEY` | `sk_live_...` | If billing enabled |
 | `STRIPE_WEBHOOK_SECRET` | From Stripe dashboard | If billing enabled |
 | `STRIPE_PRICE_ID_BASIC` / `_PREMIUM` | Price IDs | If billing enabled |
 | `FREE_TIER_PAYWALL_ENABLED` | `true` | When ready |
 | `RESEND_API_KEY` | Resend API key | For emails |
-| `FROM_EMAIL` | `MindFlip <hello@mindflip.io>` | For emails |
+| `FROM_EMAIL` | `Bilkeys <hello@bilkeys.io>` | For emails |
 | `SENTRY_DSN_API` | Sentry DSN | Optional |
 | `AUTH_RATE_LIMIT_WINDOW_SEC` | `60` | Recommended |
 | `AUTH_RATE_LIMIT_MAX_REQUESTS` | `40` | Recommended |
@@ -297,22 +297,22 @@ cd services/api
 source .venv/bin/activate
 export DATABASE_URL="postgresql://..."
 
-# Default: admin@mindflip.local / Admin123!
+# Default: admin@bilkeys.local / Admin123!
 python scripts/create_admin.py
 
 # Or override:
-ADMIN_EMAIL="you@mindflip.io" ADMIN_PASSWORD="..." python scripts/create_admin.py
+ADMIN_EMAIL="you@bilkeys.io" ADMIN_PASSWORD="..." python scripts/create_admin.py
 ```
 
 You won't use this until admin is deployed, but the account will exist in Postgres.
 
 ### 2.9 Custom domain for API
 
-1. Railway API service → **Settings → Networking → Custom Domain** → `api.mindflip.io`
+1. Railway API service → **Settings → Networking → Custom Domain** → `api.bilkeys.io`
 2. At your DNS provider:
 
    ```
-   CNAME  api  →  mindflip-api-production.up.railway.app
+   CNAME  api  →  bilkeys-api-production.up.railway.app
    ```
 
 3. Wait for TLS (usually minutes).
@@ -321,21 +321,21 @@ You won't use this until admin is deployed, but the account will exist in Postgr
 
 ```bash
 # Health check
-curl https://api.mindflip.io/health
+curl https://api.bilkeys.io/health
 # Expected: {"status":"ok"}
 
 # Celery worker (optional)
-curl https://api.mindflip.io/health/celery
+curl https://api.bilkeys.io/health/celery
 # Expected: worker count > 0 when worker service is running
 
 # OpenAPI docs
-open https://api.mindflip.io/docs
+open https://api.bilkeys.io/docs
 ```
 
 **Register test user:**
 
 ```bash
-curl -X POST https://api.mindflip.io/auth/register \
+curl -X POST https://api.bilkeys.io/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email":"test@example.com","password":"Test1234!","full_name":"Test User"}'
 ```
@@ -388,7 +388,7 @@ Project → **Settings → Environment Variables** (Production):
 
 | Variable | Value |
 |----------|-------|
-| `VITE_API_URL` | `https://api.mindflip.io` |
+| `VITE_API_URL` | `https://api.bilkeys.io` |
 | `VITE_GOOGLE_CLIENT_ID` | Google Web client ID (same as `GOOGLE_CLIENT_ID` on API) |
 | `VITE_GOOGLE_OAUTH_ENABLED` | Set `true` only after every deployed origin is authorized in Google Cloud |
 | `VITE_ENV` | `production` |
@@ -399,7 +399,7 @@ Project → **Settings → Environment Variables** (Production):
 
 ### 3.4 Custom domain
 
-1. Vercel → Project → **Domains** → add `app.mindflip.io`
+1. Vercel → Project → **Domains** → add `app.bilkeys.io`
 2. DNS:
 
    ```
@@ -411,13 +411,13 @@ Project → **Settings → Environment Variables** (Production):
 In Railway API service, set:
 
 ```
-CORS_ORIGINS=https://app.mindflip.io
+CORS_ORIGINS=https://app.bilkeys.io
 ```
 
 When you deploy admin later, append:
 
 ```
-CORS_ORIGINS=https://app.mindflip.io,https://admin.mindflip.io
+CORS_ORIGINS=https://app.bilkeys.io,https://admin.bilkeys.io
 ```
 
 Redeploy API after changing.
@@ -426,14 +426,14 @@ Redeploy API after changing.
 
 Google Cloud Console → Credentials → Web client:
 
-- **Authorized JavaScript origins:** `https://app.mindflip.io`
+- **Authorized JavaScript origins:** `https://app.bilkeys.io`
 - **Authorized redirect URIs:** (if using redirect flow)
 
 ### 3.7 Test frontend
 
-1. Open `https://app.mindflip.io`
+1. Open `https://app.bilkeys.io`
 2. Register / log in
-3. DevTools → Network: API calls go to `https://api.mindflip.io`
+3. DevTools → Network: API calls go to `https://api.bilkeys.io`
 4. Upload a book (confirms S3 + CORS)
 5. No CORS errors in console
 
@@ -457,7 +457,7 @@ They remain in Git for local dev (`npm run dev` in each folder). Deploy when rea
 Edit `mobile/.env` (local only, not committed):
 
 ```bash
-EXPO_PUBLIC_API_URL=https://api.mindflip.io
+EXPO_PUBLIC_API_URL=https://api.bilkeys.io
 ```
 
 Restart Metro:
@@ -498,7 +498,7 @@ eas build --profile preview --platform android
 Set env in EAS (recommended — not in Git):
 
 ```bash
-eas secret:create --scope project --name EXPO_PUBLIC_API_URL --value https://api.mindflip.io
+eas secret:create --scope project --name EXPO_PUBLIC_API_URL --value https://api.bilkeys.io
 ```
 
 Or in `eas.json` per profile:
@@ -506,7 +506,7 @@ Or in `eas.json` per profile:
 ```json
 "production": {
   "env": {
-    "EXPO_PUBLIC_API_URL": "https://api.mindflip.io"
+    "EXPO_PUBLIC_API_URL": "https://api.bilkeys.io"
   }
 }
 ```
@@ -540,17 +540,17 @@ No separate “mobile API” — one FastAPI backend serves all.
 ```mermaid
 flowchart TB
     subgraph clients["Clients (deployed now)"]
-        WEB["Student Web App<br/>Vite SPA<br/>app.mindflip.io<br/>Vercel"]
+        WEB["Student Web App<br/>Vite SPA<br/>app.bilkeys.io<br/>Vercel"]
         MOBILE["Mobile App<br/>Expo Go → EAS later<br/>iOS / Android"]
     end
 
     subgraph clients_later["Clients (not deployed yet)"]
-        ADMIN["Admin Dashboard<br/>apps/admin<br/>admin.mindflip.io"]
-        MKT["Marketing Site<br/>apps/marketing<br/>mindflip.io"]
+        ADMIN["Admin Dashboard<br/>apps/admin<br/>admin.bilkeys.io"]
+        MKT["Marketing Site<br/>apps/marketing<br/>bilkeys.io"]
     end
 
     subgraph railway["Railway (compute only)"]
-        API["FastAPI API<br/>api.mindflip.io<br/>Docker"]
+        API["FastAPI API<br/>api.bilkeys.io<br/>Docker"]
         WORKER["Celery Worker<br/>same Docker image"]
     end
 
@@ -578,8 +578,8 @@ flowchart TB
 ### Data flow (user signs up and studies)
 
 ```
-1. User opens app.mindflip.io (Vercel)
-2. Browser loads static JS; VITE_API_URL points to api.mindflip.io
+1. User opens app.bilkeys.io (Vercel)
+2. Browser loads static JS; VITE_API_URL points to api.bilkeys.io
 3. POST /auth/register → FastAPI validates → INSERT into PostgreSQL users table
 4. JWT returned; refresh token in HttpOnly cookie (Secure=true in prod)
 5. User uploads PDF → POST /books/upload-url → presigned S3 PUT → POST /books/
@@ -602,7 +602,7 @@ flowchart TB
                      ▼
          ┌───────────────────────┐
          │  FastAPI API (Railway)│◄──── Stripe webhooks, etc.
-         │  api.mindflip.io      │
+         │  api.bilkeys.io      │
          └───────────┬───────────┘
                      │
       ┌──────────────┼──────────────┐
@@ -657,9 +657,9 @@ None of this depends on the admin SPA being online.
 ### Connecting admin later (checklist)
 
 1. **Deploy** `apps/admin` (Vercel root dir `apps/admin`, or Railway static per `apps/admin/railway.toml`).
-2. **Env:** `VITE_API_URL=https://api.mindflip.io`
-3. **CORS:** Add `https://admin.mindflip.io` to API `CORS_ORIGINS`.
-4. **DNS:** `admin.mindflip.io` → host.
+2. **Env:** `VITE_API_URL=https://api.bilkeys.io`
+3. **CORS:** Add `https://admin.bilkeys.io` to API `CORS_ORIGINS`.
+4. **DNS:** `admin.bilkeys.io` → host.
 5. **Login:** Use admin user from `create_admin.py` or promote user via DB.
 6. **Verify:** `GET /admin/users` returns production data.
 
@@ -671,7 +671,7 @@ For early moderation before public admin deploy:
 
 ```bash
 # apps/admin/.env (local only)
-VITE_API_URL=https://api.mindflip.io
+VITE_API_URL=https://api.bilkeys.io
 ```
 
 ```bash
@@ -690,13 +690,13 @@ Open `http://localhost:5174` — admin UI talks to production API. Add `http://l
 - [ ] Neon + Upstash URLs in Railway API + Worker env vars
 - [ ] Railway: API + Worker deployed (no Railway Postgres/Redis)
 - [ ] Migrations applied to production DB
-- [ ] `curl https://api.mindflip.io/health` → ok
+- [ ] `curl https://api.bilkeys.io/health` → ok
 - [ ] S3 uploads tested
 
 ### Day 3–4: Web app
 
 - [ ] Vercel: root project, `vercel.json`, `VITE_API_URL`
-- [ ] Domain `app.mindflip.io` live
+- [ ] Domain `app.bilkeys.io` live
 - [ ] CORS updated on API
 - [ ] Google OAuth origins updated (if used)
 
@@ -705,7 +705,7 @@ Open `http://localhost:5174` — admin UI talks to production API. Add `http://l
 - [ ] `EXPO_PUBLIC_API_URL` → production in Expo Go
 - [ ] Create admin user in prod DB
 - [ ] Sentry enabled (optional)
-- [ ] Stripe webhooks pointed at `https://api.mindflip.io/billing/webhook` (if billing)
+- [ ] Stripe webhooks pointed at `https://api.bilkeys.io/billing/webhook` (if billing)
 - [ ] `FREE_TIER_PAYWALL_ENABLED=true` when ready
 
 ### Day 6–7: Smoke tests
@@ -738,10 +738,10 @@ Open `http://localhost:5174` — admin UI talks to production API. Add `http://l
 ```
 git push main
     │
-    ├─► Vercel (auto)     → builds repo root → app.mindflip.io
+    ├─► Vercel (auto)     → builds repo root → app.bilkeys.io
     │
     └─► Railway (auto)    → builds services/api Dockerfile
-            ├─► API service     → api.mindflip.io
+            ├─► API service     → api.bilkeys.io
             └─► Worker service  → Celery
             (Neon + Upstash are external — env vars only)
 ```
@@ -765,4 +765,4 @@ Environment variables live in each platform's dashboard — never in Git.
 
 ---
 
-*Last updated for MindFlip monorepo layout — student web at repo root, FastAPI at `services/api/`.*
+*Last updated for Bilkeys monorepo layout — student web at repo root, FastAPI at `services/api/`.*

@@ -16,7 +16,7 @@ export function AIGenerationDemo() {
       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
         <div className="flex items-center gap-2 text-xs font-semibold text-amber-400">
           <Sparkles className="w-4 h-4 animate-spin-slow" />
-          MindFlip AI Study Suite Engine
+          Bilkeys AI Study Suite Engine
         </div>
         <button
           onClick={() => setProgress(0)}

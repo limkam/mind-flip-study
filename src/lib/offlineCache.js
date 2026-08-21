@@ -1,6 +1,6 @@
 import { openDB } from 'idb';
 
-const DB_NAME = 'mindflip-offline';
+const DB_NAME = 'bilkeys-offline';
 const DB_VERSION = 1;
 
 /** Single-flight guard: concurrent flush calls share one in-flight promise. */

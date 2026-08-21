@@ -13,7 +13,7 @@ const RATING_INFO = [
   { key: "easy", label: "Easy", color: "text-emerald-600", desc: "Reviewed after a longer interval. You recalled it confidently." },
 ];
 
-const ONBOARDING_KEY = "mindflip_rating_onboarding_seen";
+const ONBOARDING_KEY = "bilkeys_rating_onboarding_seen";
 
 export function RatingExplanation({ compact = false }) {
   return (

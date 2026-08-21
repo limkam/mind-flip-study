@@ -15,7 +15,7 @@ AGE_GROUP_LABELS: tuple[str, ...] = (
     "65+",
 )
 MINIMUM_REGISTRATION_AGE = 13
-UNDERAGE_MESSAGE = "MindFlip is only available to users aged 13 and above"
+UNDERAGE_MESSAGE = "Bilkeys is only available to users aged 13 and above"
 
 
 def subtract_years(from_date: date, years: int) -> date:

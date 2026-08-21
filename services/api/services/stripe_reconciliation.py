@@ -16,6 +16,7 @@ from models.credit_purchase import CreditPurchase
 from models.plan import Plan
 from models.user import User
 from models.user_subscription import UserSubscription
+from services.credits import credit_tier_price_cents
 
 
 ACTIVE_STATUSES = {"active", "trialing", "past_due"}
@@ -182,12 +183,13 @@ def reconcile_stripe(*, limit: int = 100) -> dict[str, int]:
             user = users.get(customer_id)
             try:
                 quantity = int(metadata.get("credit_quantity"))
-                unit_price = int(metadata.get("unit_price_cents"))
                 metadata_user_id = str(metadata.get("user_id") or "")
                 amount_total = int(session.get("amount_total"))
             except (TypeError, ValueError):
                 counts["credit_sessions_invalid"] += 1
                 continue
+            tier_price_cents = credit_tier_price_cents(quantity)
+            unit_price = (tier_price_cents // quantity) if (tier_price_cents is not None and quantity > 0) else 0
             currency = str(session.get("currency") or metadata.get("currency") or "").lower()
             valid = (
                 bool(session_id)
@@ -195,9 +197,8 @@ def reconcile_stripe(*, limit: int = 100) -> dict[str, int]:
                 and user is not None
                 and metadata_user_id == str(user.id)
                 and str(session.get("client_reference_id") or user.id) == str(user.id)
-                and 1 <= quantity <= 100
-                and unit_price == int(settings.CREDIT_UNIT_PRICE_CENTS)
-                and amount_total == quantity * unit_price
+                and tier_price_cents is not None
+                and amount_total == tier_price_cents
                 and currency == str(settings.CREDIT_CURRENCY or "usd").lower()
             )
             if not valid:

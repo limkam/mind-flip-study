@@ -8,7 +8,7 @@ import asyncio
 from time import perf_counter
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import stripe
@@ -36,6 +36,7 @@ from schemas.billing import (
     EntitlementBalances,
     EntitlementFeatures,
     EntitlementsSnapshotResponse,
+    SubscriptionCancelRequest,
     SubscriptionCancelResponse,
     SubscriptionChangePreviewResponse,
     SubscriptionChangeResponse,
@@ -232,6 +233,7 @@ def _pricing_plan_catalog() -> dict[str, BillingPlanPrice]:
             ),
             stripe_price_id_monthly=getattr(settings, "STRIPE_PRICE_ID_STANDARD_MONTHLY", "") or None,
             stripe_price_id_annual=getattr(settings, "STRIPE_PRICE_ID_STANDARD_ANNUAL", "") or None,
+            most_popular=True,
         ),
         "premium_30": BillingPlanPrice(
             monthly_price_cents=int(settings.BILLING_PRICE_CENTS_PREMIUM_MONTHLY),
@@ -254,6 +256,14 @@ async def _latest_subscription_row(db: AsyncSession, user_id: UUID) -> UserSubsc
         .order_by(UserSubscription.current_period_end.desc().nullslast(), UserSubscription.created_at.desc())
         .limit(1)
     )
+
+
+def _monthly_cents(unit_amount_cents: int | None, billing_interval: str | None) -> int:
+    """Normalize a subscription's recurring price to a monthly-equivalent amount, for MRR math."""
+    amount = int(unit_amount_cents or 0)
+    if billing_interval == "annual":
+        return round(amount / 12)
+    return amount
 
 
 def _current_period_end_dt(ts: object) -> datetime | None:
@@ -377,6 +387,8 @@ async def _sync_subscription_from_stripe_object(
             extra={"subscription_id": str(stripe_sub_id), "event_created_at": event_created_at.isoformat()},
         )
         return False
+    plan_change_old_plan_id: uuid.UUID | None = None
+    plan_change_old_monthly_cents = 0
     if internal_sub is None:
         internal_sub = UserSubscription(
             user_id=user.id,
@@ -388,6 +400,11 @@ async def _sync_subscription_from_stripe_object(
         )
         db.add(internal_sub)
     else:
+        if internal_sub.plan_id != plan.id:
+            plan_change_old_plan_id = internal_sub.plan_id
+            plan_change_old_monthly_cents = _monthly_cents(
+                internal_sub.unit_amount_cents, internal_sub.billing_interval
+            )
         internal_sub.user_id = user.id
         internal_sub.plan_id = plan.id
     internal_sub.status = status_raw or internal_sub.status
@@ -420,6 +437,21 @@ async def _sync_subscription_from_stripe_object(
         if isinstance(recurring, dict):
             internal_sub.interval_count = int(recurring.get("interval_count") or 1)
         db.add(internal_sub)
+
+    if plan_change_old_plan_id is not None:
+        from models.billing_analytics import SubscriptionPlanChangeEvent
+
+        new_monthly_cents = _monthly_cents(internal_sub.unit_amount_cents, internal_sub.billing_interval)
+        db.add(
+            SubscriptionPlanChangeEvent(
+                user_id=user.id,
+                subscription_id=internal_sub.id,
+                old_plan_id=plan_change_old_plan_id,
+                new_plan_id=plan.id,
+                old_mrr_cents=plan_change_old_monthly_cents,
+                new_mrr_cents=new_monthly_cents,
+            )
+        )
 
     # Denormalized tier for legacy reads, while entitlement checks use internal_sub + plan.
     now = datetime.now(timezone.utc)
@@ -765,17 +797,29 @@ async def billing_payment_method(
 @router.post("/customer-portal")
 async def create_customer_portal(
     current_user: Annotated[User, Depends(get_current_user)],
+    flow: Annotated[
+        Literal["payment_method_update"] | None,
+        Query(description="Deep-link straight to a specific portal screen instead of the portal home."),
+    ] = None,
 ) -> CheckoutUrlResponse:
     if not current_user.stripe_customer_id:
         raise _billing_error(status.HTTP_404_NOT_FOUND, "NO_BILLING_PROFILE", "No billing profile is available for this account.")
     if not settings.STRIPE_SECRET_KEY:
         raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "BILLING_UNAVAILABLE", "Billing services are temporarily unavailable.")
     stripe.api_key = settings.STRIPE_SECRET_KEY
+    return_url = f"{settings.FRONTEND_URL.rstrip('/')}/billing"
+    session_kwargs: dict[str, Any] = {
+        "customer": current_user.stripe_customer_id,
+    }
+    if flow == "payment_method_update":
+        # Marks the return trip so the frontend can synchronously retry any past-due
+        # invoice right away instead of waiting on the customer.updated webhook alone —
+        # see POST /billing/subscription/retry-payment.
+        return_url = f"{return_url}?payment_method_updated=1"
+        session_kwargs["flow_data"] = {"type": "payment_method_update"}
+    session_kwargs["return_url"] = return_url
     try:
-        session = stripe.billing_portal.Session.create(
-            customer=current_user.stripe_customer_id,
-            return_url=f"{settings.FRONTEND_URL.rstrip('/')}/billing",
-        )
+        session = stripe.billing_portal.Session.create(**session_kwargs)
     except Exception as exc:
         logger.warning("stripe_portal_create_failed", extra={"user_id": str(current_user.id), "error_type": type(exc).__name__})
         raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "PORTAL_UNAVAILABLE", "Subscription management is temporarily unavailable.") from None
@@ -784,10 +828,62 @@ async def create_customer_portal(
     return CheckoutUrlResponse(checkout_url=session.url)
 
 
+async def _retry_past_due_invoice_for_user(db: AsyncSession, user: User) -> dict:
+    """Best-effort immediate retry of a user's past-due subscription invoice, e.g. right
+    after they update their payment method. Returns a display-safe result dict; never
+    raises — a failed retry just means Stripe's own Smart Retries will try again later.
+    """
+    latest_sub = await _latest_subscription_row(db, user.id)
+    if latest_sub is None or latest_sub.status != "past_due" or not latest_sub.stripe_subscription_id:
+        return {"had_past_due_invoice": False, "resolved": False}
+    if not settings.STRIPE_SECRET_KEY:
+        return {"had_past_due_invoice": True, "resolved": False}
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    await _acquire_business_lock(db, "stripe-subscription", str(latest_sub.stripe_subscription_id))
+    try:
+        live_sub = await asyncio.to_thread(
+            stripe.Subscription.retrieve, latest_sub.stripe_subscription_id, expand=["latest_invoice"],
+        )
+        live_sub_dict = _stripe_object_as_dict(live_sub)
+        latest_invoice = live_sub_dict.get("latest_invoice")
+        latest_invoice = _stripe_object_as_dict(latest_invoice) if isinstance(latest_invoice, dict) else None
+        invoice_id = latest_invoice.get("id") if latest_invoice else None
+        invoice_status = latest_invoice.get("status") if latest_invoice else None
+        if not invoice_id or invoice_status != "open":
+            return {"had_past_due_invoice": True, "resolved": False}
+        paid_invoice = await asyncio.to_thread(stripe.Invoice.pay, invoice_id)
+        paid_dict = _stripe_object_as_dict(paid_invoice)
+        resolved = paid_dict.get("status") == "paid"
+        if resolved:
+            await _sync_subscription_from_stripe_object(db, live_sub_dict, authoritative_snapshot=True)
+            await db.flush()
+        return {"had_past_due_invoice": True, "resolved": resolved}
+    except Exception as exc:
+        logger.warning(
+            "stripe_invoice_retry_failed",
+            extra={"user_id": str(user.id), "error_type": type(exc).__name__},
+        )
+        return {"had_past_due_invoice": True, "resolved": False}
+
+
+@router.post("/subscription/retry-payment")
+async def retry_past_due_payment(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Called after the user returns from a payment-method update — attempts to pay off
+    a past-due invoice immediately with the newly attached card, so a failed payment can
+    actually be resolved from inside the app instead of only waiting on Stripe's retries."""
+    result = await _retry_past_due_invoice_for_user(db, current_user)
+    await db.commit()
+    return result
+
+
 @router.post("/subscription/cancel", response_model=SubscriptionCancelResponse)
 async def cancel_subscription_at_period_end(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    body: SubscriptionCancelRequest | None = None,
 ) -> SubscriptionCancelResponse:
     resolution = await _resolve_stripe_subscription(db, current_user)
     if resolution["state"] == "subscription_conflict":
@@ -823,6 +919,8 @@ async def cancel_subscription_at_period_end(
         ) from None
 
     latest_sub.status = "canceled"
+    if body is not None and body.reason:
+        latest_sub.cancellation_reason = body.reason
     db.add(latest_sub)
     await db.commit()
 
@@ -885,30 +983,34 @@ async def _require_active_subscription_for_change(db: AsyncSession, user: User) 
 
 
 async def _downgrade_over_quota_notice(db: AsyncSession, user: User, new_plan_slug: str) -> str | None:
-    """Warn upfront when a downgrade will immediately block new book/set creation.
+    """Warn upfront when a downgrade's next monthly content-credit grant will already be
+    spent by content the user keeps.
 
-    Existing content is intentional policy: it's never removed on downgrade (see the policy
-    comment on entitlements.py's CREATE_BOOK/CREATE_SET/ACTIVATE_SHARED_CONTENT checks) — only
-    new creation/activation is blocked until usage is back under the new, lower limit. This
-    mirrors that same check (same period_start rules) purely for the preview message, so it
-    can never say something the real gate wouldn't actually enforce.
+    Existing content is intentional policy: it's never removed on downgrade (see the credit
+    gate on entitlements.py's CREATE_BOOK/CREATE_SET/ACTIVATE_SHARED_CONTENT checks) — running
+    out of the new, smaller monthly allowance only means new creation draws on purchased
+    credits (or waits for the next grant) instead of being blocked outright. The new plan's
+    monthly_content_allowance equals max_books + max_sets by design, so comparing total owned
+    books+sets against that combined figure approximates what the fresh grant will actually
+    cover on the day the downgrade takes effect.
     """
     new_features = await entitlements_service._plan_features(db, new_plan_slug)
-    period_start = current_period_start(lifetime=new_plan_slug == "free")
-    parts: list[str] = []
     max_books = new_features.get("max_books")
-    if max_books is not None:
-        books_now = int(await consumed_quantity(db, user.id, BOOK_UPLOADED, period_start=period_start) or 0)
-        if books_now >= int(max_books):
-            parts.append(f"you'll keep your {books_now} books, but can't add more until you're back under your new limit of {max_books}")
     max_sets = new_features.get("max_sets")
-    if max_sets is not None:
-        sets_now = int(await consumed_quantity(db, user.id, FLASHCARDS_GENERATED, period_start=period_start) or 0)
-        if sets_now >= int(max_sets):
-            parts.append(f"you'll keep your {sets_now} flashcard sets, but can't add more until you're back under your new limit of {max_sets}")
-    if not parts:
+    if max_books is None and max_sets is None:
         return None
-    return "You're currently over the new plan's limits — " + "; ".join(parts) + "."
+    period_start = current_period_start(lifetime=new_plan_slug == "free")
+    books_now = int(await consumed_quantity(db, user.id, BOOK_UPLOADED, period_start=period_start) or 0)
+    sets_now = int(await consumed_quantity(db, user.id, FLASHCARDS_GENERATED, period_start=period_start) or 0)
+    total_allowance = int(max_books or 0) + int(max_sets or 0)
+    total_now = books_now + sets_now
+    if total_now < total_allowance:
+        return None
+    return (
+        f"You're currently over the new plan's content allowance — you'll keep your "
+        f"{books_now} books and {sets_now} flashcard sets, but new uploads or generations will "
+        f"need purchased credits until your monthly allowance resets."
+    )
 
 
 def _next_billing_date_from_preview(preview: dict) -> datetime | None:
@@ -925,6 +1027,27 @@ def _next_billing_date_from_preview(preview: dict) -> datetime | None:
     if ends:
         return _current_period_end_dt(max(ends))
     return _current_period_end_dt(preview.get("period_end"))
+
+
+def _proration_breakdown_from_preview(preview: dict) -> tuple[int, int]:
+    """Split a proration-only preview invoice's line items into (credit_cents, charge_cents)
+    as positive magnitudes: the negative "unused time on the old plan" line(s) become the
+    credit, the positive "remaining time on the new plan" line(s) become the charge. Both are
+    already netted into amount_due_today_cents — these are purely for a readable breakdown in
+    the confirmation dialog, not a second source of truth for what's actually charged.
+    """
+    lines = ((preview.get("lines") or {}).get("data")) or []
+    credit_cents = 0
+    charge_cents = 0
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        amount = int(line.get("amount") or 0)
+        if amount < 0:
+            credit_cents += -amount
+        elif amount > 0:
+            charge_cents += amount
+    return credit_cents, charge_cents
 
 
 @router.get("/subscription/preview-change", response_model=SubscriptionChangePreviewResponse)
@@ -986,6 +1109,7 @@ async def preview_subscription_change(
         logger.warning("stripe_preview_change_failed", extra={"user_id": str(current_user.id), "error_type": type(exc).__name__})
         raise _billing_error(status.HTTP_503_SERVICE_UNAVAILABLE, "STRIPE_UNAVAILABLE", "Could not compute today's charge.") from None
     upcoming_dict = _stripe_object_as_dict(upcoming)
+    proration_credit_cents, proration_charge_cents = _proration_breakdown_from_preview(upcoming_dict)
     return SubscriptionChangePreviewResponse(
         is_upgrade=True,
         plan_slug=new_plan_slug,
@@ -994,6 +1118,8 @@ async def preview_subscription_change(
         new_recurring_amount_cents=new_recurring,
         effective="immediately",
         next_billing_date=_next_billing_date_from_preview(upcoming_dict),
+        proration_credit_cents=proration_credit_cents,
+        proration_charge_cents=proration_charge_cents,
     )
 
 
@@ -1293,7 +1419,7 @@ async def create_checkout_session(
         customer = stripe.Customer.create(
             email=user_row.email,
             metadata={"user_id": str(user_row.id)},
-            idempotency_key=f"mindflip:user:{user_row.id}:customer",
+            idempotency_key=f"bilkeys:user:{user_row.id}:customer",
         )
         user_row.stripe_customer_id = customer.id
         await db.commit()
@@ -1331,7 +1457,7 @@ async def create_checkout_session(
                 "user_id": str(user_row.id), "plan": plan.value,
                 "plan_slug": _plan_slug_for_metadata(plan.value), "interval": interval.value,
             },
-            idempotency_key=f"mindflip:checkout_session:{user_row.id}:{plan.value}:{interval.value}:{int(datetime.now(timezone.utc).timestamp() // 600)}",
+            idempotency_key=f"bilkeys:checkout_session:{user_row.id}:{plan.value}:{interval.value}:{int(datetime.now(timezone.utc).timestamp() // 600)}",
         )
     except Exception as exc:
         logger.warning("stripe_checkout_create_failed", extra={"user_id": str(user_row.id), "error_type": type(exc).__name__})
@@ -1475,7 +1601,7 @@ async def verify_checkout_session(
             purchase_state = "not_confirmed"
 
         qty_raw = meta.get("credit_quantity") if isinstance(meta, dict) else None
-        price_raw = meta.get("unit_price_cents") if isinstance(meta, dict) else None
+        pack_price_raw = meta.get("credit_pack_price_cents") if isinstance(meta, dict) else None
         curr_raw = meta.get("currency") if isinstance(meta, dict) else None
 
         try:
@@ -1484,9 +1610,19 @@ async def verify_checkout_session(
             credit_quantity = purchase_row.quantity if purchase_row else None
 
         try:
-            unit_price_cents = int(price_raw) if price_raw is not None else (purchase_row.unit_price_cents if purchase_row else None)
+            pack_price_cents = int(pack_price_raw) if pack_price_raw is not None else None
         except (TypeError, ValueError):
+            pack_price_cents = None
+        if pack_price_cents is not None and credit_quantity:
+            unit_price_cents = pack_price_cents // credit_quantity
+        else:
             unit_price_cents = purchase_row.unit_price_cents if purchase_row else None
+        # The real total charged -- never recompute this as quantity * unit_price_cents on
+        # either side. unit_price_cents is a truncated per-credit price (e.g. 799 cents / 6
+        # credits = 133, not 133.166...), so multiplying it back understates the actual charge
+        # by a cent on any tier that doesn't divide evenly. Confirmed live: the 6-credit tier
+        # actually charges $7.99 but a naive quantity*unit_price_cents display showed $7.98.
+        amount_paid_cents = pack_price_cents if pack_price_cents is not None else (purchase_row.amount_paid_cents if purchase_row else None)
 
         currency = str(curr_raw) if curr_raw else (purchase_row.currency if purchase_row else None)
 
@@ -1500,6 +1636,7 @@ async def verify_checkout_session(
             interval=None,
             credit_quantity=credit_quantity,
             unit_price_cents=unit_price_cents,
+            amount_paid_cents=amount_paid_cents,
             currency=currency,
         )
 
@@ -1988,6 +2125,23 @@ async def _stripe_webhook_impl(
             await _reconcile_canonical_subscription(db, sub_id, event_created_at=event_created_at)
         await db.flush()
 
+    elif etype == "customer.updated":
+        # Durable path for resolving a failed payment: if the customer's default payment
+        # method changed (e.g. via the Customer Portal's payment_method_update flow) and
+        # they have a past-due subscription, retry the open invoice right away instead of
+        # only waiting on Stripe's own Smart Retry schedule. This fires even if the user
+        # closed the tab before POST /billing/subscription/retry-payment could run.
+        customer = data_object
+        customer_id = customer.get("id")
+        invoice_settings = customer.get("invoice_settings") or {}
+        default_pm = invoice_settings.get("default_payment_method")
+        if isinstance(default_pm, dict):
+            default_pm = default_pm.get("id")
+        if customer_id and default_pm:
+            pm_user = await db.scalar(select(User).where(User.stripe_customer_id == str(customer_id)).limit(1))
+            if pm_user is not None:
+                await _retry_past_due_invoice_for_user(db, pm_user)
+
     elif etype == "customer.subscription.deleted":
         sub = data_object
         sub_id = sub.get("id")
@@ -1997,10 +2151,15 @@ async def _stripe_webhook_impl(
         await db.flush()
 
     elif etype == "invoice.payment_failed":
+        from services.stripe_reconciliation import _invoice_subscription_id
+
         inv = data_object
-        sub_id = inv.get("subscription")
-        if isinstance(sub_id, dict):
-            sub_id = sub_id.get("id")
+        # inv.get("subscription") is None on this account's API version — the subscription
+        # reference moved to parent.subscription_details.subscription (confirmed live; the
+        # naive top-level read silently dropped both the status reconciliation and the
+        # payment-failed email on every real renewal failure until this used the same
+        # version-tolerant helper invoice.payment_succeeded already relies on).
+        sub_id = _invoice_subscription_id(inv)
         if isinstance(sub_id, str):
             await _reconcile_canonical_subscription(db, sub_id, event_created_at=event_created_at)
             await db.flush()
@@ -2017,6 +2176,12 @@ async def _stripe_webhook_impl(
                 failed_sub = await db.scalar(
                     select(UserSubscription).where(UserSubscription.stripe_subscription_id == sub_id).limit(1)
                 )
+                if failed_sub is not None and hasattr(failed_sub, "dunning_stage"):
+                    failed_sub.dunning_stage += 1
+                    failed_sub.dunning_attempt_count += 1
+                    failed_sub.dunning_last_attempt_at = datetime.now(timezone.utc)
+                    db.add(failed_sub)
+                    await db.commit()
                 from tasks.email_tasks import send_payment_failed_task
 
                 send_payment_failed_task.delay(
@@ -2038,6 +2203,13 @@ async def _stripe_webhook_impl(
         if isinstance(sub_id, str):
             await _reconcile_canonical_subscription(db, sub_id, event_created_at=event_created_at)
             await db.flush()
+            succeeded_sub = await db.scalar(
+                select(UserSubscription).where(UserSubscription.stripe_subscription_id == sub_id).limit(1)
+            )
+            if succeeded_sub is not None and getattr(succeeded_sub, "dunning_stage", None):
+                succeeded_sub.dunning_stage = 0
+                db.add(succeeded_sub)
+                await db.commit()
 
         customer_id = inv.get("customer")
         if isinstance(customer_id, dict):

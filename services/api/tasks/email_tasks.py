@@ -48,7 +48,7 @@ def local_week_key(now: datetime, timezone_name: str) -> str:
 def send_sign_in_code_task(email: str, code: str) -> bool:
     return send_email(
         to=email,
-        subject="Your MindFlip Verification Code",
+        subject="Your Bilkeys Verification Code",
         html=sign_in_code_email(code),
     )
 
@@ -110,7 +110,7 @@ def send_challenge_alert_task(
     )
     return send_email(
         to=recipient_email,
-        subject=f"{challenger_name} challenged you on MindFlip ⚔️",
+        subject=f"{challenger_name} challenged you on Bilkeys ⚔️",
         html=html,
     )
 
@@ -118,7 +118,7 @@ def send_challenge_alert_task(
 @celery.task(name="tasks.email_tasks.send_password_reset_task")
 def send_password_reset_task(full_name: str, email: str, reset_token: str) -> bool:
     html = password_reset_email(full_name, reset_token)
-    return send_email(to=email, subject="Reset your MindFlip password", html=html)
+    return send_email(to=email, subject="Reset your Bilkeys password", html=html)
 
 
 @celery.task(name="tasks.email_tasks.send_weekly_digests_task")
@@ -193,7 +193,7 @@ def send_weekly_digests_task() -> dict[str, int]:
 @celery.task(name="tasks.email_tasks.send_weekly_digest_email_task")
 def send_weekly_digest_email_task(full_name: str, email: str, stats: dict) -> bool:
     html = weekly_digest_email(full_name, stats)
-    return send_email(to=email, subject="Your MindFlip week in review 📊", html=html)
+    return send_email(to=email, subject="Your Bilkeys week in review 📊", html=html)
 
 
 @celery.task(name="tasks.email_tasks.send_second_purchase_upsell_task")
@@ -203,7 +203,7 @@ def send_second_purchase_upsell_task(user_id: str, full_name: str, email: str) -
 
     html = second_purchase_upsell_email(full_name)
     return send_email(
-        to=email, subject="Get unlimited credits with MindFlip Pro 🚀", html=html
+        to=email, subject="Get unlimited credits with Bilkeys Pro 🚀", html=html
     )
 
 
@@ -254,7 +254,7 @@ def send_subscription_receipt_task(
         invoice_url=invoice_url, receipt_url=receipt_url,
     )
     return send_email(
-        to=email, subject="Your MindFlip subscription is active", html=html, attachments=attachments,
+        to=email, subject="Your Bilkeys subscription is active", html=html, attachments=attachments,
     )
 
 
@@ -280,7 +280,7 @@ def send_renewal_receipt_task(
         invoice_url=invoice_url, receipt_url=receipt_url,
     )
     return send_email(
-        to=email, subject="Your MindFlip subscription renewed", html=html, attachments=attachments,
+        to=email, subject="Your Bilkeys subscription renewed", html=html, attachments=attachments,
     )
 
 
@@ -306,7 +306,7 @@ def send_upgrade_receipt_task(
         invoice_url=invoice_url, receipt_url=receipt_url,
     )
     return send_email(
-        to=email, subject="You're upgraded — MindFlip receipt", html=html, attachments=attachments,
+        to=email, subject="You're upgraded — Bilkeys receipt", html=html, attachments=attachments,
     )
 
 
@@ -328,7 +328,7 @@ def send_credit_purchase_receipt_task(
         invoice_url=invoice_url, receipt_url=receipt_url,
     )
     return send_email(
-        to=email, subject="Your MindFlip credits receipt", html=html, attachments=attachments,
+        to=email, subject="Your Bilkeys credits receipt", html=html, attachments=attachments,
     )
 
 
@@ -345,7 +345,7 @@ def send_payment_failed_task(
 
     access_end_date = datetime.fromisoformat(access_end_date_iso) if access_end_date_iso else None
     html = payment_failed_email(full_name, amount_cents, currency, access_end_date)
-    return send_email(to=email, subject="A MindFlip payment didn't go through", html=html)
+    return send_email(to=email, subject="A Bilkeys payment didn't go through", html=html)
 
 
 @celery.task(name="tasks.email_tasks.send_cancellation_confirmation_task")
@@ -364,7 +364,7 @@ def send_cancellation_confirmation_task(
         full_name, access_end_date, invoice_url=invoice_url, receipt_url=receipt_url,
     )
     return send_email(
-        to=email, subject="Your MindFlip subscription has been canceled", html=html, attachments=attachments,
+        to=email, subject="Your Bilkeys subscription has been canceled", html=html, attachments=attachments,
     )
 
 

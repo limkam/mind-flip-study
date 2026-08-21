@@ -1,4 +1,4 @@
-"""Email validation that accepts common local/dev domains (e.g. admin@mindflip.local)."""
+"""Email validation that accepts common local/dev domains (e.g. admin@bilkeys.local)."""
 
 from __future__ import annotations
 

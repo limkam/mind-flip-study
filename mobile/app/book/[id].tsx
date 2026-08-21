@@ -249,7 +249,7 @@ export default function BookByIdScreen() {
 
       if (job.reused) {
         if (!job.set_id || !UUID_PATTERN.test(job.set_id)) {
-          throw new Error("MindFlip couldn't open the generated set. Please try again.");
+          throw new Error("Bilkeys couldn't open the generated set. Please try again.");
         }
         setStarting(false);
         const existingBookJob = useGenerationJobStore.getState().getBookJob(id, userId);
@@ -263,7 +263,7 @@ export default function BookByIdScreen() {
       }
 
       if (!job.job_id) {
-        throw new Error("MindFlip couldn't start generating flashcards. Please try again.");
+        throw new Error("Bilkeys couldn't start generating flashcards. Please try again.");
       }
 
       startJob({ jobId: job.job_id, bookId: id, bookTitle: book.title, userId });
@@ -316,7 +316,7 @@ export default function BookByIdScreen() {
 
       const response = await api.delete(`/books/${expectedBookId}`);
       if (response.status !== 204) {
-        throw new Error("MindFlip couldn't confirm that the book was deleted. Please try again.");
+        throw new Error("Bilkeys couldn't confirm that the book was deleted. Please try again.");
       }
       const completedBookJob = useGenerationJobStore.getState().getBookJob(expectedBookId);
       if (completedBookJob) useGenerationJobStore.getState().removeJob(completedBookJob.jobId);
@@ -653,7 +653,7 @@ export default function BookByIdScreen() {
               <View style={[styles.progressBox, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}33` }]}>
                 <Text style={[styles.progressTitle, { color: colors.text }]}>Generating flashcards…</Text>
                 <Text style={[styles.progressHint, { color: colors.muted }]}>
-                  This may take a few moments. You may continue using MindFlip while generation completes.
+                  This may take a few moments. You may continue using Bilkeys while generation completes.
                 </Text>
                 <GenerateProgressBar
                   phase={activeBookJob.phase}

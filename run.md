@@ -1,4 +1,4 @@
-# MindFlip — Local development run guide
+# Bilkeys — Local development run guide
 
 How to run every part of the stack on your machine: marketing site, student web app, admin dashboard, API, background workers, and mobile.
 
@@ -19,10 +19,10 @@ Production mapping (for reference):
 
 | Surface | URL |
 |---------|-----|
-| Marketing | https://mindflip.io |
-| Student app | https://app.mindflip.io |
-| Admin | https://admin.mindflip.io |
-| API | https://api.mindflip.io |
+| Marketing | https://bilkeys.io |
+| Student app | https://app.bilkeys.io |
+| Admin | https://admin.bilkeys.io |
+| API | https://api.bilkeys.io |
 
 ---
 
@@ -73,7 +73,7 @@ cp apps/marketing/.env.example apps/marketing/.env.local
 | Variable | Local dev value |
 |----------|-----------------|
 | `VITE_API_URL` | `http://localhost:8000` |
-| `DATABASE_URL` | `postgresql://mindflip:mindflip@localhost:5432/mindflip` (when Postgres is on host) |
+| `DATABASE_URL` | `postgresql://bilkeys:bilkeys@localhost:5432/bilkeys` (when Postgres is on host) |
 | `REDIS_URL` | `redis://localhost:6379/0` |
 | `JWT_SECRET` | Long random string (required) |
 | `CORS_ORIGINS` | `http://localhost:5173,http://localhost:5174` |
@@ -91,7 +91,7 @@ On a **physical phone**, use your computer’s LAN IP, e.g. `http://192.168.1.5:
 NEXT_PUBLIC_APP_URL=http://localhost:5173
 ```
 
-Marketing CTAs default to `https://app.mindflip.io/register` in code. For local testing, open the student app directly at http://localhost:5173/register or set `NEXT_PUBLIC_APP_URL` and wire components to use it if you extend them.
+Marketing CTAs default to `https://app.bilkeys.io/register` in code. For local testing, open the student app directly at http://localhost:5173/register or set `NEXT_PUBLIC_APP_URL` and wire components to use it if you extend them.
 
 ### 3. Python API (if not using Docker for the API)
 
@@ -127,7 +127,7 @@ npm run db:create-admin
 
 Default credentials (override with env vars if you like):
 
-- **Email:** `admin@mindflip.local`
+- **Email:** `admin@bilkeys.local`
 - **Password:** `Admin123!`
 
 ---
@@ -157,7 +157,7 @@ npm run db:migrate
 npm run db:create-admin
 ```
 
-Do **not** use `docker-compose.ports.yml` with Neon unless you also want local Postgres for something else. Without the neon override, Docker **ignores** your Neon URL and forces `postgresql://mindflip:mindflip@postgres:5432/mindflip`.
+Do **not** use `docker-compose.ports.yml` with Neon unless you also want local Postgres for something else. Without the neon override, Docker **ignores** your Neon URL and forces `postgresql://bilkeys:bilkeys@postgres:5432/bilkeys`.
 
 Check API:
 
@@ -256,7 +256,7 @@ cd apps/admin
 npm run dev
 ```
 
-Open **http://localhost:5174** → sign in with `admin@mindflip.local` / `Admin123!`.
+Open **http://localhost:5174** → sign in with `admin@bilkeys.local` / `Admin123!`.
 
 Routes: `/users`, `/content`, `/metrics`.
 
@@ -339,7 +339,7 @@ Admin is separate: http://localhost:5174 with the admin user from `db:create-adm
 ### `VITE_API_URL` / network errors in the browser
 
 - Confirm API is up: `curl http://localhost:8000/health`  
-- Student app must use `http://localhost:8000`, not `https://api.mindflip.io`, in root `.env`.  
+- Student app must use `http://localhost:8000`, not `https://api.bilkeys.io`, in root `.env`.  
 - Restart Vite after changing `.env`.
 
 ### Login / register shows `net::ERR_EMPTY_RESPONSE` or `Network Error`
@@ -365,7 +365,7 @@ Expected: `{"status":"ok"}`. If curl fails or hangs:
    docker compose -f docker-compose.yml -f docker-compose.ports.yml up -d --force-recreate
    ```
 
-2. **Port 6379 already in use** (another project's Redis). MindFlip publishes Redis on host port **6380** (see `docker-compose.ports.yml`). Internal containers still use `redis://redis:6379/0`.
+2. **Port 6379 already in use** (another project's Redis). Bilkeys publishes Redis on host port **6380** (see `docker-compose.ports.yml`). Internal containers still use `redis://redis:6379/0`.
 
 3. **Port 8000 not running** — start the backend (Option A above) before the Vite app.
 
@@ -391,7 +391,7 @@ Restart the API after changing.
 ### Migrations fail / “connection refused” to Postgres
 
 - Run `docker compose -f docker-compose.yml -f docker-compose.ports.yml up -d postgres`  
-- Use `DATABASE_URL=postgresql://mindflip:mindflip@localhost:5432/mindflip` in `.env`.
+- Use `DATABASE_URL=postgresql://bilkeys:bilkeys@localhost:5432/bilkeys` in `.env`.
 
 ### Mobile can’t reach the API
 
@@ -407,7 +407,7 @@ Restart the API after changing.
 ### Transactional email (Resend)
 
 - Set `RESEND_API_KEY` and `FROM_EMAIL` in root `.env` (see `.env.example`).  
-- Verify domain `mindflip.io` in Resend (SPF/DKIM) before production sends.  
+- Verify domain `bilkeys.io` in Resend (SPF/DKIM) before production sends.  
 - Without a key, the API logs and skips sends — registration still succeeds.  
 - Celery **worker** sends welcome, challenge, password-reset, and digest emails (`.delay()`).  
 - Optional **Celery beat** for weekly digests: `celery -A tasks.celery_app beat --loglevel=info`  
@@ -416,7 +416,7 @@ Restart the API after changing.
 ### Admin login fails
 
 - Run `npm run db:create-admin`  
-- Use `admin@mindflip.local` / `Admin123!` (unless you overrode env vars).
+- Use `admin@bilkeys.local` / `Admin123!` (unless you overrode env vars).
 
 ### Marketing port in use
 

@@ -11,7 +11,7 @@ async function setup(page, { holdRefresh = false } = {}) {
   let refreshCalls = 0; let generateCalls = 0;
   let shareCounter = 0;
   let releaseRefresh; const refreshGate = new Promise((resolve) => { releaseRefresh = resolve; });
-  await page.addInitScript(() => { localStorage.setItem("mindflip_access_token", "test-token"); localStorage.setItem("mindflip_remember_me", "true"); });
+  await page.addInitScript(() => { localStorage.setItem("bilkeys_access_token", "test-token"); localStorage.setItem("bilkeys_remember_me", "true"); });
   await page.route("http://localhost:8000/**", async (route) => {
     const url = new URL(route.request().url()); const method = route.request().method();
     if (url.pathname === "/users/me") return route.fulfill({ json: { id: "user-1", full_name: "Ada Learner", onboarding_completed: true, preferences: { settings: {} } } });

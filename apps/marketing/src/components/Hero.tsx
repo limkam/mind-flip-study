@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import Link from 'next/link';
-import { APP_REGISTER_URL } from '@/lib/constants';
+import { APP_LOGIN_URL } from '@/lib/constants';
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
@@ -17,7 +17,7 @@ function StudyWorkspace() {
       animate={{ opacity: 1, y: 0, rotateX: 0 }}
       transition={{ duration: 0.9, delay: 0.25, ease }}
       className="relative mx-auto w-full max-w-[620px] [perspective:1200px]"
-      aria-label="Mindflip study workspace preview"
+      aria-label="Bilkeys study workspace preview"
     >
       <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }} className="absolute -left-7 top-20 z-20 hidden rounded-2xl border border-white/80 bg-white/90 p-3 shadow-xl backdrop-blur md:block">
         <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Ready to review</p>
@@ -38,9 +38,9 @@ function StudyWorkspace() {
             <aside className="border-r border-gray-200 bg-[#11142c] p-3 text-white sm:p-4">
               <div className="hidden sm:flex items-center gap-2 text-xs font-black text-white">
                 <span className="grid h-5 w-5 place-items-center rounded bg-indigo-500 text-[9px] font-black text-white rotate-[30deg] my-0.5 ml-0.5">
-                  <span className="-rotate-[30deg]">M</span>
+                  <span className="-rotate-[30deg]">B</span>
                 </span>
-                <span>Mind<span className="text-indigo-400">flip</span></span>
+                <span>Bil<span className="text-indigo-400">keys</span></span>
               </div>
               <div className="mt-7 space-y-2">
                 {['Overview','Flashcards','Quiz','Games'].map((item, i) => <div key={item} className={`rounded-lg px-2 py-2 text-[10px] font-semibold sm:px-3 ${i === 1 ? 'bg-indigo-500 text-white' : 'text-slate-400'}`}><span className="sm:hidden">{['◫','◇','✓','✦'][i]}</span><span className="hidden sm:inline">{item}</span></div>)}
@@ -74,9 +74,9 @@ export function Hero() {
         <motion.div initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.1 } } }} className="text-center lg:text-left">
           <motion.p variants={{ hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease } } }} className="eyebrow"><span className="h-2 w-2 rounded-full bg-emerald-500"/> Your material. Your study system.</motion.p>
           <motion.h1 variants={{ hidden: { opacity: 0, y: 22 }, show: { opacity: 1, y: 0, transition: { duration: 0.7, ease } } }} className="mt-7 text-balance text-5xl font-black tracking-[-0.055em] text-gray-950 sm:text-6xl lg:text-[4.75rem] lg:leading-[0.99]">Study smarter, <span className="gradient-text">remember more.</span></motion.h1>
-          <motion.p variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.65, ease } } }} className="mx-auto mt-7 max-w-xl text-lg leading-8 text-gray-600 lg:mx-0">Mindflip transforms textbooks, PDFs, and notes into intelligent flashcards, adaptive quizzes, and review sessions timed for when your memory needs them most.</motion.p>
+          <motion.p variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.65, ease } } }} className="mx-auto mt-7 max-w-xl text-lg leading-8 text-gray-600 lg:mx-0">Bilkeys transforms textbooks, PDFs, and notes into intelligent flashcards, adaptive quizzes, and review sessions timed for when your memory needs them most.</motion.p>
           <motion.div variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.65, ease } } }} className="mt-9 flex flex-col justify-center gap-3 sm:flex-row lg:justify-start">
-            <a href={APP_REGISTER_URL} className="button-primary group">Build my first study set <Arrow className="ml-2 h-4 w-4 transition group-hover:translate-x-1" /></a>
+            <a href={APP_LOGIN_URL} className="button-primary group">Build my first study set <Arrow className="ml-2 h-4 w-4 transition group-hover:translate-x-1" /></a>
             <Link href="/how-it-works" className="button-secondary">See how it works</Link>
           </motion.div>
           <motion.div variants={{ hidden: { opacity: 0 }, show: { opacity: 1, transition: { duration: 0.7 } } }} className="mt-7 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs font-semibold text-gray-500 lg:justify-start"><span>✓ Free to start</span><span>✓ No card required</span><span>✓ Private by default</span></motion.div>

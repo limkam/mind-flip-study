@@ -15,7 +15,7 @@ const steps = [
     ),
   },
   {
-    title: 'Mindflip converts it',
+    title: 'Bilkeys converts it',
     body: 'AI extracts the key concepts and builds flashcards and quizzes automatically in under a minute.',
     icon: (
       <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">

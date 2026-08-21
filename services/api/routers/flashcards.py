@@ -234,6 +234,15 @@ async def create_flashcard_set(
                 "reason": ent.get("reason"),
             },
         )
+    consume = ent.get("consume")
+    if consume:
+        await credits.consume_credits(
+            db,
+            current_user.id,
+            int(consume.get("amount", 1)),
+            pool=str(consume.get("pool", "content")),
+            reason="create_set",
+        )
     if body.book_id is not None:
         br = await db.execute(select(Book).where(Book.id == body.book_id, Book.user_id == current_user.id))
         if br.scalar_one_or_none() is None:
@@ -407,7 +416,19 @@ async def enqueue_generate_flashcards(
         )
         if reservation is not None:
             await db.delete(reservation)
-            await db.commit()
+        if consume:
+            # The credit charge above already committed before this enqueue attempt (the
+            # reservation row must be visible to the worker before it can start) — refund it
+            # since the generation never actually ran.
+            await credits.refund_credits(
+                db,
+                current_user.id,
+                int(consume.get("amount", 1)),
+                pool=str(consume.get("pool", "content")),
+                reason="create_set_enqueue_failed_refund",
+                metadata={"task_id": task_id},
+            )
+        await db.commit()
         raise
     return JobEnqueueResponse(job_id=task.id)
 
@@ -550,24 +571,32 @@ async def regenerate_scenarios(
     }
     is_incomplete = not chapter_titles or any(counts.get(title, 0) != 5 for title in chapter_titles)
 
-    try:
-        # Completing a legacy/incomplete scenario set is a correctness repair,
-        # not a paid regeneration. Only complete 5-scenario sets use regen credits.
-        if not is_incomplete:
-            ent = await can_user_do(db, current_user, EntitlementAction.REGENERATE)
-            if not ent.get("allowed"):
-                raise HTTPException(
-                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                    detail={
-                        "code": "UPGRADE_REQUIRED",
-                        "message": "Regeneration requires credits or upgrade.",
-                        "upgrade_hook": ent.get("upgrade_hook"),
-                    },
-                )
-            consume = ent.get("consume")
-            if consume:
-                await credits.consume_credits(db, current_user.id, int(consume.get("amount", 1)), pool=consume.get("pool", "regen"), reason="regen")
+    # Completing a legacy/incomplete scenario set is a correctness repair,
+    # not a paid regeneration. Only complete 5-scenario sets use regen credits.
+    consume: dict | None = None
+    if not is_incomplete:
+        ent = await can_user_do(db, current_user, EntitlementAction.REGENERATE)
+        if not ent.get("allowed"):
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "code": "UPGRADE_REQUIRED",
+                    "message": "Regeneration requires credits or upgrade.",
+                    "upgrade_hook": ent.get("upgrade_hook"),
+                },
+            )
+        consume = ent.get("consume")
+        if consume:
+            await credits.consume_credits(db, current_user.id, int(consume.get("amount", 1)), pool=consume.get("pool", "regen"), reason="regen")
+            # Commit the debit in its own transaction now, before the blocking AI call below.
+            # consume_credits() takes a SELECT...FOR UPDATE lock on the user row; holding that
+            # lock open across the asyncio.to_thread() call previously deadlocked every
+            # successful regenerate, because the AI call's token-usage logging runs on a
+            # separate synchronous DB session (database_sync.py) and needs a key-share lock on
+            # this same row via the FK on token_usage.user_id. Neither side could ever finish.
+            await db.commit()
 
+    try:
         new_scenarios = await asyncio.to_thread(
             regenerate_all_scenarios_sync,
             book_title=book_title,
@@ -575,10 +604,24 @@ async def regenerate_scenarios(
             user_id=current_user.id,
         )
     except ValueError as exc:
+        if consume:
+            await credits.refund_credits(
+                db, current_user.id, int(consume.get("amount", 1)),
+                pool=consume.get("pool", "regen"), reason="regen_failed_refund",
+                metadata={"set_id": str(set_id)},
+            )
+            await db.commit()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except HTTPException:
         raise
     except Exception as exc:
+        if consume:
+            await credits.refund_credits(
+                db, current_user.id, int(consume.get("amount", 1)),
+                pool=consume.get("pool", "regen"), reason="regen_failed_refund",
+                metadata={"set_id": str(set_id)},
+            )
+            await db.commit()
         raise HTTPException(status_code=502, detail=f"Scenario regeneration failed: {exc}") from exc
 
     s.description = replace_set_scenarios_in_description(s.description, new_scenarios)

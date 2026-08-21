@@ -1,4 +1,4 @@
-# MindFlip — Environment & integrations guide
+# Bilkeys — Environment & integrations guide
 
 This document explains how to configure everything in [`.env.example`](.env.example): AI (Claude), Google Sign-In, Stripe billing, AWS, email, Sentry, and core auth/database settings.
 
@@ -36,7 +36,7 @@ Restart **Vite** and the **API** after changing `.env`.
 
 ### What the app uses today
 
-MindFlip is built around **Anthropic Claude**, not Gemini:
+Bilkeys is built around **Anthropic Claude**, not Gemini:
 
 - Model is **fixed in code**: `claude-sonnet-4-20250514` ([`services/api/anthropic_client.py`](services/api/anthropic_client.py))
 - Used for: PDF → flashcards, workbooks (Celery), and synchronous UI calls (`POST /ai/invoke`)
@@ -73,7 +73,7 @@ When `ENVIRONMENT=production`, the API **does not** read `ANTHROPIC_API_KEY` fro
 | Variable | Purpose |
 |----------|---------|
 | `ENVIRONMENT` | Must be `production` to use Secrets Manager |
-| `ANTHROPIC_SECRET_ID` | Default: `mindflip/anthropic-api-key` |
+| `ANTHROPIC_SECRET_ID` | Default: `bilkeys/anthropic-api-key` |
 | `AWS_SECRETS_REGION` | e.g. `us-east-1` |
 | IAM on the API/worker role | `secretsmanager:GetSecretValue` on that secret |
 
@@ -105,7 +105,7 @@ sequenceDiagram
 ```
 
 - **Frontend** (`@react-oauth/google`): obtains an **ID token** (JWT).
-- **Backend** (`POST /auth/google`): verifies the token with `google-auth`, checks `aud` matches your client ID, creates/links user, returns MindFlip JWT.
+- **Backend** (`POST /auth/google`): verifies the token with `google-auth`, checks `aud` matches your client ID, creates/links user, returns Bilkeys JWT.
 
 The **same OAuth client ID** must be used in the browser and on the API:
 
@@ -226,12 +226,12 @@ Free-tier limits return `upgrade_url: "/billing/checkout"` when users hit caps (
 ### Step-by-step (Stripe Dashboard)
 
 1. Create account at [dashboard.stripe.com](https://dashboard.stripe.com). Use **Test mode** for development.
-2. **Product → Add product** — e.g. “MindFlip Student”, $8/month.
+2. **Product → Add product** — e.g. “Bilkeys Student”, $8/month.
 3. Add a **recurring Price** → copy **Price ID** (`price_...`) → `STRIPE_PRICE_ID`.
 4. **Developers → API keys** → copy **Secret key** (`sk_test_...`) → `STRIPE_SECRET_KEY`.
 5. **Developers → Webhooks → Add endpoint**
    - Local: use Stripe CLI (below)
-   - Production URL: `https://api.mindflip.io/billing/webhook`
+   - Production URL: `https://api.bilkeys.io/billing/webhook`
    - Events to listen for (minimum, matching [`services/api/routers/billing.py`](services/api/routers/billing.py)):
      - `checkout.session.completed`
      - `customer.subscription.deleted`
@@ -287,7 +287,7 @@ Add routes/pages:
 
 - Live keys: `sk_live_...`, live `price_...`, live webhook `whsec_...`
 - Webhook endpoint on public API URL
-- `FRONTEND_URL=https://app.mindflip.io` (or your student app URL)
+- `FRONTEND_URL=https://app.bilkeys.io` (or your student app URL)
 - Consider [Stripe Customer Portal](https://stripe.com/docs/customer-management) for cancel/manage — not wired in this repo yet
 
 ---
@@ -299,7 +299,7 @@ Used for presigned PDF uploads (`POST /books/upload-url` → client PUTs to S3 �
 ```env
 AWS_ACCESS_KEY_ID=AKIA...
 AWS_SECRET_ACCESS_KEY=...
-S3_BUCKET_NAME=mindflip-books
+S3_BUCKET_NAME=bilkeys-books
 S3_REGION=us-east-1
 ```
 
@@ -326,11 +326,11 @@ For production, prefer an **IAM role** on the API host instead of long-lived acc
 
 ```env
 RESEND_API_KEY=re_...
-FROM_EMAIL=MindFlip <hello@mindflip.io>
+FROM_EMAIL=Bilkeys <hello@bilkeys.io>
 ```
 
 1. Sign up at [resend.com](https://resend.com).
-2. Add and verify domain **mindflip.io** (SPF/DKIM).
+2. Add and verify domain **bilkeys.io** (SPF/DKIM).
 3. Without `RESEND_API_KEY`, the API **skips** sends; registration still works.
 
 Emails are queued on the **Celery worker** (welcome, password reset, challenges, digests). Worker must be running.
@@ -364,7 +364,7 @@ Restart Vite after changes.
 ### Database & Redis
 
 ```env
-DATABASE_URL=postgresql://mindflip:mindflip@localhost:5432/mindflip
+DATABASE_URL=postgresql://bilkeys:bilkeys@localhost:5432/bilkeys
 REDIS_URL=redis://localhost:6379/0
 ```
 
@@ -388,7 +388,7 @@ Generate a secret, e.g. `openssl rand -hex 32`.
 ### CORS
 
 ```env
-CORS_ORIGINS=http://localhost:5173,http://localhost:5174,https://admin.mindflip.io
+CORS_ORIGINS=http://localhost:5173,http://localhost:5174,https://admin.bilkeys.io
 ```
 
 Every browser origin that calls the API must be listed. Restart API after edits.
